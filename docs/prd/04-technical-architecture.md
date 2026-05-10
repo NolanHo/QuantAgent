@@ -2,7 +2,7 @@
 
 ## 架构目标
 
-技术架构需要支持事件实时接入、Agent 状态机编排、行业插件扩展、可解释推理、历史相似事件分析和低延迟 UI 展示。
+技术架构需要支持事件实时接入、Agent 状态机编排、行业插件扩展、可解释推理和低延迟 UI 展示。
 
 ## 总体架构
 
@@ -12,7 +12,7 @@ Data Sources
   -> MCP Industry Servers
   -> FastAPI Backend
   -> DeepAgents (LangGraph)
-  -> PostgreSQL + pgvector
+  -> PostgreSQL
   -> WebSocket Event Stream
   -> React Frontend
 ```
@@ -25,7 +25,7 @@ Data Sources
 - Web 框架：FastAPI
 - 核心 Agent 引擎：DeepAgents (LangGraph)
 - 状态机：使用 LangGraph 管理复杂推理流程和执行状态
-- 存储：PostgreSQL + pgvector
+- 存储：PostgreSQL
 
 ### 后端职责
 
@@ -38,7 +38,6 @@ Data Sources
 ### 存储要求
 
 - PostgreSQL 存储结构化事件、执行状态、用户操作和审计记录。
-- pgvector 用于历史相似事件检索、关联分析和回测样本召回。
 - 敏感配置不得明文存储在数据库中。
 
 ## 推理与模型层

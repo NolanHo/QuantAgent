@@ -27,7 +27,6 @@
 | 仓库形态 | monorepo |
 | 部署目标 | Docker 部署 |
 | 数据库 | PostgreSQL |
-| 向量能力 | pgvector |
 | Python ORM | SQLAlchemy 2.x |
 | 数据库迁移 | Alembic |
 | 插件 manifest | `plugin.yaml` |
@@ -48,11 +47,11 @@ QuantAgent/
     scheduler/
 
   packages/
-    python/
-      quantagent-core/
-      quantagent-agent/
-      quantagent-plugin-sdk/
-      quantagent-adapters/
+    quant/
+      core/
+      agent/
+      plugin-sdk/
+      adapters/
     contracts/
       openapi/
       schemas/
@@ -100,7 +99,7 @@ FastAPI 主入口，负责 HTTP API、WebSocket、认证、管理端接口和插
 - 暴露前端需要的 API。
 - 提供 WebSocket 事件流。
 - 提供插件安装、启停、配置、健康检查等管理接口。
-- 调用 `quantagent-core` 和 `quantagent-agent`，不直接实现复杂业务逻辑。
+- 调用 `packages/quant/core` 和 `packages/quant/agent`，不直接实现复杂业务逻辑。
 
 ### `apps/web`
 
@@ -141,7 +140,7 @@ React + Vite 前端管理台。
 
 ## Python 包层目录
 
-### `packages/python/quantagent-core`
+### `packages/quant/core`
 
 核心领域包，不依赖 FastAPI，不依赖具体插件实现。
 
@@ -168,7 +167,7 @@ quantagent_core/
 - 定义 factory 创建规则。
 - 定义统一错误、日志、追踪和配置读取约定。
 
-### `packages/python/quantagent-agent`
+### `packages/quant/agent`
 
 Agent 和 workflow 包。
 
@@ -192,7 +191,7 @@ quantagent_agent/
 - 实现 Internal Debate 和评分逻辑。
 - 调用行业插件提供的能力，但不直接耦合具体行业实现。
 
-### `packages/python/quantagent-plugin-sdk`
+### `packages/quant/plugin-sdk`
 
 插件开发 SDK。
 
@@ -214,7 +213,7 @@ quantagent_plugin_sdk/
 - 提供插件基类、装饰器、上下文对象和测试工具。
 - 定义插件 manifest 和配置 schema 规范。
 
-### `packages/python/quantagent-adapters`
+### `packages/quant/adapters`
 
 官方可复用 adapter 集合。
 
@@ -236,14 +235,12 @@ quantagent_plugin_sdk/
 | 层级 | 选型 |
 | --- | --- |
 | 数据库 | PostgreSQL |
-| 向量能力 | pgvector |
 | Python ORM | SQLAlchemy 2.x |
 | 迁移工具 | Alembic |
 
 ### 选择理由
 
 - PostgreSQL 稳定，适合事件、配置、审计、插件 registry 等结构化数据。
-- pgvector 可以支持后续历史相似事件检索和语义召回。
 - SQLAlchemy 2.x 是 Python 生态成熟的 ORM 选择，适合 FastAPI 项目。
 - Alembic 是 SQLAlchemy 生态常用迁移工具，方便版本化数据库结构。
 
@@ -488,9 +485,9 @@ postgres container
 - `apps/api`
 - `apps/web`
 - `apps/worker`
-- `packages/python/quantagent-core`
-- `packages/python/quantagent-agent`
-- `packages/python/quantagent-plugin-sdk`
+- `packages/quant/core`
+- `packages/quant/agent`
+- `packages/quant/plugin-sdk`
 - `packages/contracts`
 - `plugins/sources`
 - `plugins/industries`
