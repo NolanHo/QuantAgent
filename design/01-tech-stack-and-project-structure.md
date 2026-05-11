@@ -13,7 +13,7 @@
 - 从 0 到 1 阶段保持单体可运行，但目录边界要支持未来多容器和微服务拆分。
 - 行业包、数据源、策略适配器、通知器、交易执行器都按插件体系规划。
 - 官方内置插件、第三方社区插件、私有插件和运行时安装插件需要分层管理。
-- 敏感配置、私有策略、爬虫关键词、交易密钥不进入 Git。
+- 敏感配置、私有策略、数据源关键词、交易密钥不进入 Git。
 
 ## 已确认技术栈
 
@@ -221,7 +221,7 @@ quantagent_plugin_sdk/
 
 - 提供通用 RSS adapter。
 - 提供通用 URL watcher adapter。
-- 提供通用 Playwright crawler adapter。
+- 提供通用 Readability/Jina link reader adapter。
 - 提供通用交易所、通知、存储 adapter 的基础实现。
 
 具体业务插件可以依赖这些 adapter，但核心包不反向依赖具体实现。
@@ -257,7 +257,7 @@ quantagent_plugin_sdk/
 
 | 类型 | 目录 | 示例 |
 | --- | --- | --- |
-| 数据源插件 | `plugins/sources/` | RSS、URL watcher、X API、Playwright crawler |
+| 数据源插件 | `plugins/sources/` | RSS、URL watcher、X API、Readability/Jina link reader |
 | 行业包插件 | `plugins/industries/` | Oil、Semiconductor、Memory |
 | 策略插件 | `plugins/strategies/` | 趋势策略、事件冲击策略、期权策略 |
 | 通知插件 | `plugins/notifications/` | Discord、Telegram、Email |
@@ -307,7 +307,7 @@ runtime/
 
 - `plugins/` 存放官方出厂自带插件，可以进入 Git。
 - `runtime/plugins/` 存放运行时安装的第三方、社区或私有插件，默认不进入 Git。
-- 私有交易策略、敏感爬虫关键词、未公开行业逻辑不应放入官方插件目录。
+- 私有交易策略、敏感数据源关键词、未公开行业逻辑不应放入官方插件目录。
 - 后端 registry 同时扫描官方插件目录和运行时插件目录。
 - 运行时插件需要支持从 Git URL、本地 zip、私有目录三种方式导入。
 - 官方插件使用独立命名空间，避免与社区和私有插件冲突。
@@ -460,7 +460,7 @@ Zod Schema
 
 - Agent 推理逻辑。
 - 交易策略实现。
-- 爬虫关键词。
+- 数据源关键词。
 - 私有行业知识。
 - 交易 API 密钥和账户配置。
 
@@ -476,7 +476,7 @@ web container
 postgres container
 ```
 
-早期可以共用同一 Python 镜像，通过不同 command 启动 API、worker、scheduler。后续如果需要微服务化，再把 worker、scheduler、source crawler、agent runtime、executor gateway 拆成独立镜像。
+早期可以共用同一 Python 镜像，通过不同 command 启动 API、worker、scheduler。后续如果需要微服务化，再把 worker、scheduler、source worker、agent runtime、executor gateway 拆成独立镜像。
 
 ## 初版落地建议
 

@@ -20,7 +20,7 @@
 
 | 类型 | 职责 | 示例 |
 | --- | --- | --- |
-| `source` | 采集或接收外部信息 | RSS、URL watcher、X API、Playwright crawler |
+| `source` | 采集或接收外部信息 | RSS、URL watcher、X API、Readability/Jina link reader |
 | `industry` | 对事件进行行业分析 | Oil、Semiconductor、Memory |
 | `strategy` | 将分析结果映射为策略建议 | 趋势策略、事件冲击策略、期权策略 |
 | `notification` | 发送通知或展示提醒 | UI、Discord、Telegram、Email |
@@ -45,7 +45,7 @@ runtime/
 - `plugins/` 存放官方出厂自带插件，可以进入 Git。
 - `runtime/plugins/` 存放运行时安装的第三方、社区或私有插件，默认不进入 Git。
 - Registry 同时扫描官方插件目录和运行时插件目录。
-- 私有交易策略、敏感爬虫关键词、未公开行业逻辑不应放入官方插件目录。
+- 私有交易策略、敏感数据源关键词、未公开行业逻辑不应放入官方插件目录。
 
 ## 插件注册原则
 

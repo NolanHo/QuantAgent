@@ -37,7 +37,7 @@
 - 完整模型原始推理链。
 - 真实交易订单。
 - 复杂回测结果。
-- 大规模爬虫原始网页快照。
+- 大规模原始网页快照。
 - 向量 embedding。
 
 ## Event 持久化
@@ -56,7 +56,7 @@ event_state_transitions
 
 用途：
 
-- 保留 RSS、URL、X API、Playwright 等不同 source 的原始载荷。
+- 保留 RSS、URL、X API、Readability/Jina link reader 等不同 source 的原始载荷。
 - 支持回放 source 插件的标准化过程。
 - 便于排查原始数据和标准事件不一致的问题。
 
