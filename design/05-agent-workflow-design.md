@@ -18,6 +18,7 @@
 - Agent 定义确认使用 Markdown + frontmatter。
 - ProviderManager 初版确认使用 LiteLLM SDK，后续再评估 LiteLLM Proxy。
 - 工具统一走 ToolRegistry；工具本身也按插件式能力治理。
+- Agent 的所有外部行动都通过 tool 调用完成，包括事件分发、subagent 调用、证据检索、通知、盯盘和交易执行请求。
 
 ## 开源能力复用建议
 
@@ -98,6 +99,9 @@ provider_policy: balanced
 tools:
   - quantagent.official.source.rss.search
   - quantagent.official.market.us_futures.quote
+skills:
+  - skills/oil-market-analysis
+  - skills/geopolitical-risk
 slots:
   - event
   - industry_context
@@ -115,16 +119,38 @@ frontmatter 管理 Agent 元数据，正文保存 Agent 指令。
 原因：
 
 - Agent 指令需要给人读和编辑，Markdown 比纯 JSON/YAML 更自然。
-- frontmatter 适合声明 id、version、tools、slots、provider_policy、output_schema 等结构化信息。
+- frontmatter 适合声明 id、version、tools、skills、slots、provider_policy、output_schema 等结构化信息。
 - 行业包可以随包分发自己的 Agent 定义。
 - 核心系统可以解析 frontmatter 并做权限和 schema 校验。
 
 ### 约束
 
-- Agent 定义必须有 `id`、`version`、`type`、`tools`、`slots`、`output_schema`。
+- Agent 定义必须有 `id`、`version`、`type`、`tools`、`skills`、`slots`、`output_schema`。
 - Agent 定义中的 tools 只是声明需求，最终可用工具必须由 ToolRegistry 授权。
+- Agent 定义中的 skills 是标准 Skill 包引用，必须通过 Skill Registry 解析和授权，AgentRuntime 再按需读取对应 `SKILL.md` 和资源。
 - Agent 定义不能直接写 API key、账户信息或敏感配置。
 - Agent 定义版本需要随插件版本记录。
+
+### Agent 绑定 Skill
+
+不同 Agent 可以绑定不同 Skill。
+
+示例：
+
+```yaml
+skills:
+  - skills/oil-market-analysis
+  - skills/geopolitical-risk
+```
+
+规则：
+
+- skill 路径指向标准 Skill 包目录，而不是单个 Markdown 文件。
+- Skill 包必须包含 `SKILL.md`。
+- Skill 必须先进入 Skill Registry，支持官方通用 Skill、行业包内置 Skill、runtime/private Skill。
+- AgentRuntime 先读取 `SKILL.md` 的 frontmatter 和主体说明。
+- `references/`、`assets/`、`scripts/` 只在 Agent 任务需要时按需加载或执行。
+- Agent 只能加载 Skill Registry 中已注册且已授权的 Skill。
 
 ## 插槽设计
 
@@ -137,6 +163,7 @@ Slots 用来定义 Agent 运行时需要注入的上下文。
 | `event` | 标准化事件 | Event store |
 | `raw_event` | 原始事件摘要 | RawEvent store |
 | `industry_context` | 行业包上下文 | Industry Plugin |
+| `skills` | Agent 绑定的 Skill 内容 | AgentDefinition / Skill package |
 | `plugin_config` | 插件非敏感配置 | Plugin Config |
 | `tools` | 授权工具列表 | ToolRegistry |
 | `evidence` | 已收集证据 | Source / Tool results |
@@ -165,6 +192,61 @@ Tool Registry 是 Agent 工具的统一注册中心。
 - Industry Plugin 暴露的领域工具。
 - Strategy Plugin 暴露的策略工具。
 - Notification / Executor 插件暴露的受控工具。
+
+## Tool-first Agent 行动模型
+
+Agent 不直接调用系统内部服务，也不直接写数据库或执行交易。Agent 的所有外部行动都表达为 tool invocation。
+
+典型链路：
+
+```text
+RouterAgent
+  -> tool: dispatch_to_industry_agent
+  -> Industry Main Agent
+  -> tool: call_subagent
+  -> tool: read_source / query_market / read_shipping_data
+  -> tool: run_debate
+  -> tool: generate_trade_plan
+  -> tool: notify_user
+  -> tool: request_monitoring
+  -> tool: request_executor_action
+```
+
+这样做的原因：
+
+- 所有行动都能审计。
+- 所有工具都能做权限控制、schema 校验、限流、超时和重试。
+- 行业包可以扩展能力，但不能绕过 ToolRegistry。
+- 高风险行为可以通过 Decision / Policy Gate 统一拦截。
+
+### 工具分类
+
+| 类型 | 示例 | 说明 |
+| --- | --- | --- |
+| routing tool | `dispatch_to_industry_agent` | 将事件派发给候选行业主 Agent |
+| subagent tool | `call_subagent` | 调用行业包内的供应、需求、风险等子 Agent |
+| data tool | `read_rss`、`read_jina_url`、`shipping_tracker` | 获取证据和外部数据 |
+| reasoning tool | `run_debate`、`score_analysis` | 执行辩论、评分、风险检查 |
+| strategy tool | `generate_trade_plan`、`validate_trade_plan` | 生成或校验交易计划 |
+| notification tool | `notify_user` | 通知用户或请求人工确认 |
+| monitoring tool | `request_monitoring` | 请求后续盯盘或特征监控 |
+| executor tool | `request_executor_action` | 请求交易执行或 dry-run |
+
+### 高风险工具
+
+通知、盯盘和执行工具都必须是受控工具。
+
+受控工具需要检查：
+
+- 行业包配置。
+- 用户授权。
+- confidence score。
+- risk flags。
+- market / executor policy。
+- 是否需要 human approval。
+- 是否允许自动交易。
+
+Agent 可以请求执行，但最终是否执行由工具背后的 Policy / Decision Gate 决定。
 
 ### 设计说明
 
@@ -277,7 +359,9 @@ provider_policy: balanced
 ```text
 Event
   -> RouterAgent
+  -> tool: dispatch_to_industry_agent
   -> IndustryAgentRuntime
+  -> tool/subagent/debate loop
   -> Debate / Scoring
   -> Structured Output
   -> Decision
@@ -312,7 +396,39 @@ RoutingDecision
 - 根据行业包加载 AgentDefinition。
 - 注入 event、industry_context、tools、risk_policy。
 - 调用 DeepAgents 运行行业分析。
-- 输出 `IndustryAnalysis`。
+- 通过工具调用子 Agent、行业工具、数据工具、辩论工具和策略工具。
+- 输出 `IndustryAnalysis` 和可选 `TradePlanDraft`。
+
+### TradePlanDraft
+
+行业主 Agent 可以产出交易计划草案，但它不是最终执行命令。
+
+```text
+TradePlanDraft
+  event_id
+  industry_plugin_id
+  thesis
+  target_instruments
+  direction
+  sizing_hint
+  leverage_hint
+  entry_conditions
+  take_profit
+  stop_loss
+  monitoring_plan
+  confidence_score
+  risk_flags
+  requires_human_approval
+```
+
+示例：
+
+- 判断战争升级可能推动 Brent 原油上涨。
+- 生成加仓 Brent 原油的计划草案。
+- 给出仓位、杠杆、止盈止损和盯盘条件。
+- 请求后续监控量价、K 线或成交量特征。
+
+最终动作仍必须进入 Decision / Policy Gate。
 
 ### Debate / Scoring
 
@@ -372,6 +488,7 @@ tool_invocations
 - AgentRuntime 支持 cancel。
 - 高风险工具使用 human approval。
 - 失败输出结构化错误，进入 Decision 降级或人工确认。
+- executor tool 失败或被拒绝时，不允许 Agent 自行重试绕过限制。
 
 ### 常见错误
 
