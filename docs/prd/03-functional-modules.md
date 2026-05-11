@@ -2,133 +2,94 @@
 
 ## 模块总览
 
-系统功能分为三层：事件路由、行业插件分析、决策与人机领航。事件由 Router Agent 识别并路由到行业包，行业包完成感知和推理，决策层结合内部辩论和风控约束输出最终动作。
+系统功能分为五层：事件接入、路由、行业分析、决策审批、运行时治理。事件从 Source Plugin 进入 Event Bus 后，由 Router Agent 选择行业包，再由 AgentRuntime、Scoring / Debate 和 Decision / Policy Gate 输出通知、审批、dry-run 或受控执行结果。
 
 ```text
-事件输入
+Source Plugin
+  -> Event Bus
   -> Router Agent
-  -> Industry Package
-  -> Internal Debate
-  -> Confidence Score
-  -> Auto Execute / HITL / Notify Only
+  -> Industry Plugin / AgentRuntime
+  -> Scoring / Debate
+  -> Decision / Policy Gate
+  -> Notification / Human Approval / Executor
+  -> Persistence / Audit / WebSocket
 ```
 
-## 3.1 自主 Agent 路由系统
+## 3.1 事件接入与路由
 
-**模块名称**：Router Agent
+### Source Plugin
 
-### 核心职责
+Source Plugin 负责采集、接收和标准化外部信息，不直接做行业判断。Pull 类数据源由统一 Scheduler 调度，链接正文读取优先通过 Readability 和 Jina 类插件/工具完成。
 
-- 从非结构化文本中提取实体、事件、行业、地区和潜在金融标的。
-- 根据实体所属行业和语义内容，自动激活对应行业插件包。
-- 当事件涉及多个行业时，调度多个插件包进行协同分析。
-- 对无法识别或低置信度事件进入待人工标注或仅通知流程。
+### Router Agent
 
-### 实体提取要求
-
-系统需要从文本中识别以下对象：
-
-- 人物：如特朗普、行业分析师、公司高管。
-- 国家或地区：如伊朗、红海相关区域。
-- 公司或机构：如 DeepMind、Samsung、SK Hynix、OPEC+。
-- 技术或商品：如 HBM、DDR5、Brent、压缩算法。
-- 行业标签：如能源、半导体、内存、航运。
-
-### 语义网格路由
-
-- 基于 MCP 协议发现可用行业插件。
-- 根据实体、关键词、语义相似度和历史路由结果选择插件。
-- 支持多插件并发分析。
-- 支持输出路由理由，便于用户和开发者排查误路由。
-
-### 验收标准
-
-- 给定典型石油事件，系统应路由到 `Oil_Industry_Package`。
-- 给定典型 AI 显存优化论文事件，系统应路由到 `Memory_Package`。
-- 给定跨行业事件，系统应输出多个候选行业包及其触发理由。
-
-## 3.2 行业插件规格
-
-每个 Industry Package 作为独立 MCP Server 运行，至少包含 Watcher、Logical Graph、Strategy Adapter 三个组成部分。
-
-### Watcher 感知器
-
-Watcher 负责接入数据源并产生结构化事件。
-
-功能要求：
-
-- 支持自定义 Crawling Strategy。
-- 支持针对特定 DOM 的抓取频率控制。
-- 支持关键词过滤。
-- 支持 API 接入，例如 X API 和金融数据供应商。
-- 支持记录数据来源、抓取时间、原始链接和可信度。
-
-### Logical Graph 逻辑图谱
-
-Logical Graph 负责存储行业特定的因果链。
-
-示例：
-
-- 石油增产 -> 供应增加 -> 价格下跌。
-- 算法优化 -> 硬件显存需求降温 -> 存储芯片需求预期下降。
-
-功能要求：
-
-- 支持正向和负向因果关系。
-- 支持时间滞后和影响强度描述。
-- 支持行业因果链、影响强度和版本化维护。
-- 支持更新和版本化，避免行业知识不可追溯。
-
-### Strategy Adapter 策略适配器
-
-Strategy Adapter 负责将行业影响映射到金融工具和候选策略。
-
-功能要求：
-
-- 定义该行业对应的 Ticker List。
-- 支持股票、期货、期权、ETF 等不同工具类型。
-- 输出策略动作、方向、标的、置信度和风险摘要。
-- 标记是否具备自动交易权限。
-
-## 3.3 决策与人机领航
-
-### Internal Debate
-
-系统内置 Internal Debate 机制，由多名 Agent 模拟市场多空双方进行辩论，最终输出置信度评分。
+Router Agent 负责从事件中提取实体、行业和候选标的，并把事件路由到一个或多个行业包。
 
 要求：
 
-- 至少包含支持观点和反对观点。
-- 需要列出关键证据、反证和不确定性。
-- 不允许只输出单边结论。
-- 辩论结果必须沉淀为可审计摘要。
+- 支持多行业并行路由。
+- 支持输出路由理由和置信度。
+- 支持低置信度回退到仅通知或人工标注。
+- 不直接给出最终执行结论。
 
-### 执行层级
+## 3.2 行业包与 AgentRuntime
 
-| 层级 | 条件 | 动作 |
-| --- | --- | --- |
-| 自动执行 | 置信度 > 90%，且环境为可自动交易市场 | 自动触发交易执行流程 |
-| 人工确认 | 置信度 70%-90% | UI 展示推理摘要，等待用户确认 |
-| 仅通知模式 | 无 API 权限市场或置信度不足 | 通过 Discord、Telegram 或 UI 通知输出建议 |
+### Industry Plugin
 
-### HITL 要求
+行业包是插件，必须通过 `plugin.yaml` 注册。行业包可以包含 SourceBinding、AgentDefinition、Skill、Tool、market mapping 和评分提示，但不能绕过 Registry、ToolRegistry、Skill Registry 或 Decision。
 
-- 用户必须能看到建议动作、关键证据、主要风险和置信度。
-- 用户必须能确认、拒绝或要求重新分析。
-- 所有人工确认结果需要记录，用于后续回放和评估。
+### AgentRuntime
 
-## 状态流建议
+AgentRuntime 是统一的 Agent 运行入口，负责加载 AgentDefinition、授权工具、注入上下文并调用 DeepAgents 运行时。
 
-| 状态 | 说明 |
-| --- | --- |
-| `observed` | 捕获原始事件 |
-| `routed` | 已完成行业包路由 |
-| `analyzing` | 行业包正在推理 |
-| `debating` | 多 Agent 正在进行内部辩论 |
-| `verified` | 已完成独立信源交叉验证 |
-| `decision_ready` | 已形成建议和置信度 |
-| `pending_human` | 等待人工确认 |
-| `executed` | 已执行 |
-| `notified` | 已通知 |
-| `rejected` | 用户拒绝或系统拒绝 |
-| `failed` | 流程异常结束 |
+要求：
+
+- 输入和输出必须结构化。
+- 行业包不能自己绕过核心直接创建 Agent。
+- 外部行动必须通过 tool invocation 完成。
+
+### ToolRegistry 与 Skill Registry
+
+- ToolRegistry 统一治理工具来源、参数 schema、权限和审计。
+- Skill Registry 统一治理标准 Skill 包、版本、来源和授权。
+- 行业包自定义工具和 Skill 不能直接裸露给 Agent，必须先注册和授权。
+
+## 3.3 Scoring / Decision / Approval
+
+### Scoring / Debate
+
+Scoring / Debate 负责聚合多个行业包输出，形成支持观点、反方观点、风险提示和标准置信度。
+
+### Decision / Policy Gate
+
+Decision / Policy Gate 根据置信度、风险、权限和用户策略决定进入哪种结果：
+
+- 仅通知。
+- 人工确认。
+- 限时确认。
+- dry-run。
+- 阻断。
+- 受控执行。
+
+### HITL
+
+HITL 以审批工作台、一次性授权页和限时确认构成。用户必须能看到建议动作、关键证据、风险和审计记录入口，并可确认、拒绝或要求重新分析。
+
+## 3.4 Registry、状态与审计
+
+### Registry
+
+Registry 负责插件发现、manifest 校验、依赖解析、生命周期管理和运行时状态查询。
+
+### Persistence / Audit
+
+系统需要记录事件状态、插件状态、审批结果、通知结果、错误和审计信息，确保后续能够回放和排查。
+
+### 状态流
+
+建议状态如下：
+
+```text
+captured -> routed -> analyzing -> scored -> decision_ready -> pending_approval -> approved/rejected
+-> notified / dry_run_executed / executed -> failed
+```

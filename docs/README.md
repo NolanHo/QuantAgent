@@ -1,22 +1,36 @@
 # QuantAgent 文档中心
 
-本文档目录用于沉淀 EventDrive-QuantAgent 的产品需求、模块说明、技术约束和后续设计文档。
+本文档中心分为两层：`docs/design/` 是最终设计真相来源，`docs/prd/` 是按设计同步后的产品需求与索引。
 
-## 文档索引
+## 设计文档索引
 
-| 分类 | 文档 | 用途 |
+| 序号 | 文档 | 作用 |
 | --- | --- | --- |
-| PRD | [PRD 总索引](prd/README.md) | 查看产品需求文档的模块化入口 |
-| PRD | [产品概览](prd/01-overview.md) | 了解产品定位、目标用户、核心愿景和范围边界 |
-| PRD | [行业场景与插件包](prd/02-industry-scenarios.md) | 查看石油、半导体/内存等行业包的事件推理场景 |
-| PRD | [功能模块](prd/03-functional-modules.md) | 查看 Router Agent、行业插件、决策与 HITL 的功能要求 |
-| PRD | [技术架构](prd/04-technical-architecture.md) | 查看后端、前端、数据层、MCP 集成等技术规格 |
-| PRD | [UX 与界面需求](prd/05-ux-requirements.md) | 查看核心界面、交互路径和状态展示要求 |
-| PRD | [风控、约束与异常处理](prd/06-risk-constraints.md) | 查看幻觉校验、隐私保护、熔断等系统约束 |
-| PRD | [验收标准与待确认项](prd/07-acceptance-open-questions.md) | 查看跨模块验收标准、风险缺口和关键待确认问题 |
+| 01 | [技术栈与项目结构](design/01-tech-stack-and-project-structure.md) | 技术栈、monorepo 结构、插件目录与契约边界 |
+| 02 | [核心架构与运行时](design/02-core-architecture-and-runtime.md) | 事件驱动主流程、Event 模型、Decision / Policy Gate |
+| 03 | [插件系统与 Registry](design/03-plugin-system-and-registry.md) | 插件类型、`plugin.yaml`、注册与生命周期 |
+| 04 | [数据库与持久化](design/04-database-and-persistence-design.md) | PostgreSQL、SQLAlchemy 2.x、Alembic、审计与敏感配置 |
+| 05 | [Agent 工作流](design/05-agent-workflow-design.md) | AgentRuntime、DeepAgents、ToolRegistry、Skill Registry |
+| 06 | [Source Plugin](design/06-source-plugin-design.md) | 数据源插件、SourceBinding、调度与原文读取 |
+| 07 | [Industry Package](design/07-industry-package-design.md) | 行业包组合插件、行业 Agent、市场映射、评分提示 |
+| 08 | [API 与实时通道](design/08-api-and-websocket-design.md) | FastAPI、REST、WebSocket、插件配置与审批接口 |
+| 09 | [前端架构](design/09-frontend-architecture-design.md) | React + Vite、路由、状态、审批和运行时面板 |
+| 10 | [部署与 Runtime](design/10-deployment-and-runtime-design.md) | Docker、runtime 目录、迁移、健康检查、Redis 演进 |
+
+## PRD 索引
+
+| 序号 | 文档 | 作用 |
+| --- | --- | --- |
+| 01 | [产品概览](prd/01-overview.md) | 产品定位、目标用户、范围边界 |
+| 02 | [行业场景与插件包](prd/02-industry-scenarios.md) | 石油、半导体/内存等行业包场景 |
+| 03 | [功能模块](prd/03-functional-modules.md) | 事件接入、路由、行业包、审批与运行时 |
+| 04 | [技术架构](prd/04-technical-architecture.md) | 后端、前端、数据库、插件、WebSocket、部署 |
+| 05 | [UX 与界面需求](prd/05-ux-requirements.md) | 运行时管理台、审批工作台、插件后台 |
+| 06 | [风控、约束与异常处理](prd/06-risk-constraints.md) | 验证、权限、噪音熔断、审计与异常处理 |
+| 07 | [验收标准与待确认项](prd/07-acceptance-open-questions.md) | 验收口径、测试重点、残余业务问题 |
 
 ## 维护约定
 
-- 新增产品需求优先补充到 `docs/prd/` 对应模块，不再堆叠到单一 PRD 文件。
-- 涉及跨模块变更时，同步更新 [PRD 总索引](prd/README.md) 的范围说明和依赖关系。
-- 未确认的信息放入 [验收标准与待确认项](prd/07-acceptance-open-questions.md)，不要混入已确认需求。
+- 先更新 `docs/design/`，再同步 `docs/prd/` 与本索引。
+- 设计文档中的边界、运行时和插件约束优先于旧 PRD 表述。
+- 未确认的业务问题只放在 PRD 的待确认项，不写进设计真相层。
