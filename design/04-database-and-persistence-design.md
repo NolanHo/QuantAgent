@@ -24,6 +24,7 @@
 - 事件状态流转。
 - 插件安装记录、版本、配置和依赖。
 - Router Agent 路由结果。
+- Agent 运行摘要和工具调用记录。
 - 行业分析摘要。
 - Scoring / Debate 摘要。
 - Decision 结果。
@@ -283,6 +284,9 @@ plugin_dependency_records
 ### Analysis 相关
 
 ```text
+agent_runs
+agent_run_steps
+tool_invocations
 routing_decisions
 industry_analyses
 scored_analyses
@@ -309,8 +313,9 @@ runtime_errors
 2. 建立 Alembic migration 目录。
 3. 建立 Event 相关表。
 4. 建立 Plugin registry 相关表。
-5. 建立 Analysis、Decision、Approval、Audit 相关表。
-6. 根据实际开发情况补充必要索引和查询优化。
+5. 建立 AgentRuntime 运行摘要和工具调用相关表。
+6. 建立 Analysis、Decision、Approval、Audit 相关表。
+7. 根据实际开发情况补充必要索引和查询优化。
 
 ## 暂缓能力
 
