@@ -1,0 +1,12 @@
+schema: spec-driven
+
+# Project context (optional)
+# Add project-level context here when a change needs shared conventions.
+
+# Per-artifact rules (optional)
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals focused on one change.
+#     tasks:
+#       - Break tasks into reviewable chunks.
