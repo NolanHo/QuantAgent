@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from quantagent_api.config.settings import Settings
-from quantagent_api.main import create_app
+from quantagent.api.config.settings import Settings
+from quantagent.api.main import create_app
 from fastapi.testclient import TestClient
 
 

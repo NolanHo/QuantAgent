@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 
-from quantagent_api.exceptions import register_exception_handlers
-from quantagent_api.config.settings import Settings, settings
-from quantagent_api.middleware import RequestIdMiddleware
-from quantagent_api.routers.debug import router as debug_router
-from quantagent_api.routers.health import router as health_router
+from quantagent.api.exceptions import register_exception_handlers
+from quantagent.api.config.settings import Settings, settings
+from quantagent.api.middleware import RequestIdMiddleware
+from quantagent.api.routers.debug import router as debug_router
+from quantagent.api.routers.health import router as health_router
 
 
 def create_app(app_settings: Settings | None = None) -> FastAPI:
@@ -24,4 +24,4 @@ app = create_app()
 def run() -> None:
     import uvicorn
 
-    uvicorn.run("quantagent_api.main:app", host=settings.HOST, port=settings.PORT)
+    uvicorn.run("quantagent.api.main:app", host=settings.HOST, port=settings.PORT)

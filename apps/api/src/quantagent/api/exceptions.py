@@ -8,12 +8,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from quantagent_api.errors import AppError, InternalError
-from quantagent_api.middleware import get_request_id
-from quantagent_api.responses import ApiErrorDetail, ApiResponse
+from quantagent.api.errors import AppError, InternalError
+from quantagent.api.middleware import get_request_id
+from quantagent.api.responses import ApiErrorDetail, ApiResponse
 
 
-logger = logging.getLogger("quantagent_api")
+logger = logging.getLogger("quantagent.api")
 
 
 def _error_payload(
@@ -95,7 +95,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             if status_code >= 500:
                 message = "Internal Server Error"
             else:
-                message = exc.detail if isinstance(exc.detail, str) else str(status_code)
+                message = exc.detail if isinstance(exc.detail, str) else "HTTP Error"
         return _error_payload(
             status_code=status_code,
             response_code=response_code,

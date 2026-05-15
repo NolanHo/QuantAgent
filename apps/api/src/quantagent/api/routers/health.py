@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from quantagent_api.responses import ApiResponse
+from quantagent.api.responses import ApiResponse
 
 router = APIRouter()
 

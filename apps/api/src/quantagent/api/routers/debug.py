@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from quantagent_api.errors import BadRequestError
-from quantagent_api.responses import ApiResponse
+from quantagent.api.errors import BadRequestError
+from quantagent.api.responses import ApiResponse
 
 
 router = APIRouter(prefix="/debug", tags=["debug"])

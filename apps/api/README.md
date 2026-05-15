@@ -5,7 +5,7 @@
 ```bash
 cd apps/api
 uv sync
-APP_ENV=development uv run uvicorn quantagent_api.main:app --reload
+APP_ENV=development uv run api
 ```
 
 ## 说明
