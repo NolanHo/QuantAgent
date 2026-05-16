@@ -1,20 +1,18 @@
 [project]
-name = "quantagent_api"
+name = "quantagent-core"
 version = "0.1.0"
-description = "QuantAgent API service"
-readme = "README.md"
+description = "Shared QuantAgent core infrastructure"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi[standard]>=0.136.1",
+    "alembic>=1.17.2",
     "pydantic-settings>=2.14.1",
+    "psycopg[binary]>=3.3.2",
+    "sqlalchemy>=2.0.44",
 ]
-
-[project.scripts]
-api = "quantagent.api.main:run"
 
 [tool.uv.build-backend]
 module-root = "src"
-module-name = "quantagent.api"
+module-name = "quantagent.core"
 
 [build-system]
 requires = ["uv_build>=0.11.14,<0.12"]
