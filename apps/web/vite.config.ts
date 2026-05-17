@@ -18,6 +18,14 @@ export default defineConfig({
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
-    preserveSymlinks: true,
+  },
+  server: {
+    watch: {
+      ignored: [
+        "**/playwright-report/**",
+        "**/test-results/**",
+        "**/playwright/.cache/**",
+      ],
+    },
   },
 });
