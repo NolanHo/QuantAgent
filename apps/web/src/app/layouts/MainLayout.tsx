@@ -10,6 +10,9 @@ const navItems: NavItem[] = [
   { label: 'Runtime', to: '/runtime' },
   { label: 'Approvals', to: '/approvals' },
   { label: 'Plugins', to: '/plugins' },
+  { label: 'Skills', to: '/skills' },
+  { label: 'Tools', to: '/tools' },
+  { label: 'Industries', to: '/industries' },
   { label: 'Settings', to: '/settings' },
 ]
 
@@ -18,6 +21,9 @@ const routeLabels = new Map<string, string>([
   ['runtime', 'Runtime'],
   ['approvals', 'Approvals'],
   ['plugins', 'Plugins'],
+  ['skills', 'Skills'],
+  ['tools', 'Tools'],
+  ['industries', 'Industries'],
   ['settings', 'Settings'],
 ])
 

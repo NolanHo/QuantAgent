@@ -10,15 +10,28 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ToolsIndexRouteImport } from './routes/tools/index'
+import { Route as SkillsIndexRouteImport } from './routes/skills/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as RuntimeIndexRouteImport } from './routes/runtime/index'
 import { Route as PluginsIndexRouteImport } from './routes/plugins/index'
+import { Route as IndustriesIndexRouteImport } from './routes/industries/index'
 import { Route as EventsIndexRouteImport } from './routes/events/index'
 import { Route as ApprovalsIndexRouteImport } from './routes/approvals/index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsIndexRoute = ToolsIndexRouteImport.update({
+  id: '/tools/',
+  path: '/tools/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkillsIndexRoute = SkillsIndexRouteImport.update({
+  id: '/skills/',
+  path: '/skills/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
@@ -36,6 +49,11 @@ const PluginsIndexRoute = PluginsIndexRouteImport.update({
   path: '/plugins/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IndustriesIndexRoute = IndustriesIndexRouteImport.update({
+  id: '/industries/',
+  path: '/industries/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EventsIndexRoute = EventsIndexRouteImport.update({
   id: '/events/',
   path: '/events/',
@@ -51,26 +69,35 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/approvals/': typeof ApprovalsIndexRoute
   '/events/': typeof EventsIndexRoute
+  '/industries/': typeof IndustriesIndexRoute
   '/plugins/': typeof PluginsIndexRoute
   '/runtime/': typeof RuntimeIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/skills/': typeof SkillsIndexRoute
+  '/tools/': typeof ToolsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsIndexRoute
   '/events': typeof EventsIndexRoute
+  '/industries': typeof IndustriesIndexRoute
   '/plugins': typeof PluginsIndexRoute
   '/runtime': typeof RuntimeIndexRoute
   '/settings': typeof SettingsIndexRoute
+  '/skills': typeof SkillsIndexRoute
+  '/tools': typeof ToolsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/approvals/': typeof ApprovalsIndexRoute
   '/events/': typeof EventsIndexRoute
+  '/industries/': typeof IndustriesIndexRoute
   '/plugins/': typeof PluginsIndexRoute
   '/runtime/': typeof RuntimeIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/skills/': typeof SkillsIndexRoute
+  '/tools/': typeof ToolsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -78,28 +105,46 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals/'
     | '/events/'
+    | '/industries/'
     | '/plugins/'
     | '/runtime/'
     | '/settings/'
+    | '/skills/'
+    | '/tools/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/approvals' | '/events' | '/plugins' | '/runtime' | '/settings'
+  to:
+    | '/'
+    | '/approvals'
+    | '/events'
+    | '/industries'
+    | '/plugins'
+    | '/runtime'
+    | '/settings'
+    | '/skills'
+    | '/tools'
   id:
     | '__root__'
     | '/'
     | '/approvals/'
     | '/events/'
+    | '/industries/'
     | '/plugins/'
     | '/runtime/'
     | '/settings/'
+    | '/skills/'
+    | '/tools/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApprovalsIndexRoute: typeof ApprovalsIndexRoute
   EventsIndexRoute: typeof EventsIndexRoute
+  IndustriesIndexRoute: typeof IndustriesIndexRoute
   PluginsIndexRoute: typeof PluginsIndexRoute
   RuntimeIndexRoute: typeof RuntimeIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
+  SkillsIndexRoute: typeof SkillsIndexRoute
+  ToolsIndexRoute: typeof ToolsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -109,6 +154,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/': {
+      id: '/tools/'
+      path: '/tools'
+      fullPath: '/tools/'
+      preLoaderRoute: typeof ToolsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skills/': {
+      id: '/skills/'
+      path: '/skills'
+      fullPath: '/skills/'
+      preLoaderRoute: typeof SkillsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/': {
@@ -132,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PluginsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/industries/': {
+      id: '/industries/'
+      path: '/industries'
+      fullPath: '/industries/'
+      preLoaderRoute: typeof IndustriesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/events/': {
       id: '/events/'
       path: '/events'
@@ -153,9 +219,12 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApprovalsIndexRoute: ApprovalsIndexRoute,
   EventsIndexRoute: EventsIndexRoute,
+  IndustriesIndexRoute: IndustriesIndexRoute,
   PluginsIndexRoute: PluginsIndexRoute,
   RuntimeIndexRoute: RuntimeIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
+  SkillsIndexRoute: SkillsIndexRoute,
+  ToolsIndexRoute: ToolsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
