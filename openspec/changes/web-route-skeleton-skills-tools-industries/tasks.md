@@ -45,15 +45,15 @@
 
 ## 清单
 
-- [ ] 确认当前 route 和 layout 模式。
-- [ ] 新增 `apps/web/src/routes/skills/index.tsx`。
-- [ ] 新增 `apps/web/src/routes/tools/index.tsx`。
-- [ ] 新增 `apps/web/src/routes/industries/index.tsx`。
-- [ ] 更新 `MainLayout` 侧边导航。
-- [ ] 更新 `MainLayout` 面包屑 label。
-- [ ] 验证 TanStack Router route tree 包含 `/skills`、`/tools`、`/industries`。
-- [ ] 在 `apps/web` 下运行 `bun run lint`。
-- [ ] 在 `apps/web` 下运行 `bun run build`。
+- [x] 确认当前 route 和 layout 模式。
+- [x] 新增 `apps/web/src/routes/skills/index.tsx`。
+- [x] 新增 `apps/web/src/routes/tools/index.tsx`。
+- [x] 新增 `apps/web/src/routes/industries/index.tsx`。
+- [x] 更新 `MainLayout` 侧边导航。
+- [x] 更新 `MainLayout` 面包屑 label。
+- [x] 验证 TanStack Router route tree 包含 `/skills`、`/tools`、`/industries`。
+- [x] 在 `apps/web` 下运行 `bun run lint`。
+- [x] 在 `apps/web` 下运行 `bun run build`。
 
 ## 实现护栏
 
