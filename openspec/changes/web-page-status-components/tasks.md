@@ -54,14 +54,14 @@
 
 - [x] 确认当前 Events 页面、共享组件目录和页面样式模式。
 - [x] 建立本 change 的 OpenSpec artifacts。
-- [ ] 新增 `PageLoading` 组件。
-- [ ] 新增 `PageEmpty` 组件。
-- [ ] 补充页面级状态样式。
-- [ ] 在 Events 页面接入受控预览。
-- [ ] 确认 Runtime、Approvals、Plugins、Settings、Skills、Tools、Industries 页面行为不变。
-- [ ] 在 `apps/web` 下运行 `bun run lint`。
-- [ ] 在 `apps/web` 下运行 `bun run build`。
-- [ ] 手动确认 `/events?state=loading`、`/events?state=empty`、`/events?state=unknown` 和 `/events` 的预览行为。
+- [x] 新增 `PageLoading` 组件。
+- [x] 新增 `PageEmpty` 组件。
+- [x] 补充页面级状态样式。
+- [x] 在 Events 页面接入受控预览。
+- [x] 确认 Runtime、Approvals、Plugins、Settings、Skills、Tools、Industries 页面行为不变。
+- [x] 在 `apps/web` 下运行 `bun run lint`。
+- [x] 在 `apps/web` 下运行 `bun run build`。
+- [x] 手动确认 `/events?state=loading`、`/events?state=empty`、`/events?state=unknown` 和 `/events` 的预览行为。
 
 ## 实现护栏
 
