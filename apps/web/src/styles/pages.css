@@ -102,6 +102,12 @@
   animation: page-loading-spin 0.8s linear infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .page-loading-mark {
+    animation: none;
+  }
+}
+
 .page-empty-mark {
   width: 40px;
   height: 4px;
