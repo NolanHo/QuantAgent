@@ -3,7 +3,6 @@ import { defineConfig, devices } from '@playwright/experimental-ct-react';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-const appRoot = fileURLToPath(new URL('.', import.meta.url));
 const srcRoot = fileURLToPath(new URL('./src', import.meta.url));
 
 export default defineConfig({
@@ -22,11 +21,19 @@ export default defineConfig({
     ctViteConfig: {
       plugins: [react(), tailwindcss()] as never,
       resolve: {
+        dedupe: [
+          'react',
+          'react-dom',
+          '@tanstack/react-query',
+          '@tanstack/react-router',
+          '@tanstack/router-core',
+          '@heroui/react',
+          '@heroui/system',
+        ],
         alias: {
           '@': srcRoot,
         },
       },
-      root: appRoot,
     },
     ...devices['Desktop Chrome'],
   },
