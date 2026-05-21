@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import React, { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import {
@@ -8,6 +8,7 @@ import {
 } from './error-boundary';
 import { AppProviders, createAppQueryClient } from './providers';
 import { createAppRouter } from './router';
+import { useAuth } from '../shared/auth';
 import { loadRuntimeConfig, type RuntimeConfig } from '../shared/config';
 
 export interface BootstrapOptions {
@@ -27,6 +28,31 @@ function renderStartupError(root: Root, error: Error, description: string): void
       description={description}
       error={createAppErrorDetails(error)}
     />,
+  );
+}
+
+function AuthenticatedRouterProvider({
+  router,
+}: {
+  router: ReturnType<typeof createAppRouter>;
+}) {
+  const auth = useAuth();
+
+  React.useEffect(() => {
+    void router.invalidate();
+  }, [auth.status, auth.actor?.actor_id, router]);
+
+  return (
+    <RouterProvider
+      router={router}
+      context={{
+        auth: {
+          capabilities: auth.capabilities,
+          status: auth.status,
+        },
+        capabilities: auth.capabilities,
+      }}
+    />
   );
 }
 
@@ -69,7 +95,7 @@ export function bootstrapApp(
             />
           )}
         >
-          <RouterProvider router={router} />
+          <AuthenticatedRouterProvider router={router} />
         </AppErrorBoundary>
       </AppProviders>
     );
