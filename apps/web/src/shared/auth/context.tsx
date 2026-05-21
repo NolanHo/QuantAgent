@@ -13,14 +13,13 @@ import { createApiClient, type ApiClient, ApiError } from "@/shared/api";
 import { useRuntimeConfig } from "@/shared/config";
 
 import { fetchCurrentActor, loginWithPassword, logoutSession } from "./api";
-import type { AuthenticatedActor, AuthState } from "./types";
+import type { AuthenticatedActor, AuthState, ForbiddenDetails } from "./types";
 
 interface AuthContextValue extends AuthState {
   apiClient: ApiClient;
   bootstrap(): Promise<void>;
   login(password: string): Promise<void>;
   logout(): Promise<void>;
-  markForbidden(message?: string): void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -35,6 +34,7 @@ function createUnauthenticatedState(isAuthDisabled: boolean): AuthState {
     actor: null,
     capabilities: new Set<string>(),
     csrfToken: null,
+    forbidden: null,
     isAuthDisabled,
     lastForbiddenMessage: null,
     status: "unauthenticated",
@@ -49,6 +49,7 @@ function createAuthenticatedState(
     actor,
     capabilities: new Set(actor.capabilities),
     csrfToken: actor.csrf_token,
+    forbidden: null,
     isAuthDisabled: isAuthDisabled && isDevelopmentActor(actor),
     lastForbiddenMessage: null,
     status: "authenticated",
@@ -57,6 +58,14 @@ function createAuthenticatedState(
 
 function isForbidden(error: unknown): boolean {
   return error instanceof ApiError && error.status === 403;
+}
+
+function toForbiddenDetails(error: ApiError, fallbackMessage?: string): ForbiddenDetails {
+  return {
+    message: fallbackMessage ?? error.msg ?? "当前账号没有执行该操作的权限。",
+    requestId: error.requestId ?? null,
+    traceId: error.traceId ?? null,
+  };
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -69,15 +78,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const handleUnauthorized = useCallback(() => {
     csrfTokenRef.current = null;
-    setState(createUnauthenticatedState(false));
-  }, []);
-
-  const markForbidden = useCallback((message?: string) => {
-    setState((current) => ({
-      ...current,
-      lastForbiddenMessage: message ?? "当前账号没有执行该操作的权限。",
-    }));
-  }, []);
+    setState(createUnauthenticatedState(!config.authEnabled));
+  }, [config.authEnabled]);
 
   const apiClient = useMemo(
     () =>
@@ -86,13 +88,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
         getCsrfToken: () => csrfTokenRef.current,
         onError: (error) => {
           if (isForbidden(error)) {
-            markForbidden(error.msg);
+            setState((current) => ({
+              ...current,
+              forbidden: toForbiddenDetails(error),
+              lastForbiddenMessage: error.msg,
+            }));
           }
         },
         onUnauthorized: handleUnauthorized,
         withCredentials: true,
       }),
-    [config.apiBaseUrl, handleUnauthorized, markForbidden],
+    [config.apiBaseUrl, handleUnauthorized],
   );
 
   const setAuthenticatedActor = useCallback(
@@ -111,12 +117,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setAuthenticatedActor(actor);
     } catch (error) {
       if (isForbidden(error)) {
-        markForbidden(error instanceof ApiError ? error.msg : undefined);
+        const forbiddenError = error as ApiError
+        setState((current) => ({
+          ...current,
+          forbidden: toForbiddenDetails(forbiddenError),
+          lastForbiddenMessage: forbiddenError.msg,
+          status: "authenticated",
+        }));
+        return
       }
 
       handleUnauthorized();
     }
-  }, [apiClient, handleUnauthorized, markForbidden, setAuthenticatedActor]);
+  }, [apiClient, handleUnauthorized, setAuthenticatedActor]);
 
   const login = useCallback(
     async (password: string) => {
@@ -150,9 +163,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       bootstrap,
       login,
       logout,
-      markForbidden,
     }),
-    [apiClient, bootstrap, login, logout, markForbidden, state],
+    [apiClient, bootstrap, login, logout, state],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
