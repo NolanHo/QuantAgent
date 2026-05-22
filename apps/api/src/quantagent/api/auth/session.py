@@ -65,10 +65,14 @@ def _session_signature(secret: str, payload_json: str) -> str:
 
 
 def _csrf_token_for_v1(secret: str, actor_id: str, expires_at: int) -> str:
+    if not secret:
+        raise ValueError("session secret must not be empty")
     return _hmac_sha256(secret, f"csrf:{actor_id}:{expires_at}")
 
 
 def _csrf_token_for_v2(secret: str, session_id: str, subject: str) -> str:
+    if not secret:
+        raise ValueError("session secret must not be empty")
     return _hmac_sha256(secret, f"csrf:v2:{session_id}:{subject}")
 
 

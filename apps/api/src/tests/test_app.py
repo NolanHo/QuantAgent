@@ -516,6 +516,28 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(body["data"]["max_expires_at"], issued_session.data.max_expires_at)
         self.assertNotIn("set-cookie", {key.lower() for key in response.headers.keys()})
 
+    def test_refresh_does_not_extend_beyond_absolute_expiration(self) -> None:
+        now_timestamp = int(datetime.now(UTC).timestamp())
+        issued_session = issue_session(
+            "local_admin",
+            self.settings,
+            issued_at=now_timestamp - 60,
+            expires_at=now_timestamp + 10,
+            max_expires_at=now_timestamp + 10,
+        )
+        self.client.cookies.set(self.settings.AUTH_COOKIE_NAME, issued_session.value)
+
+        response = self.client.post(
+            "/api/v1/auth/refresh",
+            headers={self.settings.AUTH_CSRF_HEADER_NAME: issued_session.data.csrf_token},
+        )
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["data"]["expires_at"], issued_session.data.expires_at)
+        self.assertEqual(body["data"]["max_expires_at"], issued_session.data.max_expires_at)
+        self.assertNotIn("set-cookie", {key.lower() for key in response.headers.keys()})
+
     def test_refresh_rejects_missing_csrf_token(self) -> None:
         self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
         response = self.client.post("/api/v1/auth/refresh")

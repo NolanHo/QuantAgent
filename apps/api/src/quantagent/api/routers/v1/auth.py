@@ -18,6 +18,7 @@ from quantagent.api.auth import (
     set_session_cookie,
     upgrade_v1_session,
 )
+from quantagent.api.http.errors import UnauthorizedError
 from quantagent.api.http.responses import ApiResponse
 from quantagent.api.schemas.auth import (
     AuthenticatedActorResponse,
@@ -102,9 +103,7 @@ def refresh(
     auth_state = resolve_auth_state(request)
 
     if auth_state.session is None:
-        return ApiResponse.success(
-            _refresh_response(auth_state.actor, expires_at=None, max_expires_at=None)
-        )
+        raise UnauthorizedError()
 
     session = auth_state.session
     actor = auth_state.actor
