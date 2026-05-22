@@ -8,9 +8,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from quantagent.api.errors import AppError, InternalError
-from quantagent.api.middleware import get_request_id
-from quantagent.api.responses import ApiErrorDetail, ApiResponse
+from quantagent.api.http.errors import AppError, InternalError
+from quantagent.api.http.middleware import get_request_id
+from quantagent.api.http.responses import ApiErrorDetail, ApiResponse
 
 
 logger = logging.getLogger("quantagent.api")
@@ -124,3 +124,4 @@ def register_exception_handlers(app: FastAPI) -> None:
             request_id=request_id,
             details={},
         )
+

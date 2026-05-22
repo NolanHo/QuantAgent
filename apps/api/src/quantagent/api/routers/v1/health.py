@@ -6,8 +6,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from quantagent.api.db import get_db_session
-from quantagent.api.errors import ServiceUnavailableError
-from quantagent.api.responses import ApiResponse
+from quantagent.api.http.errors import ServiceUnavailableError
+from quantagent.api.http.responses import ApiResponse
 from quantagent.api.schemas.system import ProbeStatusResponse
 
 router = APIRouter(tags=["system"])
@@ -30,3 +30,4 @@ def ready(session: Session = Depends(get_db_session)) -> ApiResponse[ProbeStatus
         logger.warning("Database readiness check failed: %s", exc.__class__.__name__)
         raise ServiceUnavailableError("Database not ready") from exc
     return ApiResponse.success(ProbeStatusResponse(status="ready"))
+

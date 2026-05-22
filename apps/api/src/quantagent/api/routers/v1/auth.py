@@ -16,12 +16,8 @@ from quantagent.api.auth import (
     require_csrf,
     set_session_cookie,
 )
-from quantagent.api.responses import ApiResponse
-from quantagent.api.schemas.auth import (
-    AuthenticatedActorResponse,
-    LoginRequest,
-    LogoutResponse,
-)
+from quantagent.api.http.responses import ApiResponse
+from quantagent.api.schemas.auth import AuthenticatedActorResponse, LoginRequest, LogoutResponse
 
 
 public_router = APIRouter(tags=["auth"])
@@ -91,3 +87,4 @@ def me(
         )
 
     return ApiResponse.success(_actor_response(actor))
+

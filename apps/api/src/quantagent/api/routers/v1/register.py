@@ -8,10 +8,10 @@ from fastapi.routing import APIRoute
 
 from quantagent.api.auth import get_current_actor
 from quantagent.api.config.settings import Settings
-from quantagent.api.routers.auth import protected_router as auth_protected_router
-from quantagent.api.routers.auth import public_router as auth_public_router
-from quantagent.api.routers.health import router as health_router
-from quantagent.api.routers.version import router as version_router
+from quantagent.api.routers.v1.auth import protected_router as auth_protected_router
+from quantagent.api.routers.v1.auth import public_router as auth_public_router
+from quantagent.api.routers.v1.health import router as health_router
+from quantagent.api.routers.v1.version import router as version_router
 
 
 ApiV1RouteAccess = Literal["public", "protected"]
@@ -80,6 +80,7 @@ def register_api_v1_routes(app: FastAPI, app_settings: Settings) -> None:
         register_api_v1_router(app, app_settings, registration)
 
     if not app_settings.is_production:
-        from quantagent.api.routers.debug import router as debug_router
+        from quantagent.api.routers.v1.debug import router as debug_router
 
         register_api_v1_protected_router(app, app_settings, debug_router)
+

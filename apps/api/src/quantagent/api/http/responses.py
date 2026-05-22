@@ -30,3 +30,4 @@ class ApiResponse(BaseModel, Generic[T]):
     def success(cls, data: T | None = None, msg: str = "ok") -> "ApiResponse[T]":
         """构造标准成功响应。"""
         return cls(code=0, data=data, msg=msg, error=None)
+

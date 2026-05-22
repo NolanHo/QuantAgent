@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from quantagent.api.errors import BadRequestError
-from quantagent.api.responses import ApiResponse
+from quantagent.api.http.errors import BadRequestError
+from quantagent.api.http.responses import ApiResponse
 
 
 router = APIRouter(prefix="/debug", tags=["debug"])
@@ -32,3 +32,4 @@ def error() -> None:
 def validation(_: DebugValidationRequest) -> ApiResponse[dict[str, str]]:
     """先触发 FastAPI 请求体验证，再返回正常响应。"""
     return ApiResponse.success({"status": "ok"})
+
