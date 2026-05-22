@@ -18,6 +18,7 @@ from quantagent.api.auth import (
     set_session_cookie,
     upgrade_v1_session,
 )
+from quantagent.api.auth.session import SESSION_V1
 from quantagent.api.http.errors import UnauthorizedError
 from quantagent.api.http.responses import ApiResponse
 from quantagent.api.schemas.auth import (
@@ -133,7 +134,7 @@ def refresh(
 def me(response: Response, request: Request) -> ApiResponse[AuthenticatedActorResponse]:
     auth_state = resolve_auth_state(request)
 
-    if auth_state.session is not None and auth_state.session.version == 1:
+    if auth_state.session is not None and auth_state.session.version == SESSION_V1:
         upgraded_session = upgrade_v1_session(auth_state.session, request.app.state.settings)
         set_session_cookie(
             response,

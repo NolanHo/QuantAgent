@@ -351,7 +351,10 @@ def refresh_session(
     *,
     now_timestamp: int | None = None,
 ) -> IssuedSession | None:
-    """显式 refresh 仅在接近 idle 超时时重签 v2 session，且不会突破 absolute expiration。"""
+    """显式 refresh 仅在接近 idle 超时时重签 v2 session，且不会突破 absolute expiration。
+
+    旧 v1 session 在显式 refresh 时总会升级为 v2，因此该分支总是返回新的 cookie。
+    """
     if session.version == SESSION_V1:
         return upgrade_v1_session(session, app_settings, now_timestamp=now_timestamp)
 

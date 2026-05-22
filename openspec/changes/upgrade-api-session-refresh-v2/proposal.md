@@ -2,7 +2,6 @@
 
 ## 来源
 
-- GitHub issue: https://github.com/BqLee-AI/QuantAgent/issues/unknown
 - Issue 标题：`升级 API Cookie Session Refresh 为安全优先的可迁移 v2`
 - 影响范围：`apps/api` Cookie Session、CSRF、OpenAPI、README 与 HTTP Cookie 文档
 
