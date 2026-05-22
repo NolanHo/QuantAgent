@@ -10,14 +10,21 @@ from quantagent.api.auth import (
     authenticate_admin_password,
     clear_session_cookie,
     development_bypass_actor,
-    get_current_actor,
     issue_session,
     refresh_session,
     require_csrf,
+    resolve_auth_state,
+    session_cookie_max_age,
     set_session_cookie,
+    upgrade_v1_session,
 )
 from quantagent.api.http.responses import ApiResponse
-from quantagent.api.schemas.auth import AuthenticatedActorResponse, LoginRequest, LogoutResponse
+from quantagent.api.schemas.auth import (
+    AuthenticatedActorResponse,
+    LoginRequest,
+    LogoutResponse,
+    RefreshSessionResponse,
+)
 
 
 public_router = APIRouter(tags=["auth"])
@@ -34,24 +41,44 @@ def _actor_response(actor: CurrentActor) -> AuthenticatedActorResponse:
     )
 
 
+def _refresh_response(
+    actor: CurrentActor,
+    *,
+    expires_at: int | None,
+    max_expires_at: int | None,
+) -> RefreshSessionResponse:
+    return RefreshSessionResponse(
+        actor_id=actor.actor_id,
+        actor_type=actor.actor_type,
+        capabilities=sorted(actor.capabilities),
+        csrf_token=actor.csrf_token,
+        expires_at=expires_at,
+        max_expires_at=max_expires_at,
+    )
+
+
 @public_router.post("/auth/login", response_model=ApiResponse[AuthenticatedActorResponse])
 def login(payload: LoginRequest, response: Response, request: Request) -> ApiResponse[AuthenticatedActorResponse]:
     app_settings = request.app.state.settings
 
-    # development bypass 下不签发会被忽略的 session，直接返回与 /me 一致的 actor。
     if not app_settings.AUTH_ENABLED:
         clear_session_cookie(response, app_settings)
         return ApiResponse.success(_actor_response(development_bypass_actor()))
 
     authenticate_admin_password(payload.password, app_settings)
-    session_value, csrf_token = issue_session(LOCAL_ADMIN_ACTOR_ID, app_settings)
-    set_session_cookie(response, session_value, app_settings)
+    issued_session = issue_session(LOCAL_ADMIN_ACTOR_ID, app_settings)
+    set_session_cookie(
+        response,
+        issued_session.value,
+        app_settings,
+        max_age=session_cookie_max_age(issued_session.data.expires_at),
+    )
     return ApiResponse.success(
         AuthenticatedActorResponse(
             actor_id=LOCAL_ADMIN_ACTOR_ID,
             actor_type=LOCAL_ACTOR_TYPE,
             capabilities=sorted(ALL_CAPABILITIES),
-            csrf_token=csrf_token,
+            csrf_token=issued_session.data.csrf_token,
         )
     )
 
@@ -62,29 +89,66 @@ def logout(
     request: Request,
     _actor: CurrentActor = Depends(require_csrf),
 ) -> ApiResponse[LogoutResponse]:
-    # logout 也走 CSRF guard；成功后只清 cookie，不在响应体返回 session/cookie。
     clear_session_cookie(response, request.app.state.settings)
     return ApiResponse.success(LogoutResponse(cleared=True))
 
 
-@protected_router.get("/me", response_model=ApiResponse[AuthenticatedActorResponse])
-def me(
+@protected_router.post("/auth/refresh", response_model=ApiResponse[RefreshSessionResponse])
+def refresh(
     response: Response,
     request: Request,
-    actor: CurrentActor = Depends(get_current_actor),
-) -> ApiResponse[AuthenticatedActorResponse]:
-    app_settings = request.app.state.settings
+    _actor: CurrentActor = Depends(require_csrf),
+) -> ApiResponse[RefreshSessionResponse]:
+    auth_state = resolve_auth_state(request)
 
-    if actor.auth_mode == "session":
-        session_value, csrf_token = refresh_session(actor, app_settings)
-        set_session_cookie(response, session_value, app_settings)
-        actor = CurrentActor(
-            actor_id=actor.actor_id,
-            actor_type=actor.actor_type,
-            capabilities=actor.capabilities,
-            csrf_token=csrf_token,
-            auth_mode=actor.auth_mode,
+    if auth_state.session is None:
+        return ApiResponse.success(
+            _refresh_response(auth_state.actor, expires_at=None, max_expires_at=None)
         )
 
-    return ApiResponse.success(_actor_response(actor))
+    session = auth_state.session
+    actor = auth_state.actor
+    refreshed_session = refresh_session(session, request.app.state.settings)
+    if refreshed_session is not None:
+        set_session_cookie(
+            response,
+            refreshed_session.value,
+            request.app.state.settings,
+            max_age=session_cookie_max_age(refreshed_session.data.expires_at),
+        )
+        actor = CurrentActor(
+            actor_id=refreshed_session.data.subject,
+            actor_type=refreshed_session.data.actor_type,
+            capabilities=refreshed_session.data.capabilities,
+            csrf_token=refreshed_session.data.csrf_token,
+            auth_mode="session",
+        )
+        session = refreshed_session.data
 
+    return ApiResponse.success(
+        _refresh_response(actor, expires_at=session.expires_at, max_expires_at=session.max_expires_at)
+    )
+
+
+@protected_router.get("/me", response_model=ApiResponse[AuthenticatedActorResponse])
+def me(response: Response, request: Request) -> ApiResponse[AuthenticatedActorResponse]:
+    auth_state = resolve_auth_state(request)
+
+    if auth_state.session is not None and auth_state.session.version == 1:
+        upgraded_session = upgrade_v1_session(auth_state.session, request.app.state.settings)
+        set_session_cookie(
+            response,
+            upgraded_session.value,
+            request.app.state.settings,
+            max_age=session_cookie_max_age(upgraded_session.data.expires_at),
+        )
+        actor = CurrentActor(
+            actor_id=upgraded_session.data.subject,
+            actor_type=upgraded_session.data.actor_type,
+            capabilities=upgraded_session.data.capabilities,
+            csrf_token=upgraded_session.data.csrf_token,
+            auth_mode="session",
+        )
+        return ApiResponse.success(_actor_response(actor))
+
+    return ApiResponse.success(_actor_response(auth_state.actor))

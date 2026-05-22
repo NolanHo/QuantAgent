@@ -20,6 +20,7 @@ from quantagent.api.auth import (
     require_capability,
     require_csrf,
 )
+from quantagent.api.auth.session import SESSION_V2, _deserialize_session, _issue_v1_session, _serialize_session
 from quantagent.api.config.settings import Settings
 from quantagent.api.db import get_db_session
 from quantagent.api.http.errors import ServiceUnavailableError
@@ -293,6 +294,7 @@ class ApiAppTestCase(unittest.TestCase):
     def test_login_success_sets_cookie_and_returns_csrf_token(self) -> None:
         response = self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
         body = response.json()
+        session_payload = self._current_session_payload()
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body["error"])
@@ -301,6 +303,15 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(set(body["data"]["capabilities"]), ALL_CAPABILITIES)
         self.assertTrue(body["data"]["csrf_token"])
         self.assertIn("HttpOnly", response.headers["set-cookie"])
+        self.assertEqual(session_payload["v"], SESSION_V2)
+        self.assertEqual(session_payload["sub"], "local_admin")
+        self.assertEqual(session_payload["actor_type"], "local_single_user")
+        self.assertIn("sid", session_payload)
+        self.assertIn("iat", session_payload)
+        self.assertIn("exp", session_payload)
+        self.assertIn("max_exp", session_payload)
+        self.assertIn("capabilities", session_payload)
+        self.assertNotIn("csrf", session_payload)
         self.assertNotIn(self.settings.AUTH_ADMIN_PASSWORD or "", str(body))
         self.assertNotIn(self.settings.AUTH_SESSION_SECRET or "", str(body))
 
@@ -405,7 +416,7 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertNotIn(self.settings.AUTH_SESSION_SECRET or "", str(body))
 
     def test_me_rejects_expired_session(self) -> None:
-        session_value, _csrf_token = issue_session("local_admin", self.settings, expires_at=1)
+        session_value = issue_session("local_admin", self.settings, expires_at=1).value
         self.client.cookies.set(self.settings.AUTH_COOKIE_NAME, session_value)
 
         response = self.client.get("/api/v1/me")
@@ -415,11 +426,11 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(body["error"]["code"], "UNAUTHORIZED")
 
     def test_me_rejects_session_expiring_at_now(self) -> None:
-        session_value, _csrf_token = issue_session(
+        session_value = issue_session(
             "local_admin",
             self.settings,
             expires_at=int(datetime.now(UTC).timestamp()),
-        )
+        ).value
         self.client.cookies.set(self.settings.AUTH_COOKIE_NAME, session_value)
 
         response = self.client.get("/api/v1/me")
@@ -428,7 +439,8 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(response.json()["error"]["code"], "UNAUTHORIZED")
 
     def test_me_returns_actor_capabilities_and_csrf(self) -> None:
-        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+        login_response = self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+        login_csrf_token = login_response.json()["data"]["csrf_token"]
 
         response = self.client.get("/api/v1/me")
         body = response.json()
@@ -437,19 +449,112 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(body["data"]["actor_id"], "local_admin")
         self.assertEqual(body["data"]["actor_type"], "local_single_user")
         self.assertEqual(set(body["data"]["capabilities"]), ALL_CAPABILITIES)
-        self.assertTrue(body["data"]["csrf_token"])
+        self.assertEqual(body["data"]["csrf_token"], login_csrf_token)
         self.assertNotIn(self.settings.AUTH_SESSION_SECRET or "", str(body))
         self.assertNotIn(self.settings.AUTH_COOKIE_NAME, str(body))
-        self.assertIn("HttpOnly", response.headers["set-cookie"])
+        self.assertNotIn("set-cookie", {key.lower() for key in response.headers.keys()})
 
-    def test_me_sets_cookie_and_returns_csrf_token(self) -> None:
-        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+    def test_me_upgrades_v1_cookie_to_v2_once(self) -> None:
+        legacy_session = _issue_v1_session("local_admin", self.settings)
+        self.client.cookies.set(self.settings.AUTH_COOKIE_NAME, legacy_session.value)
 
         response = self.client.get("/api/v1/me")
+        body = response.json()
+        upgraded_payload = self._current_session_payload()
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("HttpOnly", response.headers["set-cookie"])
-        self.assertTrue(response.json()["data"]["csrf_token"])
+        self.assertEqual(upgraded_payload["v"], SESSION_V2)
+        self.assertEqual(upgraded_payload["max_exp"], legacy_session.data.expires_at)
+        self.assertNotEqual(body["data"]["csrf_token"], legacy_session.data.csrf_token)
+
+    def test_refresh_sets_cookie_when_idle_time_is_low_and_keeps_csrf_stable(self) -> None:
+        now_timestamp = int(datetime.now(UTC).timestamp())
+        issued_session = issue_session(
+            "local_admin",
+            self.settings,
+            issued_at=now_timestamp - 60,
+            expires_at=now_timestamp + 10,
+            max_expires_at=now_timestamp + 600,
+        )
+        self.client.cookies.set(self.settings.AUTH_COOKIE_NAME, issued_session.value)
+
+        response = self.client.post(
+            "/api/v1/auth/refresh",
+            headers={self.settings.AUTH_CSRF_HEADER_NAME: issued_session.data.csrf_token},
+        )
+        body = response.json()
+        refreshed_payload = self._current_session_payload()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HttpOnly", response.headers["set-cookie"])
+        self.assertEqual(body["data"]["csrf_token"], issued_session.data.csrf_token)
+        self.assertGreater(body["data"]["expires_at"], issued_session.data.expires_at)
+        self.assertEqual(body["data"]["max_expires_at"], issued_session.data.max_expires_at)
+        self.assertEqual(refreshed_payload["sid"], issued_session.data.session_id)
+
+    def test_refresh_returns_current_session_without_rewriting_cookie_when_above_threshold(self) -> None:
+        now_timestamp = int(datetime.now(UTC).timestamp())
+        issued_session = issue_session(
+            "local_admin",
+            self.settings,
+            issued_at=now_timestamp - 60,
+            expires_at=now_timestamp + 4000,
+            max_expires_at=now_timestamp + 5000,
+        )
+        self.client.cookies.set(self.settings.AUTH_COOKIE_NAME, issued_session.value)
+
+        response = self.client.post(
+            "/api/v1/auth/refresh",
+            headers={self.settings.AUTH_CSRF_HEADER_NAME: issued_session.data.csrf_token},
+        )
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["data"]["csrf_token"], issued_session.data.csrf_token)
+        self.assertEqual(body["data"]["expires_at"], issued_session.data.expires_at)
+        self.assertEqual(body["data"]["max_expires_at"], issued_session.data.max_expires_at)
+        self.assertNotIn("set-cookie", {key.lower() for key in response.headers.keys()})
+
+    def test_refresh_rejects_missing_csrf_token(self) -> None:
+        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+        response = self.client.post("/api/v1/auth/refresh")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(body["error"]["code"], "FORBIDDEN")
+
+    def test_refresh_rejects_invalid_csrf_token_without_echoing_it(self) -> None:
+        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+        response = self.client.post("/api/v1/auth/refresh", headers={self.settings.AUTH_CSRF_HEADER_NAME: "bad-token"})
+        body = response.json()
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(body["error"]["code"], "FORBIDDEN")
+        self.assertNotIn("bad-token", str(body))
+
+    def test_refresh_rejects_session_when_absolute_expiration_is_in_the_past(self) -> None:
+        now_timestamp = int(datetime.now(UTC).timestamp())
+        invalid_payload = {
+            "v": SESSION_V2,
+            "sid": "expired-session",
+            "sub": "local_admin",
+            "actor_type": "local_single_user",
+            "iat": now_timestamp - 100,
+            "exp": now_timestamp + 100,
+            "max_exp": now_timestamp - 1,
+            "capabilities": sorted(ALL_CAPABILITIES),
+        }
+        invalid_session = _serialize_session(invalid_payload, self.settings.AUTH_SESSION_SECRET or "")
+        self.client.cookies.set(self.settings.AUTH_COOKIE_NAME, invalid_session)
+
+        response = self.client.post(
+            "/api/v1/auth/refresh",
+            headers={self.settings.AUTH_CSRF_HEADER_NAME: "irrelevant"},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"]["code"], "UNAUTHORIZED")
 
     def test_development_can_disable_auth_and_keep_actor_context(self) -> None:
         app = create_app(self._settings(AUTH_ENABLED=False))
@@ -593,12 +698,12 @@ class ApiAppTestCase(unittest.TestCase):
 
     def test_missing_capability_is_forbidden(self) -> None:
         reduced_capabilities = frozenset({"plugin.configure"})
-        session_value, csrf_token = issue_session("local_admin", self.settings, capabilities=reduced_capabilities)
+        issued_session = issue_session("local_admin", self.settings, capabilities=reduced_capabilities)
         with TestClient(self._protected_write_test_app()) as client:
-            client.cookies.set(self.settings.AUTH_COOKIE_NAME, session_value)
+            client.cookies.set(self.settings.AUTH_COOKIE_NAME, issued_session.value)
             response = client.post(
                 "/test/protected-write",
-                headers={self.settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                headers={self.settings.AUTH_CSRF_HEADER_NAME: issued_session.data.csrf_token},
             )
 
         body = response.json()
@@ -639,6 +744,7 @@ class ApiAppTestCase(unittest.TestCase):
 
         self.assertIn("auth", schema["paths"]["/api/v1/auth/login"]["post"]["tags"])
         self.assertIn("auth", schema["paths"]["/api/v1/auth/logout"]["post"]["tags"])
+        self.assertIn("auth", schema["paths"]["/api/v1/auth/refresh"]["post"]["tags"])
         self.assertIn("auth", schema["paths"]["/api/v1/me"]["get"]["tags"])
         self.assertNotIn("/api/v1/auth/test-actions/runtime-inspect", schema["paths"])
 
@@ -647,6 +753,14 @@ class ApiAppTestCase(unittest.TestCase):
 
         logout_schema = self._resolve_response_schema(schema, "/api/v1/auth/logout", method="post")
         self.assertTrue({"code", "data", "msg", "error"}.issubset(logout_schema["properties"].keys()))
+
+        refresh_schema = self._resolve_response_schema(schema, "/api/v1/auth/refresh", method="post")
+        refresh_data_schema = self._resolve_schema_ref(schema, refresh_schema["properties"]["data"])
+        self.assertTrue(
+            {"actor_id", "actor_type", "capabilities", "csrf_token", "expires_at", "max_expires_at"}.issubset(
+                refresh_data_schema["properties"]
+            )
+        )
 
         me_schema = self._resolve_response_schema(schema, "/api/v1/me")
         me_data_schema = self._resolve_schema_ref(schema, me_schema["properties"]["data"])
@@ -811,6 +925,12 @@ class ApiAppTestCase(unittest.TestCase):
         }
         baseline.update(overrides)
         return Settings(**baseline)
+
+    def _current_session_payload(self) -> dict[str, object]:
+        session_values = [cookie.value for cookie in self.client.cookies.jar if cookie.name == self.settings.AUTH_COOKIE_NAME]
+        self.assertTrue(session_values)
+        session_value = session_values[-1]
+        return _deserialize_session(session_value, self.settings.AUTH_SESSION_SECRET or "")
 
 
 if __name__ == "__main__":

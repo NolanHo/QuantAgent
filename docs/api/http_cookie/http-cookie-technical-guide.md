@@ -8,8 +8,8 @@
 
 相关真源：
 
-- API 当前认证实现：`apps/api/src/quantagent/api/auth.py`
-- 认证路由：`apps/api/src/quantagent/api/routers/auth.py`
+- API 当前认证实现：`apps/api/src/quantagent/api/auth/session.py`
+- 认证路由：`apps/api/src/quantagent/api/routers/v1/auth.py`
 - API 配置：`apps/api/src/quantagent/api/config/settings.py`
 - 前端路由说明：`docs/api/auth/auth_frontend_routes.md`
 - API 本地说明：`apps/api/README.md`
@@ -73,10 +73,10 @@ POST /api/v1/auth/login
 当前实现会：
 
 - 校验本地管理员口令。
-- 生成包含 actor、过期时间、capability 和 CSRF token 的 session payload。
+- 生成包含 `v`、`sid`、`sub`、`actor_type`、`iat`、`exp`、`max_exp`、`capabilities` 的 v2 session payload。
 - 使用 `AUTH_SESSION_SECRET` 对规范化 payload 做 HMAC 签名。
 - 将 `base64url(payload).signature` 写入 HttpOnly Cookie。
-- 在响应体 `data.csrf_token` 返回非敏感 CSRF token 给前端写操作使用。
+- 在响应体 `data.csrf_token` 返回绑定稳定 session identity（`sid + sub + secret`）的非敏感 CSRF token 给前端写操作使用。
 
 开发环境存在一个显式 bypass：仅当 `APP_ENV=development` 且 `AUTH_ENABLED=false` 时，登录不会校验密码，也不会签发有效 session；后端会清除已有 session cookie，并返回固定的 `local_dev` actor 和开发态 CSRF token。该模式只用于本地开发，不是生产降级策略。
 
@@ -94,12 +94,12 @@ POST /api/v1/auth/login
 2. base64url 解码 payload。
 3. 用 `AUTH_SESSION_SECRET` 重新计算 HMAC。
 4. 用常量时间比较校验签名。
-5. 校验 actor 类型、过期时间、capabilities 集合和 CSRF token。
-6. 构造脱敏 `CurrentActor`，供 route dependency、审计和后续 Policy Gate 使用。
+5. 校验 session version、subject、actor type、idle/absolute expiration 与 capabilities 集合。
+6. 对 v2 session 重新派生稳定 CSRF token，并构造脱敏 `CurrentActor`，供 route dependency、审计和后续 Policy Gate 使用。
 
 签名只能证明 Cookie 未被客户端篡改，不能隐藏 payload 内容。当前 payload 不应放入 secret。
 
-当前 session 是签名 token，不是加密 token。任何能拿到 Cookie 原文的人都可能解码 payload，因此 payload 只允许放脱敏 actor、过期时间、capability 集合和 CSRF token 这类可校验上下文。
+当前 session 是签名 token，不是加密 token。任何能拿到 Cookie 原文的人都可能解码 payload，因此 payload 只允许放脱敏 actor、过期时间、capability 集合和稳定 session identity（如 `sid`）等可校验上下文，不放 secret 或 raw CSRF derivation material。
 
 ### 过期
 
@@ -108,7 +108,7 @@ Cookie 有两层过期：
 - 浏览器层：`Max-Age` 或 `Expires` 到期后浏览器不再发送。
 - 服务端层：session payload 的 `exp` 到期后，即使浏览器仍发送也会被拒绝。
 
-QuantAgent 当前 `AUTH_SESSION_LIFETIME_SECONDS` 默认 `43200` 秒，最小值由配置校验限制为 `300` 秒。
+QuantAgent 当前把 `AUTH_SESSION_LIFETIME_SECONDS` 解释为 idle timeout，默认 `43200` 秒；`AUTH_SESSION_ABSOLUTE_LIFETIME_SECONDS` 是 absolute timeout，默认 `86400` 秒；`AUTH_SESSION_REFRESH_THRESHOLD_SECONDS` 默认 `1800` 秒，用于控制何时通过显式 `POST /api/v1/auth/refresh` 重签 cookie。
 
 ### 清除
 
@@ -136,9 +136,9 @@ POST /api/v1/auth/logout
 
 ### Max-Age 和 Expires
 
-`Max-Age` 是相对秒数，优先级通常高于 `Expires`。当前项目使用 `Max-Age=AUTH_SESSION_LIFETIME_SECONDS`。
+`Max-Age` 是相对秒数，优先级通常高于 `Expires`。当前项目在登录、v1→v2 升级或显式 refresh 真正延长 idle 窗口时，使用“当前 `exp` 到现在的剩余秒数”回写 `Max-Age`。
 
-只设置浏览器过期时间不够，服务端 session payload 也必须有 `exp`，避免客户端或中间层异常保留 Cookie 后仍被接受。
+只设置浏览器过期时间不够，服务端 session payload 也必须同时有 `exp` 与 `max_exp`：`exp` 负责 idle/sliding expiration，`max_exp` 负责 absolute expiration，避免客户端或中间层异常保留 Cookie 后仍被接受或通过 refresh 无上限续期。
 
 ### HttpOnly
 
@@ -259,10 +259,11 @@ Cookie Session 不能替代前端 XSS 防护。前端仍需避免危险 HTML 注
 | Secure | production 强制 true，development 可关闭 |
 | SameSite | 默认 `lax`，允许 `lax` / `strict` / `none` |
 | Session 格式 | `base64url(canonical_json_payload).hmac_sha256_signature` |
-| Session 内容 | `sub`、`type`、`exp`、`csrf`、`capabilities` |
+| Session 内容 | v2 为 `v`、`sid`、`sub`、`actor_type`、`iat`、`exp`、`max_exp`、`capabilities`；旧 v1 仅兼容迁移窗口 |
 | 登录 | `POST /api/v1/auth/login` |
+| 显式 refresh | `POST /api/v1/auth/refresh`，要求 CSRF |
 | 登出 | `POST /api/v1/auth/logout`，要求 CSRF |
-| 当前用户 | `GET /api/v1/me` |
+| 当前用户 | `GET /api/v1/me`（不再无条件续期） |
 | 写操作 CSRF header | `AUTH_CSRF_HEADER_NAME`，默认 `X-CSRF-Token` |
 | development bypass | 仅 `APP_ENV=development` 允许 `AUTH_ENABLED=false`；返回 `local_dev`，不签发有效 session |
 
