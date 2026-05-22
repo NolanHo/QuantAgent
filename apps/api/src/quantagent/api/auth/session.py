@@ -125,12 +125,14 @@ def _deserialize_session(raw_session: str, secret: str) -> dict[str, object]:
 
 
 def _validate_string_field(value: object) -> str:
+    """校验 session payload 的字符串字段，缺失或为空时按未授权处理。"""
     if not isinstance(value, str) or not value:
         raise UnauthorizedError()
     return value
 
 
 def _validate_capabilities(capabilities: object) -> frozenset[str]:
+    """校验 payload 中的 capabilities，要求为非空字符串列表且受集中 capability 集合约束。"""
     if (
         not isinstance(capabilities, list)
         or not capabilities
@@ -144,6 +146,7 @@ def _validate_capabilities(capabilities: object) -> frozenset[str]:
 
 
 def _parse_v1_session(payload: dict[str, object], secret: str) -> SessionData:
+    """解析并校验 legacy v1 session payload，供兼容升级路径复用。"""
     subject = _validate_string_field(payload.get("sub"))
     actor_type = _validate_string_field(payload.get("type"))
     expires_at = payload.get("exp")
@@ -171,6 +174,7 @@ def _parse_v1_session(payload: dict[str, object], secret: str) -> SessionData:
 
 
 def _parse_v2_session(payload: dict[str, object], secret: str) -> SessionData:
+    """解析并校验 v2 session payload，并派生绑定稳定 session identity 的 CSRF token。"""
     session_id = _validate_string_field(payload.get("sid"))
     subject = _validate_string_field(payload.get("sub"))
     actor_type = _validate_string_field(payload.get("actor_type"))
@@ -202,6 +206,7 @@ def _parse_v2_session(payload: dict[str, object], secret: str) -> SessionData:
 
 
 def _parse_session(payload: dict[str, object], secret: str) -> SessionData:
+    """按 payload version 分发到 v1/v2 解析逻辑，形成统一的 SessionData。"""
     version = payload.get("v")
     if version in (None, SESSION_V1):
         return _parse_v1_session(payload, secret)
@@ -211,6 +216,7 @@ def _parse_session(payload: dict[str, object], secret: str) -> SessionData:
 
 
 def _current_actor_from_session(session: SessionData) -> CurrentActor:
+    """把已校验的 session 数据映射为当前实现支持的 CurrentActor。"""
     if session.subject != LOCAL_ADMIN_ACTOR_ID or session.actor_type != LOCAL_ACTOR_TYPE:
         raise UnauthorizedError()
 
@@ -329,6 +335,7 @@ def upgrade_v1_session(
     *,
     now_timestamp: int | None = None,
 ) -> IssuedSession:
+    """把 legacy v1 session 升级成 v2，并固定 absolute expiration 为旧 v1 的原始过期时间。"""
     if session.version != SESSION_V1:
         raise ValueError("upgrade_v1_session only accepts v1 sessions")
 
@@ -394,6 +401,7 @@ def clear_session_cookie(response: Response, app_settings: Settings) -> None:
 
 
 def session_cookie_max_age(expires_at: int, *, now_timestamp: int | None = None) -> int:
+    """返回 cookie 从当前时刻到 `expires_at` 的剩余秒数，最小为 0。"""
     return max(expires_at - (now_timestamp if now_timestamp is not None else _now_timestamp()), 0)
 
 

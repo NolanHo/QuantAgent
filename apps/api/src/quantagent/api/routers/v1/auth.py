@@ -49,6 +49,7 @@ def _refresh_response(
     expires_at: int | None,
     max_expires_at: int | None,
 ) -> RefreshSessionResponse:
+    """构造 refresh 响应 DTO，显式返回 actor 快照、稳定 CSRF 和当前过期状态。"""
     return RefreshSessionResponse(
         actor_id=actor.actor_id,
         actor_type=actor.actor_type,
