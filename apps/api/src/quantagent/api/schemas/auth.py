@@ -19,8 +19,8 @@ class AuthenticatedActorResponse(BaseModel):
 
 
 class RefreshSessionResponse(AuthenticatedActorResponse):
-    expires_at: int | None = None
-    max_expires_at: int | None = None
+    expires_at: int
+    max_expires_at: int
 
 
 class LogoutResponse(BaseModel):
