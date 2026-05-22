@@ -5,6 +5,11 @@ export interface AuthenticatedActor {
   csrf_token: string;
 }
 
+export interface RefreshedSession extends AuthenticatedActor {
+  expires_at: number;
+  max_expires_at: number;
+}
+
 export type AuthStatus = "authenticated" | "bootstrapping" | "unauthenticated";
 
 export interface ForbiddenDetails {

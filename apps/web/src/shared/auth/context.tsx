@@ -12,7 +12,13 @@ import {
 import { createApiClient, type ApiClient, ApiError } from "@/shared/api";
 import { useRuntimeConfig } from "@/shared/config";
 
-import { fetchCurrentActor, loginWithPassword, logoutSession } from "./api";
+import {
+  fetchCurrentActor,
+  loginWithPassword,
+  logoutSession,
+  refreshCurrentSession,
+} from "./api";
+import { getSessionRefreshDelayMs } from "./refresh";
 import type { AuthenticatedActor, AuthState, ForbiddenDetails } from "./types";
 
 interface AuthContextValue extends AuthState {
@@ -24,6 +30,25 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const DEVELOPMENT_ACTOR_ID = "local_dev";
+const REFRESH_RETRY_DELAY_MS = 5_000;
+
+function clearRefreshTimer(timerRef: { current: null | number }) {
+  if (timerRef.current !== null) {
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+}
+
+function scheduleRefreshTimer(
+  timerRef: { current: null | number },
+  expiresAt: number,
+  refresh: () => Promise<void>,
+) {
+  clearRefreshTimer(timerRef);
+  timerRef.current = window.setTimeout(() => {
+    void refresh();
+  }, getSessionRefreshDelayMs(expiresAt));
+}
 
 function isDevelopmentActor(actor: AuthenticatedActor | null): boolean {
   return actor?.actor_id === DEVELOPMENT_ACTOR_ID;
@@ -75,8 +100,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     status: "bootstrapping",
   }));
   const csrfTokenRef = useRef<string | null>(null);
+  const refreshTimerRef = useRef<null | number>(null);
 
   const handleUnauthorized = useCallback(() => {
+    clearRefreshTimer(refreshTimerRef);
     csrfTokenRef.current = null;
     setState(createUnauthenticatedState(!config.authEnabled));
   }, [config.authEnabled]);
@@ -109,12 +136,71 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [config.authEnabled],
   );
 
+  const refreshAuthenticatedSession = useCallback(async () => {
+    if (!config.authEnabled || !csrfTokenRef.current) {
+      return;
+    }
+
+    try {
+      const refreshedSession = await refreshCurrentSession(apiClient);
+
+      setAuthenticatedActor(refreshedSession);
+      scheduleRefreshTimer(
+        refreshTimerRef,
+        refreshedSession.expires_at,
+        refreshAuthenticatedSession,
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        throw error;
+      }
+
+      if (error.status === 401) {
+        return;
+      }
+
+      if (error.status === 403) {
+        setState((current) => ({
+          ...current,
+          forbidden: null,
+          lastForbiddenMessage: null,
+        }));
+
+        try {
+          const actor = await fetchCurrentActor(apiClient);
+          setAuthenticatedActor(actor);
+          clearRefreshTimer(refreshTimerRef);
+          refreshTimerRef.current = window.setTimeout(() => {
+            void refreshAuthenticatedSession();
+          }, REFRESH_RETRY_DELAY_MS);
+          return;
+        } catch (bootstrapError) {
+          if (!(bootstrapError instanceof ApiError)) {
+            throw bootstrapError;
+          }
+
+          if (bootstrapError.status !== 401) {
+            throw bootstrapError;
+          }
+        }
+
+        return;
+      }
+
+      clearRefreshTimer(refreshTimerRef);
+      refreshTimerRef.current = window.setTimeout(() => {
+        void refreshAuthenticatedSession();
+      }, REFRESH_RETRY_DELAY_MS);
+    }
+  }, [apiClient, config.authEnabled, setAuthenticatedActor]);
+
   const bootstrap = useCallback(async () => {
     setState((current) => ({ ...current, status: "bootstrapping" }));
 
     try {
       const actor = await fetchCurrentActor(apiClient);
       setAuthenticatedActor(actor);
+      await refreshAuthenticatedSession();
     } catch (error) {
       if (isForbidden(error)) {
         const forbiddenError = error as ApiError
@@ -129,14 +215,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       handleUnauthorized();
     }
-  }, [apiClient, handleUnauthorized, setAuthenticatedActor]);
+  }, [apiClient, handleUnauthorized, refreshAuthenticatedSession, setAuthenticatedActor]);
 
   const login = useCallback(
     async (password: string) => {
       const actor = await loginWithPassword(apiClient, { password });
       setAuthenticatedActor(actor);
+      await refreshAuthenticatedSession();
     },
-    [apiClient, setAuthenticatedActor],
+    [apiClient, refreshAuthenticatedSession, setAuthenticatedActor],
   );
 
   const logout = useCallback(async () => {
@@ -155,6 +242,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => () => clearRefreshTimer(refreshTimerRef), []);
+
+  useEffect(() => {
+    if (!config.authEnabled || state.status !== "authenticated") {
+      return;
+    }
+
+    const handleWindowFocus = () => {
+      void refreshAuthenticatedSession();
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [config.authEnabled, refreshAuthenticatedSession, state.status]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

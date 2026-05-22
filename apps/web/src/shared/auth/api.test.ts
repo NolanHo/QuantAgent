@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ApiClient } from "@/shared/api";
 
-import { fetchCurrentActor, loginWithPassword, logoutSession } from "./api";
+import {
+  fetchCurrentActor,
+  loginWithPassword,
+  logoutSession,
+  refreshCurrentSession,
+} from "./api";
 
 function createApiClientMock(): ApiClient {
   return {
@@ -57,6 +62,24 @@ describe("auth API helpers", () => {
     await logoutSession(client);
 
     expect(client.post).toHaveBeenCalledWith("/auth/logout", undefined, {
+      dedupeKey: false,
+    });
+  });
+
+  it("refreshes the current session through the explicit refresh endpoint", async () => {
+    const client = createApiClientMock();
+    vi.mocked(client.post).mockResolvedValue({
+      actor_id: "local_admin",
+      actor_type: "local_single_user",
+      capabilities: ["runtime.inspect"],
+      csrf_token: "csrf-refresh",
+      expires_at: 1_700_000_000,
+      max_expires_at: 1_700_003_600,
+    });
+
+    await refreshCurrentSession(client);
+
+    expect(client.post).toHaveBeenCalledWith("/auth/refresh", undefined, {
       dedupeKey: false,
     });
   });
