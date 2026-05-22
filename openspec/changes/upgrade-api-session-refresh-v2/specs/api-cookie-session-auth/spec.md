@@ -32,7 +32,7 @@ API SHALL provide minimal auth routes for browser cookie session use, with expli
 - **WHEN** an authenticated client posts to `POST /api/v1/auth/refresh` with a valid session and valid `X-CSRF-Token`
 - **THEN** the response succeeds using `ApiResponse[T]`
 - **AND** it returns the current actor snapshot plus current `exp`/`max_exp` state
-- **AND** it only extends `exp` when the remaining idle time is below the configured refresh threshold
+- **AND** it only extends `exp` when the remaining idle time is at or below the configured refresh threshold
 - **AND** it never extends `exp` beyond `max_exp`
 
 #### Scenario: Explicit refresh may skip Set-Cookie when no extension is needed
