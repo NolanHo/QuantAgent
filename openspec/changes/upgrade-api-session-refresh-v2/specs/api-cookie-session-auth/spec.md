@@ -8,7 +8,7 @@ API SHALL provide minimal auth routes for browser cookie session use, with expli
 
 - **WHEN** a client posts valid local administrator credentials to `POST /api/v1/auth/login`
 - **THEN** the response succeeds using `ApiResponse[T]`
-- **AND** the response sets a v2 session cookie containing `v`、`sid`、`sub`、`actor_type`、`iat`、`exp`、`max_exp`、`capabilities`
+- **AND** the response sets a v2 session cookie containing `v`, `sid`, `sub`, `actor_type`, `iat`, `exp`, `max_exp`, `capabilities`
 - **AND** the session cookie is `HttpOnly`
 - **AND** the response body contains a non-sensitive `csrf_token`
 - **AND** the response body does not contain the raw session, cookie value, signing secret, password, or password hash
