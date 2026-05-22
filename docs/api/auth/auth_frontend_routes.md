@@ -45,6 +45,7 @@
 | 方法 | 路径 | 是否公开 | 说明 |
 | --- | --- | --- | --- |
 | POST | `/auth/login` | 是 | 本地管理员登录 |
+| POST | `/auth/refresh` | 否 | 显式刷新 session，需要 CSRF |
 | POST | `/auth/logout` | 否 | 登出，需要 CSRF |
 | GET | `/me` | 否 | 当前登录用户信息 |
 
@@ -119,7 +120,46 @@
 - 渲染权限相关 UI
 - 取出 `csrf_token` 给后续写操作使用
 
-### 3. `POST /api/v1/auth/logout`
+### 3. `POST /api/v1/auth/refresh`
+
+用途：显式刷新当前 session 的 idle 过期时间，并返回最新 actor 快照和当前过期状态。
+
+请求头：
+
+- `X-CSRF-Token: <csrf_token>`
+
+成功返回 `data`：
+
+```json
+{
+  "actor_id": "local_admin",
+  "actor_type": "local_single_user",
+  "capabilities": [
+    "approval.amend",
+    "approval.approve",
+    "executor.dry_run",
+    "plugin.configure",
+    "plugin.install",
+    "runtime.inspect",
+    "secret.manage"
+  ],
+  "csrf_token": "token-string",
+  "expires_at": 1710000000,
+  "max_expires_at": 1710043200
+}
+```
+
+说明：
+
+- 必须先完成登录，并携带有效 session cookie
+- 必须携带当前 actor 对应的 `X-CSRF-Token`
+- 只有 session 剩余 idle 时间小于等于 `AUTH_SESSION_REFRESH_THRESHOLD_SECONDS` 时，后端才会重签并回写 session cookie
+- refresh 不会突破 `max_expires_at` 代表的 absolute timeout
+- `GET /me` 不再作为常规续期入口；前端需要延长登录态时应调用本接口
+- 缺少、无效或过期 session 返回 `401`；CSRF token 缺失或错误返回 `403`
+- 开发环境如果 `AUTH_ENABLED=false`，本接口没有可刷新的真实 session，会返回 `401`
+
+### 4. `POST /api/v1/auth/logout`
 
 用途：登出当前会话。
 
@@ -145,7 +185,7 @@
 
 ## 鉴权规则
 
-- 这三个接口以外，前端当前不应依赖其他 `apps/api` 路由
+- 上述认证接口以外，前端当前不应依赖其他 `apps/api` 路由
 - cookie 是 `HttpOnly`，前端 JavaScript 不能读
 - 受保护写操作需要 `X-CSRF-Token`，当前认证路由中 `POST /auth/refresh` 与 `POST /auth/logout` 都需要该请求头
 - 受保护读操作不需要 CSRF，但需要有效 session cookie
@@ -195,6 +235,15 @@ curl -i \
 ```bash
 curl -i \
   http://127.0.0.1:8000/api/v1/me \
+  --cookie "quantagent_session=..."
+```
+
+刷新 session：
+
+```bash
+curl -i \
+  -X POST http://127.0.0.1:8000/api/v1/auth/refresh \
+  -H "X-CSRF-Token: your-csrf-token" \
   --cookie "quantagent_session=..."
 ```
 

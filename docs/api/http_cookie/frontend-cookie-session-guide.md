@@ -25,6 +25,7 @@
 | --- | --- | --- | --- |
 | 登录 | `POST` | `/api/v1/auth/login` | 提交本地管理员口令，成功后服务端写 HttpOnly Cookie |
 | 当前用户 | `GET` | `/api/v1/me` | 用 Cookie 换取脱敏 actor 快照和 CSRF token |
+| 刷新 session | `POST` | `/api/v1/auth/refresh` | 需要有效 Cookie 和 `X-CSRF-Token`，按阈值显式延长 idle 过期时间 |
 | 登出 | `POST` | `/api/v1/auth/logout` | 需要有效 Cookie 和 `X-CSRF-Token`，成功后清 Cookie |
 
 登录成功响应 data 示例：
@@ -50,7 +51,7 @@
 | 状态 | 来源 | 是否持久化到 localStorage |
 | --- | --- | --- |
 | 登录态是否已确认 | `/api/v1/me` 成功或失败 | 否 |
-| actor 快照和 `csrf_token` | login 或 `/api/v1/me` 响应 | 否 |
+| actor 快照和 `csrf_token` | login、`/api/v1/me` 或 `/api/v1/auth/refresh` 响应 | 否 |
 
 不要保存：
 
@@ -167,6 +168,29 @@ export async function getCurrentActor(): Promise<AuthenticatedActor> {
 
 不要通过“本地是否有某个 cookie”判断登录态，因为 HttpOnly Cookie 不可读，且 Cookie 存在也可能已过期或服务端签名已失效。
 
+## 显式刷新登录态
+
+`GET /api/v1/me` 只用于恢复当前 actor 快照，不再作为常规续期入口。前端需要延长登录态时，应调用 `POST /api/v1/auth/refresh`，并携带当前 `X-CSRF-Token`。
+
+```ts
+type RefreshSessionResponse = AuthenticatedActor & {
+  expires_at: number;
+  max_expires_at: number;
+};
+
+export async function refreshSession(): Promise<RefreshSessionResponse> {
+  return postWithCsrf<RefreshSessionResponse>("/api/v1/auth/refresh");
+}
+```
+
+refresh 成功后：
+
+1. 如果 session 接近 idle timeout，服务端会重签并通过 `Set-Cookie` 回写新的 HttpOnly Cookie。
+2. 如果剩余 idle 时间仍高于 `AUTH_SESSION_REFRESH_THRESHOLD_SECONDS`，服务端不重写 Cookie，但仍返回当前 actor、`csrf_token`、`expires_at` 和 `max_expires_at`。
+3. 前端用返回的 actor 和 `csrf_token` 覆盖内存状态或 query cache。
+
+refresh 不会突破 absolute timeout。到达 `max_expires_at` 后，需要用户重新登录。
+
 ## 写操作和 CSRF
 
 所有受保护写操作都要带 `X-CSRF-Token`。当前 login 豁免，logout 和其他受保护写操作不豁免。
@@ -196,6 +220,7 @@ export async function postWithCsrf<T>(path: string, payload?: unknown): Promise<
 CSRF token 处理规则：
 
 - 从 login 或 `/api/v1/me` 响应获取。
+- refresh 成功后用 `/api/v1/auth/refresh` 响应中的 token 覆盖内存态。
 - 存在内存或 query cache 中。
 - 页面刷新后通过 `/api/v1/me` 重新获取。
 - 不写入 localStorage、URL、埋点或错误日志。
@@ -243,6 +268,12 @@ export function useMeQuery() {
 - `queryClient.setQueryData(authQueryKey, actor)`。
 - 调用 `setAuthContext(actor)`。
 - invalidate 依赖 actor capability 的页面数据。
+
+refresh mutation 成功后：
+
+- `queryClient.setQueryData(authQueryKey, actor)`。
+- 调用 `setAuthContext(actor)`。
+- 根据 `expires_at` 和 `max_expires_at` 安排下一次 refresh；不要依赖 `/api/v1/me` 隐式续期。
 
 登出 mutation settled 后：
 
@@ -348,6 +379,7 @@ Cookie credentials 需要前后端同时配置。前端 axios `withCredentials: 
 - API client 全局设置 axios `withCredentials: true`；如果直接使用 fetch，则设置 `credentials: "include"`。
 - 登录成功后只保存 actor 和 `csrf_token`，不处理 Cookie 原文。
 - 应用启动通过 `/api/v1/me` 恢复登录态。
+- 需要延长登录态时调用 `/api/v1/auth/refresh`，并用响应更新 actor、`csrf_token` 和过期状态。
 - 所有受保护写操作带 `X-CSRF-Token`。
 - 401 清空登录态并进入登录页。
 - 403 区分 CSRF 缺失、权限不足和业务禁止，展示 `request_id`。
