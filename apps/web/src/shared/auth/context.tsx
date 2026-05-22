@@ -32,22 +32,44 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const DEVELOPMENT_ACTOR_ID = "local_dev";
 const REFRESH_RETRY_DELAY_MS = 5_000;
 
-function clearRefreshTimer(timerRef: { current: null | number }) {
+function clearRefreshState(
+  timerRef: { current: null | number },
+  nextRefreshAtMsRef: { current: null | number },
+) {
   if (timerRef.current !== null) {
     window.clearTimeout(timerRef.current);
     timerRef.current = null;
   }
+
+  nextRefreshAtMsRef.current = null;
 }
 
 function scheduleRefreshTimer(
   timerRef: { current: null | number },
+  nextRefreshAtMsRef: { current: null | number },
   expiresAt: number,
   refresh: () => Promise<void>,
 ) {
-  clearRefreshTimer(timerRef);
+  const delayMs = getSessionRefreshDelayMs(expiresAt);
+  clearRefreshState(timerRef, nextRefreshAtMsRef);
+  nextRefreshAtMsRef.current = Date.now() + delayMs;
   timerRef.current = window.setTimeout(() => {
+    nextRefreshAtMsRef.current = null;
     void refresh();
-  }, getSessionRefreshDelayMs(expiresAt));
+  }, delayMs);
+}
+
+function scheduleRefreshRetry(
+  timerRef: { current: null | number },
+  nextRefreshAtMsRef: { current: null | number },
+  refresh: () => Promise<void>,
+) {
+  clearRefreshState(timerRef, nextRefreshAtMsRef);
+  nextRefreshAtMsRef.current = Date.now() + REFRESH_RETRY_DELAY_MS;
+  timerRef.current = window.setTimeout(() => {
+    nextRefreshAtMsRef.current = null;
+    void refresh();
+  }, REFRESH_RETRY_DELAY_MS);
 }
 
 function isDevelopmentActor(actor: AuthenticatedActor | null): boolean {
@@ -101,9 +123,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }));
   const csrfTokenRef = useRef<string | null>(null);
   const refreshTimerRef = useRef<null | number>(null);
+  const nextRefreshAtMsRef = useRef<null | number>(null);
+  const lastRefreshAttemptAtMsRef = useRef(0);
 
   const handleUnauthorized = useCallback(() => {
-    clearRefreshTimer(refreshTimerRef);
+    clearRefreshState(refreshTimerRef, nextRefreshAtMsRef);
     csrfTokenRef.current = null;
     setState(createUnauthenticatedState(!config.authEnabled));
   }, [config.authEnabled]);
@@ -138,8 +162,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const refreshAuthenticatedSession = useCallback(async () => {
     if (!config.authEnabled || !csrfTokenRef.current) {
+      clearRefreshState(refreshTimerRef, nextRefreshAtMsRef);
       return;
     }
+
+    const nowMs = Date.now();
+    if (nowMs - lastRefreshAttemptAtMsRef.current < REFRESH_RETRY_DELAY_MS) {
+      return;
+    }
+
+    lastRefreshAttemptAtMsRef.current = nowMs;
 
     try {
       const refreshedSession = await refreshCurrentSession(apiClient);
@@ -147,6 +179,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setAuthenticatedActor(refreshedSession);
       scheduleRefreshTimer(
         refreshTimerRef,
+        nextRefreshAtMsRef,
         refreshedSession.expires_at,
         refreshAuthenticatedSession,
       );
@@ -154,25 +187,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (!(error instanceof ApiError)) {
         throw error;
       }
-
       if (error.status === 401) {
+        handleUnauthorized();
         return;
       }
 
       if (error.status === 403) {
-        setState((current) => ({
-          ...current,
-          forbidden: null,
-          lastForbiddenMessage: null,
-        }));
-
         try {
           const actor = await fetchCurrentActor(apiClient);
+          setState((current) => ({
+            ...current,
+            forbidden: null,
+            lastForbiddenMessage: null,
+          }));
           setAuthenticatedActor(actor);
-          clearRefreshTimer(refreshTimerRef);
-          refreshTimerRef.current = window.setTimeout(() => {
-            void refreshAuthenticatedSession();
-          }, REFRESH_RETRY_DELAY_MS);
+          scheduleRefreshRetry(
+            refreshTimerRef,
+            nextRefreshAtMsRef,
+            refreshAuthenticatedSession,
+          );
           return;
         } catch (bootstrapError) {
           if (!(bootstrapError instanceof ApiError)) {
@@ -187,12 +220,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return;
       }
 
-      clearRefreshTimer(refreshTimerRef);
-      refreshTimerRef.current = window.setTimeout(() => {
-        void refreshAuthenticatedSession();
-      }, REFRESH_RETRY_DELAY_MS);
+      scheduleRefreshRetry(
+        refreshTimerRef,
+        nextRefreshAtMsRef,
+        refreshAuthenticatedSession,
+      );
     }
-  }, [apiClient, config.authEnabled, setAuthenticatedActor]);
+  }, [apiClient, config.authEnabled, handleUnauthorized, setAuthenticatedActor]);
 
   const bootstrap = useCallback(async () => {
     setState((current) => ({ ...current, status: "bootstrapping" }));
@@ -200,6 +234,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     try {
       const actor = await fetchCurrentActor(apiClient);
       setAuthenticatedActor(actor);
+      // `/me` only returns the actor snapshot, so we prime `/auth/refresh` once to learn
+      // the current idle expiration and start client-side refresh scheduling.
       await refreshAuthenticatedSession();
     } catch (error) {
       if (isForbidden(error)) {
@@ -221,6 +257,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     async (password: string) => {
       const actor = await loginWithPassword(apiClient, { password });
       setAuthenticatedActor(actor);
+      // Login response does not include exp/max_exp, so the explicit refresh endpoint
+      // seeds the first client-side refresh timer.
       await refreshAuthenticatedSession();
     },
     [apiClient, refreshAuthenticatedSession, setAuthenticatedActor],
@@ -243,7 +281,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void bootstrap();
   }, [bootstrap]);
 
-  useEffect(() => () => clearRefreshTimer(refreshTimerRef), []);
+  useEffect(() => () => clearRefreshState(refreshTimerRef, nextRefreshAtMsRef), []);
 
   useEffect(() => {
     if (!config.authEnabled || state.status !== "authenticated") {
@@ -251,6 +289,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
 
     const handleWindowFocus = () => {
+      if (nextRefreshAtMsRef.current !== null && Date.now() < nextRefreshAtMsRef.current) {
+        return;
+      }
+
       void refreshAuthenticatedSession();
     };
 
