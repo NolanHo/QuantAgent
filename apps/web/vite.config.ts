@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
@@ -6,9 +6,12 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 // https://vite.dev/config/
-export default defineConfig(() => {
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const isProductionBundle = command === "build";
+  const apiProxyTarget = env.VITE_DEV_API_PROXY_TARGET || "http://127.0.0.1:8000";
   const debugRouteRuntimePath =
-    process.platform !== "win32"
+    isProductionBundle || process.platform !== "win32"
       ? "./src/debug/route-api.production.ts"
       : "./src/debug/route-api.development.tsx";
 
@@ -45,7 +48,7 @@ export default defineConfig(() => {
     server: {
       proxy: {
         "/api": {
-          target: "http://127.0.0.1:8000",
+          target: apiProxyTarget,
         },
       },
       watch: {

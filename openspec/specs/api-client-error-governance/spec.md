@@ -1,6 +1,10 @@
 # API Client 与全局错误治理 Specification
 
-## ADDED Requirements
+## Purpose
+
+定义 `apps/web/src/shared/api/` 的统一 envelope 解包、鉴权注入、401/403 收口、错误元数据保留与请求生命周期治理边界。
+
+## Requirements
 
 ### Requirement: Shared API Module
 
@@ -35,46 +39,62 @@
 
 ### Requirement: Authentication Injection
 
-API client SHALL 支持可开关的 Bearer token 注入。
+API client SHALL 以 Cookie Session 为主鉴权路径，并集中处理前端 auth bootstrap 相关 header 注入。
 
-#### Scenario: Authorization header is injected when auth is enabled
+#### Scenario: Cookie-session requests keep credentials enabled
 
-- **WHEN** `authEnabled` 为 `true`
-- **AND** token provider 或本地存储中存在 token
-- **THEN** 请求头包含 `Authorization: Bearer <token>`
+- **WHEN** 前端通过默认 shared API client 发起请求
+- **THEN** 请求保留 `withCredentials=true`
+- **AND** 浏览器可自动携带 HttpOnly session cookie
 
-#### Scenario: Authorization stays disabled by default
+#### Scenario: CSRF header is injected from auth bootstrap state
 
-- **WHEN** 使用默认 `apiClient`
-- **THEN** 不注入 `Authorization` header
+- **WHEN** 当前前端 auth bootstrap 状态中存在 `csrf_token`
+- **AND** 调用受保护写请求或 logout
+- **THEN** shared API client 统一注入 `X-CSRF-Token`
+- **AND** 页面组件不需要手写该 header
+
+#### Scenario: Bearer token injection is not the primary auth path
+
+- **WHEN** 实现本地单用户 Cookie Session 登录接入
+- **THEN** shared API client 不要求从本地存储读取 Bearer token 才能完成本轮登录态管理
+- **AND** 登录页、`GET /api/v1/me` bootstrap、`POST /api/v1/auth/logout` 和受保护写请求都不得以 Bearer token 作为成立前提
+
+#### Scenario: Compatibility extension does not redefine the main auth path
+
+- **WHEN** 实现仍临时保留 Bearer token 或 refresh 相关扩展点
+- **THEN** 这些扩展点只能被视为兼容保留
+- **AND** 不得把本轮主鉴权路径从 Cookie Session + `X-CSRF-Token` 改回 token 驱动
 
 ### Requirement: 401 Silent Refresh
 
-API client SHALL 集中处理 401 场景。
+API client SHALL 集中处理 401 场景，但在本地单用户 Cookie Session 登录接入中，401 的默认收口是未登录态恢复，而不是前端 refresh token 流程。
 
-#### Scenario: Refresh succeeds and request is replayed
+#### Scenario: Unauthorized error calls the centralized unauthorized handler
 
-- **WHEN** 原始请求返回 401
-- **AND** 已配置 `refreshAccessToken`
-- **AND** refresh 成功
-- **THEN** client 重放原始请求并返回结果
+- **WHEN** 受保护请求返回 401
+- **THEN** shared API client 调用统一 `onUnauthorized`
+- **AND** 调用方可以通过该入口清理前端 auth bootstrap 状态
 
-#### Scenario: Concurrent 401 shares one refresh promise
+#### Scenario: Cookie-session login flow does not require refresh token replay
 
-- **WHEN** 多个请求同时返回 401
-- **AND** 已配置 `refreshAccessToken`
-- **THEN** 仅触发一次 refresh 调用
-- **AND** 各请求等待同一 refresh promise
+- **WHEN** 本轮前端消费 `/auth/login`、`/auth/logout` 与 `/me`
+- **THEN** shared API client 不依赖 refresh token endpoint、cookie refresh 或请求重放才能完成既定登录流程
 
-#### Scenario: Refresh failure escalates unauthorized
+#### Scenario: Unauthorized handling remains centralized
 
-- **WHEN** refresh 失败
-- **THEN** client 调用 `onUnauthorized`
-- **AND** 抛出 `ApiError`
+- **WHEN** 页面或 feature 模块调用 shared API client
+- **THEN** 401 行为通过统一入口处理
+- **AND** 页面组件不各自维护跳转登录页和状态清理逻辑
+
+#### Scenario: Sensitive auth failures do not leak values
+
+- **WHEN** shared API client 处理 401、403 或 CSRF 相关失败
+- **THEN** 前端错误对象、共享状态和日志中不暴露 session cookie、cookie value、password、password hash、signing secret、真实 token 或私有策略原文
 
 ### Requirement: Error Governance
 
-前端 SHALL 统一封装 API 失败语义。
+前端 SHALL 统一封装 API 失败语义，并为 capability guard 与 403 权限不足 UX 提供稳定的错误元数据。
 
 #### Scenario: ApiError preserves metadata
 
@@ -92,6 +112,19 @@ API client SHALL 集中处理 401 场景。
 
 - **WHEN** client 产生 `ApiError`
 - **THEN** 若配置了 `onError`，该 hook 会收到统一错误对象
+
+#### Scenario: Forbidden error remains distinguishable from generic network failures
+
+- **WHEN** shared API client 收到 403 响应
+- **THEN** 前端错误对象保留权限不足语义与元数据
+- **AND** capability guard 或页面 UI 可以基于该对象渲染统一 forbidden 体验
+- **AND** 403 不会被伪装成普通网络错误
+
+#### Scenario: Forbidden diagnostics stay available without leaking secrets
+
+- **WHEN** 403 响应附带 `request_id` 或 `trace_id`
+- **THEN** shared API client SHALL 把这些字段保留到 `ApiError`
+- **AND** 前端错误对象、共享状态和日志中仍不暴露 session cookie、cookie value、password、password hash、signing secret、真实 token 或私有策略原文
 
 ### Requirement: Lifecycle And Request Deduplication
 

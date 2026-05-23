@@ -1,6 +1,10 @@
 # Router Layout Specification
 
-## ADDED Requirements
+## Purpose
+
+定义 QuantAgent Web 管理台路由层的稳定布局契约，包括 TanStack Router 集成、后台主布局、导航入口、占位页、响应式行为和开发态 Devtools 边界。
+
+## Requirements
 
 ### Requirement: TanStack Router Integration
 
@@ -27,8 +31,9 @@ router context SHALL 包含 capabilities 字段，用于后续权限校验。当
 
 #### Scenario: Layout structure renders
 
-- **WHEN** 应用加载任意路由
-- **THEN** 左侧显示 240px 固定侧边栏，包含 Events、Runtime、Approvals、Plugins、Settings 导航入口
+- **WHEN** 应用加载任意已注册路由
+- **THEN** 左侧显示固定侧边栏，包含 Events、Runtime、Approvals、Plugins、Skills、Tools、Industries、Settings 导航入口
+- **AND** `/debug` 不出现在正式侧边导航中
 - **AND** 顶部显示面包屑导航，反映当前路由路径
 - **AND** 主体区域渲染子路由内容
 
@@ -38,7 +43,7 @@ router context SHALL 包含 capabilities 字段，用于后续权限校验。当
 
 #### Scenario: Placeholder pages exist
 
-- **WHEN** 开发者导航到 /events、/runtime、/approvals、/plugins、/settings
+- **WHEN** 开发者导航到 /events、/runtime、/approvals、/plugins、/skills、/tools、/industries、/settings
 - **THEN** 每个页面渲染对应标题和分区描述面板
 - **AND** 根路径 / 重定向到 /events
 
