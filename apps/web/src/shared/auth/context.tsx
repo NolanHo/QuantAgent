@@ -215,6 +215,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
           if (bootstrapError.status !== 401) {
             throw bootstrapError;
           }
+
+          handleUnauthorized();
         }
 
         return;

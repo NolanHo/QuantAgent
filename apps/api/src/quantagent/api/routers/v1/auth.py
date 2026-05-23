@@ -46,8 +46,8 @@ def _actor_response(actor: CurrentActor) -> AuthenticatedActorResponse:
 def _refresh_response(
     actor: CurrentActor,
     *,
-    expires_at: int | None,
-    max_expires_at: int | None,
+    expires_at: int,
+    max_expires_at: int,
 ) -> RefreshSessionResponse:
     """构造 refresh 响应 DTO，显式返回 actor 快照、稳定 CSRF 和当前过期状态。"""
     return RefreshSessionResponse(
