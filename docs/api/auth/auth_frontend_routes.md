@@ -45,6 +45,7 @@
 | 方法 | 路径 | 是否公开 | 说明 |
 | --- | --- | --- | --- |
 | POST | `/auth/login` | 是 | 本地管理员登录 |
+| POST | `/auth/refresh` | 否 | 显式刷新 session，需要 CSRF |
 | POST | `/auth/logout` | 否 | 登出，需要 CSRF |
 | GET | `/me` | 否 | 当前登录用户信息 |
 
@@ -119,7 +120,46 @@
 - 渲染权限相关 UI
 - 取出 `csrf_token` 给后续写操作使用
 
-### 3. `POST /api/v1/auth/logout`
+### 3. `POST /api/v1/auth/refresh`
+
+用途：显式刷新当前 session 的 idle 过期时间，并返回最新 actor 快照和当前过期状态。
+
+请求头：
+
+- `X-CSRF-Token: <csrf_token>`
+
+成功返回 `data`：
+
+```json
+{
+  "actor_id": "local_admin",
+  "actor_type": "local_single_user",
+  "capabilities": [
+    "approval.amend",
+    "approval.approve",
+    "executor.dry_run",
+    "plugin.configure",
+    "plugin.install",
+    "runtime.inspect",
+    "secret.manage"
+  ],
+  "csrf_token": "token-string",
+  "expires_at": 1710000000,
+  "max_expires_at": 1710043200
+}
+```
+
+说明：
+
+- 必须先完成登录，并携带有效 session cookie
+- 必须携带当前 actor 对应的 `X-CSRF-Token`
+- 只有 session 剩余 idle 时间小于等于 `AUTH_SESSION_REFRESH_THRESHOLD_SECONDS` 时，后端才会重签并回写 session cookie
+- refresh 不会突破 `max_expires_at` 代表的 absolute timeout
+- `GET /me` 不再作为常规续期入口；前端需要延长登录态时应调用本接口
+- 缺少、无效或过期 session 返回 `401`；CSRF token 缺失或错误返回 `403`
+- 开发环境如果 `AUTH_ENABLED=false`，本接口没有可刷新的真实 session，会返回 `401`
+
+### 4. `POST /api/v1/auth/logout`
 
 用途：登出当前会话。
 
@@ -145,13 +185,13 @@
 
 ## 鉴权规则
 
-- 这三个接口以外，前端当前不应依赖其他 `apps/api` 路由
+- 上述认证接口以外，前端当前不应依赖其他 `apps/api` 路由
 - cookie 是 `HttpOnly`，前端 JavaScript 不能读
-- 受保护写操作需要 `X-CSRF-Token`，当前认证路由中 `POST /auth/logout` 需要该请求头
+- 受保护写操作需要 `X-CSRF-Token`，当前认证路由中 `POST /auth/refresh` 与 `POST /auth/logout` 都需要该请求头
 - 受保护读操作不需要 CSRF，但需要有效 session cookie
 - session cookie 默认名为 `quantagent_session`
 - 默认 CSRF header 名为 `X-CSRF-Token`
-- session 默认有效期为 43200 秒
+- idle timeout 默认 43200 秒，absolute timeout 默认 86400 秒
 
 ## 运行时配置摘要
 
@@ -163,18 +203,21 @@
 | `AUTH_COOKIE_NAME` | `quantagent_session` | session cookie 名称 |
 | `AUTH_COOKIE_SECURE` | 生产环境默认 `true`，其他环境默认 `false` | 是否只允许 HTTPS 发送 cookie |
 | `AUTH_COOKIE_SAME_SITE` | `lax` | 可取 `lax`、`strict`、`none`；`none` 必须配合 secure cookie |
-| `AUTH_SESSION_LIFETIME_SECONDS` | `43200` | session 有效期，最小 300 秒 |
+| `AUTH_SESSION_LIFETIME_SECONDS` | `43200` | session idle timeout，最小 300 秒 |
+| `AUTH_SESSION_ABSOLUTE_LIFETIME_SECONDS` | `86400` | session absolute timeout 上限 |
+| `AUTH_SESSION_REFRESH_THRESHOLD_SECONDS` | `1800` | 显式 refresh 触发重签的剩余 idle 阈值 |
 | `AUTH_CSRF_HEADER_NAME` | `X-CSRF-Token` | CSRF 请求头名称 |
 
 生产环境会拒绝关闭认证、弱默认密码、弱默认 session secret 和非 secure cookie。
 
 ## 前端接入建议
 
-1. 登录成功后，立刻调用一次 `GET /me`，以同步当前用户和权限。
-2. 在内存态保存 `csrf_token`，发起写操作时放到请求头。
-3. `fetch` 请求设置 `credentials: "include"`；Axios 请求设置 `withCredentials: true`。
-4. 遇到 `401` 时，通常意味着登录态失效或未登录。
-5. 遇到 `403` 时，通常意味着缺少权限或 CSRF token 不合法。
+1. 登录成功后可直接使用响应里的 actor/capabilities/`csrf_token`；应用刷新或冷启动时再通过 `GET /me` bootstrap。
+2. 需要延长登录态时调用 `POST /auth/refresh`，不要依赖 `GET /me` 隐式续期。
+3. 在内存态保存 `csrf_token`，发起写操作时放到请求头。
+4. `fetch` 请求设置 `credentials: "include"`；Axios 请求设置 `withCredentials: true`。
+5. 遇到 `401` 时，通常意味着登录态失效或未登录。
+6. 遇到 `403` 时，通常意味着缺少权限或 CSRF token 不合法。
 
 ## 示例请求
 
@@ -192,6 +235,15 @@ curl -i \
 ```bash
 curl -i \
   http://127.0.0.1:8000/api/v1/me \
+  --cookie "quantagent_session=..."
+```
+
+刷新 session：
+
+```bash
+curl -i \
+  -X POST http://127.0.0.1:8000/api/v1/auth/refresh \
+  -H "X-CSRF-Token: your-csrf-token" \
   --cookie "quantagent_session=..."
 ```
 

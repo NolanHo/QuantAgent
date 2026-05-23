@@ -100,14 +100,15 @@ curl -i http://127.0.0.1:8000/api/v1/ready
 
 - 当前 API 初版采用本地单用户 Cookie Session 鉴权，不实现注册、RBAC、多用户、多租户、OAuth 或 SSO。
 - public 路由白名单仅包含 `GET /api/v1/health`、`GET /api/v1/ready`、`GET /api/v1/version` 和 `POST /api/v1/auth/login`；其余 API v1 routes 默认 protected。
-- 登录入口为 `POST /api/v1/auth/login`，请求体使用本地管理员口令；成功后仅通过 HttpOnly cookie 建立 session。
+- 登录入口为 `POST /api/v1/auth/login`，请求体使用本地管理员口令；成功后仅通过 HttpOnly cookie 建立 v2 session。
+- 显式续期入口为 `POST /api/v1/auth/refresh`，必须同时具备有效 session 和 `X-CSRF-Token`；只有接近 idle timeout 时才会回写新的 cookie。
 - 登出入口为 `POST /api/v1/auth/logout`，必须同时具备有效 session 和 `X-CSRF-Token`。
 - 当前用户快照入口为 `GET /api/v1/me`，返回 `actor_id`、`actor_type`、`capabilities` 和非敏感 `csrf_token`，不返回 session、cookie、secret、口令或 hash。
+- `/api/v1/me` 不再作为主要 refresh 入口；仅在识别旧 v1 cookie 时执行一次兼容升级。
 - 非 production 的 `/api/v1/debug/*` 仍会注册到 OpenAPI，但默认按 protected route 处理，不加入 public allowlist。
-- `GET /api/v1/me` 在 session 模式下会自动续期，并回写新的 HttpOnly cookie 与 `csrf_token`。
 - Cookie 默认 `HttpOnly` 且 `SameSite=Lax`；`APP_ENV=production` 下要求 `Secure=true`。
 - `AUTH_ENABLED=false` 仅允许 `APP_ENV=development`；此时依赖会返回 `local_dev` actor，避免下游审计上下文为空。
-- Cookie Session 写操作通过 `X-CSRF-Token` header 做 CSRF 校验；login 豁免，logout 和受保护写操作不豁免。
+- Cookie Session 写操作通过 `X-CSRF-Token` header 做 CSRF 校验；login 豁免，refresh/logout 和受保护写操作不豁免。
 - `quantagent.api.routers.v1.register` 中的 `STANDARD_API_V1_ROUTER_REGISTRATIONS` 与 registration helper 是 public/protected 真源；README、OpenAPI 或 route-level ad hoc dependency 只用于说明与补充，不替代该边界。
 
 ### Auth 环境变量
@@ -118,7 +119,9 @@ curl -i http://127.0.0.1:8000/api/v1/ready
 - `AUTH_COOKIE_NAME`：session cookie 名称，默认 `quantagent_session`。
 - `AUTH_COOKIE_SECURE`：是否对 session cookie 启用 `Secure`；production 默认强制安全值。
 - `AUTH_COOKIE_SAME_SITE`：cookie same-site 策略，默认 `lax`。
-- `AUTH_SESSION_LIFETIME_SECONDS`：session 生命周期，默认 `43200`。
+- `AUTH_SESSION_LIFETIME_SECONDS`：idle timeout 窗口，默认 `43200`。
+- `AUTH_SESSION_ABSOLUTE_LIFETIME_SECONDS`：absolute timeout 上限，默认 `86400`。
+- `AUTH_SESSION_REFRESH_THRESHOLD_SECONDS`：显式 refresh 触发重签的剩余 idle 阈值，默认 `1800`。
 - `AUTH_CSRF_HEADER_NAME`：CSRF header 名称，默认 `X-CSRF-Token`。
 
 ### 新增 route 流程

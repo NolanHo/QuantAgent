@@ -17,14 +17,20 @@ from quantagent.api.auth.audit import ActorAuditContext, build_actor_audit_conte
 from quantagent.api.auth.capability import require_capability
 from quantagent.api.auth.csrf import require_csrf
 from quantagent.api.auth.session import (
+    AuthState,
+    IssuedSession,
+    SessionData,
     authenticate_admin_password,
     clear_session_cookie,
     development_bypass_actor,
     get_current_actor,
     issue_session,
     refresh_session,
+    resolve_auth_state,
     resolve_current_actor,
+    session_cookie_max_age,
     set_session_cookie,
+    upgrade_v1_session,
 )
 
 __all__ = [
@@ -32,9 +38,11 @@ __all__ = [
     "APPROVAL_AMEND_CAPABILITY",
     "APPROVAL_APPROVE_CAPABILITY",
     "ActorAuditContext",
+    "AuthState",
     "CurrentActor",
     "DEVELOPMENT_BYPASS_CSRF_TOKEN",
     "EXECUTOR_DRY_RUN_CAPABILITY",
+    "IssuedSession",
     "LOCAL_ACTOR_TYPE",
     "LOCAL_ADMIN_ACTOR_ID",
     "LOCAL_DEV_ACTOR_ID",
@@ -42,6 +50,7 @@ __all__ = [
     "PLUGIN_INSTALL_CAPABILITY",
     "RUNTIME_INSPECT_CAPABILITY",
     "SECRET_MANAGE_CAPABILITY",
+    "SessionData",
     "authenticate_admin_password",
     "build_actor_audit_context",
     "clear_session_cookie",
@@ -51,6 +60,9 @@ __all__ = [
     "refresh_session",
     "require_capability",
     "require_csrf",
+    "resolve_auth_state",
     "resolve_current_actor",
+    "session_cookie_max_age",
     "set_session_cookie",
+    "upgrade_v1_session",
 ]

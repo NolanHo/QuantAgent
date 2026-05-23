@@ -23,6 +23,8 @@ class Settings(CoreSettings):
     AUTH_COOKIE_SECURE: bool | None = None
     AUTH_COOKIE_SAME_SITE: Literal["lax", "strict", "none"] = "lax"
     AUTH_SESSION_LIFETIME_SECONDS: int = Field(default=43200, ge=300)
+    AUTH_SESSION_ABSOLUTE_LIFETIME_SECONDS: int = Field(default=86400, ge=300)
+    AUTH_SESSION_REFRESH_THRESHOLD_SECONDS: int = Field(default=1800, ge=0)
     AUTH_CSRF_HEADER_NAME: str = "X-CSRF-Token"
 
     @field_validator("AUTH_COOKIE_SAME_SITE", mode="before")
@@ -39,7 +41,6 @@ class Settings(CoreSettings):
         if self.AUTH_SESSION_SECRET is not None:
             self.AUTH_SESSION_SECRET = self.AUTH_SESSION_SECRET.strip()
 
-        # 未显式配置时按环境推导 cookie secure，production 默认必须收紧。
         if self.AUTH_COOKIE_SECURE is None:
             self.AUTH_COOKIE_SECURE = self.is_production
 
@@ -49,8 +50,6 @@ class Settings(CoreSettings):
         if not self.AUTH_ENABLED and environment != "development":
             raise ValueError("AUTH_ENABLED=false is only allowed when APP_ENV=development")
 
-        # 只有 development/test/local 才自动兜底弱默认；staging 等环境必须显式提供。
-        # production 仍会额外做强校验，拒绝弱默认和关闭鉴权。
         is_dev_or_test = environment in {"development", "test", "local"}
 
         if not self.AUTH_ADMIN_PASSWORD:
@@ -65,7 +64,6 @@ class Settings(CoreSettings):
             elif not self.is_production:
                 raise ValueError("AUTH_SESSION_SECRET is required when APP_ENV is not development/test/local")
 
-        # production 不允许弱默认或关闭鉴权，避免部署时静默裸奔。
         if self.is_production:
             if not self.AUTH_COOKIE_SECURE:
                 raise ValueError("Production session cookie must be secure")

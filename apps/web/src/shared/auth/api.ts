@@ -1,6 +1,11 @@
 import type { ApiClient } from "@/shared/api";
 
-import type { AuthenticatedActor, LoginPayload, LogoutResponse } from "./types";
+import type {
+  AuthenticatedActor,
+  LoginPayload,
+  LogoutResponse,
+  RefreshedSession,
+} from "./types";
 
 export function loginWithPassword(
   apiClient: ApiClient,
@@ -23,4 +28,14 @@ export function logoutSession(apiClient: ApiClient): Promise<LogoutResponse> {
   return apiClient.post<undefined, LogoutResponse>("/auth/logout", undefined, {
     dedupeKey: false,
   });
+}
+
+export function refreshCurrentSession(
+  apiClient: ApiClient,
+): Promise<RefreshedSession> {
+  return apiClient.post<undefined, RefreshedSession>(
+    "/auth/refresh",
+    undefined,
+    { dedupeKey: false },
+  );
 }

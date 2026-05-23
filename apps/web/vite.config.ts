@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 // https://vite.dev/config/
@@ -9,6 +10,10 @@ export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const isProductionBundle = command === "build";
   const apiProxyTarget = env.VITE_DEV_API_PROXY_TARGET || "http://127.0.0.1:8000";
+  const debugRouteRuntimePath =
+    isProductionBundle || process.platform !== "win32"
+      ? "./src/debug/route-api.production.ts"
+      : "./src/debug/route-api.development.tsx";
 
   return {
     plugins: [
@@ -32,14 +37,7 @@ export default defineConfig(({ command, mode }) => {
       alias: [
         {
           find: /^@\/debug\/route-api\.runtime$/,
-          replacement: fileURLToPath(
-            new URL(
-              isProductionBundle
-                ? "./src/debug/route-api.production.ts"
-                : "./src/debug/route-api.development.tsx",
-              import.meta.url,
-            ),
-          ),
+          replacement: fileURLToPath(new URL(debugRouteRuntimePath, import.meta.url)),
         },
         {
           find: "@",

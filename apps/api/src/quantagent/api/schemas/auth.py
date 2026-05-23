@@ -18,6 +18,11 @@ class AuthenticatedActorResponse(BaseModel):
     csrf_token: str = Field(min_length=1)
 
 
+class RefreshSessionResponse(AuthenticatedActorResponse):
+    expires_at: int
+    max_expires_at: int
+
+
 class LogoutResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
