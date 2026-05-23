@@ -2,44 +2,59 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [
-    tanstackRouter({
-      target: "react",
-      autoCodeSplitting: true,
-    }),
-    react(),
-    tailwindcss(),
-  ],
-  resolve: {
-    dedupe: [
-      "react",
-      "react-dom",
-      "@tanstack/react-query",
-      "@tanstack/react-router",
-      "@tanstack/router-core",
-      "@heroui/react",
-      "@heroui/system",
+export default defineConfig(() => {
+  const debugRouteRuntimePath =
+    process.platform !== "win32"
+      ? "./src/debug/route-api.production.ts"
+      : "./src/debug/route-api.development.tsx";
+
+  return {
+    plugins: [
+      tanstackRouter({
+        target: "react",
+        autoCodeSplitting: true,
+      }),
+      react(),
+      tailwindcss(),
     ],
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-    },
-  },
-  server: {
-    proxy: {
-      "/api": {
-        target: "http://127.0.0.1:8000",
-      },
-    },
-    watch: {
-      ignored: [
-        "**/playwright-report/**",
-        "**/test-results/**",
-        "**/playwright/.cache/**",
+    resolve: {
+      dedupe: [
+        "react",
+        "react-dom",
+        "@tanstack/react-query",
+        "@tanstack/react-router",
+        "@tanstack/router-core",
+        "@heroui/react",
+        "@heroui/system",
+      ],
+      alias: [
+        {
+          find: /^@\/debug\/route-api\.runtime$/,
+          replacement: fileURLToPath(new URL(debugRouteRuntimePath, import.meta.url)),
+        },
+        {
+          find: "@",
+          replacement: fileURLToPath(new URL("./src", import.meta.url)),
+        },
       ],
     },
-  },
+    server: {
+      proxy: {
+        "/api": {
+          target: "http://127.0.0.1:8000",
+        },
+      },
+      watch: {
+        ignored: [
+          "**/playwright-report/**",
+          "**/test-results/**",
+          "**/playwright/.cache/**",
+        ],
+      },
+    },
+  };
 });
