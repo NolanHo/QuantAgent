@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   getDebugPluginFixture,
+  saveDebugPluginConfig,
   validateDebugPluginConfig,
 } from './mock'
 
@@ -23,5 +24,17 @@ describe('plugin config debug mock validation', () => {
         expect.objectContaining({ path: 'auth.clientSecret' }),
       ]),
     )
+  })
+
+  it('rejects production environment after trimming whitespace in save guard', async () => {
+    const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
+    expect(fixture).not.toBeNull()
+
+    await expect(
+      saveDebugPluginConfig(fixture!.schema, {
+        ...fixture!.config.values,
+        environment: ' production ',
+      }),
+    ).rejects.toThrow('调试页 mock save 拒绝直接把环境切换为 production。')
   })
 })

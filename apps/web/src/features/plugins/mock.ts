@@ -472,7 +472,7 @@ export async function saveDebugPluginConfig(
 ): Promise<PluginConfigSaveResult> {
   await delay(220)
 
-  if (values.environment === 'production') {
+  if ((values.environment ?? '').trim().toLowerCase() === 'production') {
     throw new Error('调试页 mock save 拒绝直接把环境切换为 production。')
   }
 

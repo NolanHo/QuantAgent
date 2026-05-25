@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test'
 
 test('renders the debug plugin config form route in development', async ({ page }) => {
-  test.setTimeout(90_000)
-
   await page.route('**/api/v1/me', async (route) => {
     await route.fulfill({
       body: JSON.stringify({
@@ -55,9 +53,7 @@ test('renders the debug plugin config form route in development', async ({ page 
 
   await page.goto('/debug/plugin-config-form')
 
-  await expect(page.getByRole('heading', { name: '插件配置调试表单' })).toBeVisible({
-    timeout: 60_000,
-  })
+  await expect(page.getByRole('heading', { name: '插件配置调试表单' })).toBeVisible()
   await expect(page.getByRole('button', { name: '触发保存' })).toBeVisible()
   await expect(page.getByText('Schema Inspect')).toBeVisible()
 })

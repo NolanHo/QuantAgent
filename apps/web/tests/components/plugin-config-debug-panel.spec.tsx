@@ -8,6 +8,7 @@ test('renders debug plugin config panel and surfaces validation errors', async (
 
   await expect(component.getByRole('heading', { name: '复杂 Zod 样例' })).toBeVisible()
   await expect(component.getByText('Schema Inspect')).toBeVisible()
+  await expect(component.getByLabel('Client Secret')).toHaveAttribute('type', 'password')
 
   const pluginIdInput = component.getByLabel('插件 ID')
   await pluginIdInput.fill('bad-uuid')

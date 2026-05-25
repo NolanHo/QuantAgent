@@ -261,13 +261,14 @@ function renderFieldInput(
 
   return (
     <input
+      autoComplete={definition.sensitive ? 'new-password' : undefined}
       aria-label={definition.label}
       onChange={(event) => {
         onChange(definition.path, event.target.value)
       }}
       placeholder={definition.placeholder ?? definition.examples?.[0] ?? ''}
       style={inputStyle}
-      type="text"
+      type={definition.sensitive ? 'password' : 'text'}
       value={value}
     />
   )
