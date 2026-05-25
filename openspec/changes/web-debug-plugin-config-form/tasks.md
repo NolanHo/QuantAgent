@@ -14,7 +14,7 @@
 
 ## 3. Shared Data Flow And Mock Isolation
 
-- [ ] 3.1 在 `src/shared/api/**` 或 `src/features/plugins/**` 中定义 `config-schema`、当前配置、校验、保存的共享 API/query/mutation 边界。
+- [ ] 3.1 在 `apps/web/src/shared/api/**` 或 `apps/web/src/features/plugins/**` 中定义 `config-schema`、当前配置、校验、保存的共享 API/query/mutation 边界。
 - [ ] 3.2 如果后端接口未 ready，增加仅供 debug/测试使用的稳定 mock adapter，并避免页面组件直接分叉真实接口与 mock 逻辑。
 - [ ] 3.3 统一字段级校验错误映射、保存成功/失败反馈和 request error 展示方式，保持与既有 API envelope 处理一致。
 
