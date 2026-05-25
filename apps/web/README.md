@@ -50,3 +50,10 @@
 - `playwright.config.ts` owns page-level E2E, while `playwright-ct.config.ts` owns Component Testing so CT-only lifecycle hooks do not leak into E2E runs.
 - CT-wide provider wiring and jest-dom matcher setup live under `tests/components/setup.ts` and are loaded through `playwright/index.tsx`.
 - The CT project keeps the `@` alias aligned with the main app and intentionally omits the TanStack Router Vite plugin until route-generation compatibility is needed.
+
+## Debug Plugin Config Form
+
+- `/debug/plugin-config-form` 是 development-only 调试页，用于验证插件配置 schema-driven form 的首版边界，不进入正式 `/plugins` 导航。
+- 当前优先兼容 `Zod authoring -> zod-to-json-schema` 来源链路，并以复杂 fixture 覆盖嵌套对象、数组、record、discriminated union、default 和敏感字段掩码。
+- 当前后端只稳定提供 `GET /api/v1/plugins/{plugin_id}/config-schema`；debug 页会复用该标题信息，但当前配置、校验和保存流程仍通过 `apps/web/src/features/plugins/mock.ts` 中的隔离 mock adapter 承接。
+- 首版显式区分 `supported`、`degraded` 和 `unsupported` 结构；不支持插件注入自定义前端组件，也不把该页扩展为通用 schema playground。

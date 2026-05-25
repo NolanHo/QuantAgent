@@ -5,6 +5,7 @@ import type { CSSProperties } from 'react'
 import { PageEmpty } from '../app/components/PageEmpty'
 import { PageLoading } from '../app/components/PageLoading'
 import { PlaceholderPanel } from '../app/components/PlaceholderPanel'
+import { PluginConfigDebugPanel } from '../features/plugins'
 import { loadRuntimeConfig } from '../shared/config'
 import type { DebugRouteApi } from './route-api'
 
@@ -274,6 +275,10 @@ function DebugWorkbenchIndexPage() {
           title="路由实验场"
           copy="验证路由 search params、未知状态处理和本地 fallback 行为。"
         />
+        <PlaceholderPanel
+          title="插件配置表单"
+          copy="验证 schema-driven form、敏感字段掩码和 Zod 来源 schema 兼容边界。"
+        />
       </section>
 
       <section style={actionRowStyle} aria-label="调试路由快捷入口">
@@ -289,7 +294,28 @@ function DebugWorkbenchIndexPage() {
         <Link to="/debug/route-playground" style={secondaryButtonStyle}>
           打开路由实验场
         </Link>
+        <Link to="/debug/plugin-config-form" style={secondaryButtonStyle}>
+          打开插件配置表单
+        </Link>
       </section>
+    </>
+  )
+}
+
+function DebugPluginConfigFormPage() {
+  return (
+    <>
+      <section className="page-header">
+        <p className="page-kicker">仅开发环境</p>
+        <h1 className="page-title">插件配置调试表单</h1>
+        <p className="page-description">
+          用于在 `/debug` 下受控验证插件配置 schema-driven form 首版能力。当前优先覆盖
+          Zod authoring -&gt; zod-to-json-schema 来源链路、敏感字段掩码和保存状态机，不作为正式
+          `/plugins` 功能交付。
+        </p>
+      </section>
+
+      <PluginConfigDebugPanel />
     </>
   )
 }
@@ -512,20 +538,48 @@ function DebugRoutePlaygroundPage({ preview }: { preview?: DebugRoutePreview }) 
 
 export const debugRouteApi: DebugRouteApi = {
   attachDebugRoutes: (routeTree) => {
-    const rootChildren: AnyRoute[] = Array.isArray(routeTree.children) ? routeTree.children : []
-    const workspaceRoute = rootChildren.find((child: AnyRoute) => child.id === '/_app/(workspace)')
-    const workspaceChildren: AnyRoute[] = Array.isArray(workspaceRoute?.children)
-      ? workspaceRoute.children
-      : []
-
-    if (
-      workspaceChildren.some((child: AnyRoute) => child.id === '/debug' || child.fullPath === '/debug')
-    ) {
-      return routeTree
+    function getRouteOptions(route: AnyRoute | null | undefined): {
+      id?: string
+      path?: string
+    } {
+      return (route?.options ?? {}) as { id?: string; path?: string }
     }
+
+    function getRouteId(route: AnyRoute | null | undefined): string | undefined {
+      return route?.id || getRouteOptions(route).id
+    }
+
+    function getRoutePath(route: AnyRoute | null | undefined): string | undefined {
+      return route?.fullPath || route?.path || getRouteOptions(route).path
+    }
+
+    function getRouteChildren(route: AnyRoute | null | undefined): AnyRoute[] {
+      const children = route?.children
+      if (Array.isArray(children)) {
+        return children
+      }
+      if (children && typeof children === 'object') {
+        return Object.values(children) as AnyRoute[]
+      }
+      return []
+    }
+
+    const rootChildren = getRouteChildren(routeTree)
+    const workspaceRoute =
+      rootChildren.find((child) => getRouteId(child) === '/_app/(workspace)') ?? null
 
     if (!workspaceRoute) {
       throw new Error('未找到 /_app/(workspace) layout route，无法挂载开发态 /debug 工作台。')
+    }
+
+    const workspaceChildren = getRouteChildren(workspaceRoute)
+
+    if (
+      workspaceChildren.some(
+        (child: AnyRoute) => getRouteId(child) === '/_app/(workspace)/debug' || getRoutePath(child) === '/debug',
+      )
+    ) {
+      return routeTree
     }
 
     const debugRoute = createRoute({
@@ -583,6 +637,12 @@ export const debugRouteApi: DebugRouteApi = {
       },
     })
 
+    const debugPluginConfigFormRoute = createRoute({
+      getParentRoute: () => debugRoute,
+      path: 'plugin-config-form',
+      component: DebugPluginConfigFormPage,
+    })
+
     const debugErrorFallbackRouteTree = debugErrorFallbackRoute.addChildren([debugErrorFallbackThrowRoute])
     const debugRouteTree = debugRoute.addChildren([
       debugIndexRoute,
@@ -590,17 +650,10 @@ export const debugRouteApi: DebugRouteApi = {
       debugRuntimeConfigRoute,
       debugErrorFallbackRouteTree,
       debugRoutePlaygroundRoute,
+      debugPluginConfigFormRoute,
     ])
 
-    const workspaceRouteWithDebugChildren = workspaceRoute.addChildren([
-      ...workspaceChildren,
-      debugRouteTree,
-    ])
-
-    const nextRootChildren = rootChildren.map((child: AnyRoute) =>
-      child.id === '/_app/(workspace)' ? workspaceRouteWithDebugChildren : child,
-    )
-
-    return routeTree.addChildren(nextRootChildren)
+    workspaceRoute.addChildren([...workspaceChildren, debugRouteTree])
+    return routeTree
   },
 }
