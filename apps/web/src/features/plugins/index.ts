@@ -1,1 +1,1 @@
-export * from './debug-config-form'
+export * from './config-form'
