@@ -68,10 +68,6 @@ export function joinArrayDraftValue(items: string[]): string {
   return items.map((entry) => entry.trim()).join(',')
 }
 
-export function fieldRequirementCopy(definition: PluginConfigFieldDefinition): string {
-  return definition.required ? '必填' : '可选'
-}
-
 export function fieldConstraintCopies(definition: PluginConfigFieldDefinition): string[] {
   const constraints = definition.constraints
   const copies: string[] = []

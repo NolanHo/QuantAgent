@@ -11,7 +11,6 @@ import {
 } from './PluginConfigDebug.styles'
 import {
   fieldConstraintCopies,
-  fieldRequirementCopy,
   joinArrayDraftValue,
   splitArrayDraftItems,
   splitArrayPreview,
@@ -149,6 +148,7 @@ export function PluginConfigField({
   value,
 }: PluginConfigFieldProps) {
   const constraintCopies = fieldConstraintCopies(definition)
+  const requirementCopy = definition.required && value.trim().length > 0 ? null : definition.required ? '必填' : '可选'
 
   return (
     <label style={fieldStyle}>
@@ -158,10 +158,15 @@ export function PluginConfigField({
       <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
         {definition.description}
       </span>
-      <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
-        {fieldRequirementCopy(definition)}
-        {constraintCopies.length > 0 ? ` · ${constraintCopies.join(' · ')}` : ''}
-      </span>
+      {requirementCopy || constraintCopies.length > 0 ? (
+        <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
+          {requirementCopy ? (
+            <strong style={{ color: 'var(--qa-color-primary)' }}>{requirementCopy}</strong>
+          ) : null}
+          {requirementCopy && constraintCopies.length > 0 ? ' · ' : ''}
+          {constraintCopies.join(' · ')}
+        </span>
+      ) : null}
       {renderFieldInput({ definition, value, onChange })}
       {definition.type === 'array' && definition.support === 'supported' && value ? (
         <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
