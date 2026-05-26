@@ -10,7 +10,6 @@ import {
   textareaStyle,
 } from './PluginConfigDebug.styles'
 import {
-  fieldConstraintCopies,
   joinArrayDraftValue,
   splitArrayDraftItems,
   splitArrayPreview,
@@ -147,8 +146,9 @@ export function PluginConfigField({
   onChange,
   value,
 }: PluginConfigFieldProps) {
-  const constraintCopies = fieldConstraintCopies(definition)
   const requirementCopy = definition.required && value.trim().length > 0 ? null : definition.required ? '必填' : '可选'
+  const requirementColor =
+    requirementCopy === '必填' ? 'rgb(161, 43, 37)' : 'var(--qa-color-primary)'
 
   return (
     <label style={fieldStyle}>
@@ -158,13 +158,9 @@ export function PluginConfigField({
       <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
         {definition.description}
       </span>
-      {requirementCopy || constraintCopies.length > 0 ? (
-        <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
-          {requirementCopy ? (
-            <strong style={{ color: 'var(--qa-color-primary)' }}>{requirementCopy}</strong>
-          ) : null}
-          {requirementCopy && constraintCopies.length > 0 ? ' · ' : ''}
-          {constraintCopies.join(' · ')}
+      {requirementCopy ? (
+        <span style={{ fontSize: '13px' }}>
+          <strong style={{ color: requirementColor }}>{requirementCopy}</strong>
         </span>
       ) : null}
       {renderFieldInput({ definition, value, onChange })}
