@@ -134,6 +134,7 @@ export function usePluginConfigDebugViewModel() {
     schema: schemaQuery.data ?? null,
     selectedPluginId,
     selectPlugin: setSelectedPluginId,
+    state,
     updateDraft,
     validateDraft,
   }

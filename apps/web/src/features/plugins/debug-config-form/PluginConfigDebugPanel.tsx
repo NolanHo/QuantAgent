@@ -1,15 +1,14 @@
+import { Alert, Button, Card } from '@heroui/react'
+
 import { PageEmpty } from '@/app/components/PageEmpty'
 import { PageLoading } from '@/app/components/PageLoading'
 import { PlaceholderPanel } from '@/app/components/PlaceholderPanel'
 
 import {
   buttonRowStyle,
-  cardStyle,
   fieldStackStyle,
   formGridStyle,
   panelGridStyle,
-  primaryButtonStyle,
-  secondaryButtonStyle,
   sectionTitleStyle,
 } from './PluginConfigDebug.styles'
 import { PluginConfigField } from './PluginConfigField'
@@ -50,57 +49,62 @@ export function PluginConfigDebugPanel() {
       </section>
 
       <section style={formGridStyle}>
-        <section style={cardStyle}>
-          <div className="page-header">
+        <Card>
+          <Card.Header>
             <p className="page-kicker">受控样例</p>
-            <h2 className="page-title" style={sectionTitleStyle}>
+            <Card.Title className="page-title" style={sectionTitleStyle}>
               {viewModel.schema.pluginName}
-            </h2>
-            <p className="page-description">{viewModel.schema.schemaDescription}</p>
-          </div>
+            </Card.Title>
+            <Card.Description className="page-description">{viewModel.schema.schemaDescription}</Card.Description>
+          </Card.Header>
 
-          <section style={buttonRowStyle} aria-label="插件样例选择">
-            {viewModel.plugins.map((plugin) => (
-              <button
-                key={plugin.id}
-                onClick={() => {
-                  viewModel.selectPlugin(plugin.id)
-                }}
-                style={plugin.id === viewModel.selectedPluginId ? primaryButtonStyle : secondaryButtonStyle}
-                type="button"
-              >
-                {plugin.name}
-              </button>
-            ))}
-          </section>
+          <Card.Content>
+            <section style={buttonRowStyle} aria-label="插件样例选择">
+              {viewModel.plugins.map((plugin) => (
+                <Button
+                  key={plugin.id}
+                  onPress={() => {
+                    viewModel.selectPlugin(plugin.id)
+                  }}
+                  size="sm"
+                  type="button"
+                  variant={plugin.id === viewModel.selectedPluginId ? 'primary' : 'outline'}
+                >
+                  {plugin.name}
+                </Button>
+              ))}
+            </section>
 
-          <section style={fieldStackStyle}>
-            {viewModel.schema.fields.map((definition) => (
-              <PluginConfigField
-                key={definition.path}
-                definition={definition}
-                issue={viewModel.issueLookup.get(definition.path)}
-                onChange={viewModel.updateDraft}
-                value={viewModel.draftValues[definition.path] ?? ''}
-              />
-            ))}
-          </section>
+            <section style={fieldStackStyle}>
+              {viewModel.schema.fields.map((definition) => (
+                <PluginConfigField
+                  key={definition.path}
+                  definition={definition}
+                  issue={viewModel.issueLookup.get(definition.path)}
+                  onChange={viewModel.updateDraft}
+                  value={viewModel.draftValues[definition.path] ?? ''}
+                />
+              ))}
+            </section>
 
-          <section style={buttonRowStyle}>
-            <button onClick={() => void viewModel.validateDraft()} style={secondaryButtonStyle} type="button">
-              先做校验
-            </button>
-            <button onClick={() => void viewModel.saveDraft()} style={primaryButtonStyle} type="button">
-              触发保存
-            </button>
-          </section>
+            <section style={buttonRowStyle}>
+              <Button onPress={() => void viewModel.validateDraft()} size="sm" type="button" variant="outline">
+                先做校验
+              </Button>
+              <Button onPress={() => void viewModel.saveDraft()} size="sm" type="button" variant="primary">
+                触发保存
+              </Button>
+            </section>
 
-          {viewModel.saveMessage ? (
-            <p style={{ marginTop: 'var(--qa-spacing-md)', color: 'var(--qa-color-text-subtle)' }}>
-              {viewModel.saveMessage}
-            </p>
-          ) : null}
-        </section>
+            {viewModel.saveMessage ? (
+              <Alert status={viewModel.state === 'save-failure' ? 'danger' : 'accent'} style={{ marginTop: 'var(--qa-spacing-md)' }}>
+                <Alert.Content>
+                  <Alert.Description>{viewModel.saveMessage}</Alert.Description>
+                </Alert.Content>
+              </Alert>
+            ) : null}
+          </Card.Content>
+        </Card>
 
         <PluginConfigSupportMatrix supportMatrix={viewModel.schema.supportMatrix} />
       </section>

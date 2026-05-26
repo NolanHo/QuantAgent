@@ -1,12 +1,20 @@
 import type { JSX } from 'react'
+import {
+  Button,
+  Description,
+  FieldError,
+  Input,
+  Label,
+  ListBox,
+  Select,
+  TextArea,
+  TextField,
+} from '@heroui/react'
 
 import {
   arrayItemRowStyle,
   arrayListStyle,
   fieldStyle,
-  inputStyle,
-  labelStyle,
-  secondaryButtonStyle,
   textareaStyle,
 } from './PluginConfigDebug.styles'
 import {
@@ -24,6 +32,40 @@ type PluginConfigFieldProps = {
   value: string
 }
 
+type FieldOption = {
+  id: string
+  label: string
+}
+
+function renderSelectInput({
+  definition,
+  onChange,
+  options,
+  value,
+}: Omit<PluginConfigFieldProps, 'issue'> & { options: FieldOption[] }): JSX.Element {
+  return (
+    <Select<FieldOption>
+      aria-label={definition.label}
+      fullWidth
+      onSelectionChange={(key) => {
+        onChange(definition.path, key === null ? '' : String(key))
+      }}
+      selectedKey={value || null}
+      variant="primary"
+    >
+      <Select.Trigger>
+        <Select.Value>{value || '请选择'}</Select.Value>
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox<FieldOption> items={options}>
+          {(option) => <ListBox.Item id={option.id}>{option.label}</ListBox.Item>}
+        </ListBox>
+      </Select.Popover>
+    </Select>
+  )
+}
+
 function renderFieldInput({
   definition,
   onChange,
@@ -31,53 +73,39 @@ function renderFieldInput({
 }: Omit<PluginConfigFieldProps, 'issue'>): JSX.Element {
   if (definition.type === 'record' || definition.type === 'union' || (definition.type === 'array' && definition.support === 'degraded')) {
     return (
-      <textarea
+      <TextArea
         aria-label={definition.label}
+        fullWidth
         onChange={(event) => {
           onChange(definition.path, event.target.value)
         }}
         placeholder={definition.placeholder ?? definition.examples?.[0] ?? ''}
         style={textareaStyle}
         value={value}
+        variant="primary"
       />
     )
   }
 
   if (definition.type === 'boolean') {
-    return (
-      <select
-        aria-label={definition.label}
-        onChange={(event) => {
-          onChange(definition.path, event.target.value)
-        }}
-        style={inputStyle}
-        value={value}
-      >
-        <option value="">请选择</option>
-        <option value="true">true</option>
-        <option value="false">false</option>
-      </select>
-    )
+    return renderSelectInput({
+      definition,
+      onChange,
+      value,
+      options: [
+        { id: 'true', label: 'true' },
+        { id: 'false', label: 'false' },
+      ],
+    })
   }
 
   if (definition.enumValues && definition.enumValues.length > 0) {
-    return (
-      <select
-        aria-label={definition.label}
-        onChange={(event) => {
-          onChange(definition.path, event.target.value)
-        }}
-        style={inputStyle}
-        value={value}
-      >
-        <option value="">请选择</option>
-        {definition.enumValues.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    )
+    return renderSelectInput({
+      definition,
+      onChange,
+      value,
+      options: definition.enumValues.map((option) => ({ id: option, label: option })),
+    })
   }
 
   if (definition.type === 'array' && definition.support === 'supported') {
@@ -87,56 +115,61 @@ function renderFieldInput({
       <div style={arrayListStyle}>
         {items.map((itemValue, index) => (
           <div key={`${definition.path}-${index}`} style={arrayItemRowStyle}>
-            <input
+            <Input
               aria-label={`${definition.label} 第 ${index + 1} 项`}
+              aria-labelledby={undefined}
+              fullWidth
               onChange={(event) => {
                 const nextItems = [...items]
                 nextItems[index] = event.target.value
                 onChange(definition.path, joinArrayDraftValue(nextItems))
               }}
               placeholder={definition.placeholder ?? definition.examples?.[0] ?? `请输入第 ${index + 1} 项`}
-              style={inputStyle}
               type="text"
               value={itemValue}
+              variant="primary"
             />
-            <button
+            <Button
               aria-label={`移除 ${definition.label} 第 ${index + 1} 项`}
-              onClick={() => {
+              onPress={() => {
                 const nextItems = items.filter((_, itemIndex) => itemIndex !== index)
                 onChange(definition.path, joinArrayDraftValue(nextItems))
               }}
-              style={secondaryButtonStyle}
+              size="sm"
               type="button"
+              variant="outline"
             >
               删除
-            </button>
+            </Button>
           </div>
         ))}
-        <button
+        <Button
           aria-label={`添加 ${definition.label} 项`}
-          onClick={() => {
+          onPress={() => {
             onChange(definition.path, joinArrayDraftValue([...items, '']))
           }}
-          style={secondaryButtonStyle}
+          size="sm"
           type="button"
+          variant="outline"
         >
           添加一项
-        </button>
+        </Button>
       </div>
     )
   }
 
   return (
-    <input
+    <Input
       autoComplete={definition.sensitive ? 'new-password' : undefined}
       aria-label={definition.label}
+      fullWidth
       onChange={(event) => {
         onChange(definition.path, event.target.value)
       }}
       placeholder={definition.placeholder ?? definition.examples?.[0] ?? ''}
-      style={inputStyle}
       type={definition.sensitive ? 'password' : 'text'}
       value={value}
+      variant="primary"
     />
   )
 }
@@ -151,15 +184,14 @@ export function PluginConfigField({
   const requirementCopy = definition.required && value.trim().length > 0 ? null : definition.required ? '必填' : '可选'
   const requirementColor =
     requirementCopy === '必填' ? 'rgb(161, 43, 37)' : 'var(--qa-color-primary)'
-
-  return (
-    <label style={fieldStyle}>
-      <span style={labelStyle}>
+  const fieldMeta = (
+    <>
+      <Label>
         {definition.label}
-      </span>
-      <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
+      </Label>
+      <Description>
         {definition.description}
-      </span>
+      </Description>
       {requirementCopy ? (
         <span style={{ fontSize: '13px' }}>
           <strong style={{ color: requirementColor }}>{requirementCopy}</strong>
@@ -170,7 +202,10 @@ export function PluginConfigField({
           {constraintCopies.join(' · ')}
         </span>
       ) : null}
-      {renderFieldInput({ definition, value, onChange })}
+    </>
+  )
+  const fieldNotes = (
+    <>
       {definition.type === 'array' && definition.support === 'supported' && value ? (
         <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
           当前数组项：{splitArrayPreview(value).join(' / ')}
@@ -182,10 +217,28 @@ export function PluginConfigField({
         </span>
       ) : null}
       {issue ? (
-        <span style={{ color: 'rgb(161, 43, 37)', fontSize: '13px', fontWeight: 700 }}>
+        <FieldError style={{ color: 'rgb(161, 43, 37)', fontSize: '13px', fontWeight: 700 }}>
           {issue}
-        </span>
+        </FieldError>
       ) : null}
-    </label>
+    </>
+  )
+
+  if (definition.type === 'array' && definition.support === 'supported') {
+    return (
+      <div style={fieldStyle}>
+        {fieldMeta}
+        {renderFieldInput({ definition, value, onChange })}
+        {fieldNotes}
+      </div>
+    )
+  }
+
+  return (
+    <TextField style={fieldStyle} isInvalid={Boolean(issue)} isRequired={definition.required}>
+      {fieldMeta}
+      {renderFieldInput({ definition, value, onChange })}
+      {fieldNotes}
+    </TextField>
   )
 }

@@ -1,4 +1,5 @@
-import { Link, Outlet, useNavigate } from '@tanstack/react-router'
+import { Button } from '@heroui/react'
+import { Outlet, useNavigate } from '@tanstack/react-router'
 
 import { PageEmpty } from '../app/components/PageEmpty'
 import { PageLoading } from '../app/components/PageLoading'
@@ -13,8 +14,6 @@ import {
 import {
   actionRowStyle,
   debugPanelGridStyle,
-  primaryButtonStyle,
-  secondaryButtonStyle,
 } from './debugRouteStyles'
 import type { DebugPageRouteKey, DebugPageState, DebugRoutePreview } from './debugRouteTypes'
 
@@ -35,6 +34,8 @@ export function DebugWorkbenchPage() {
 }
 
 export function DebugWorkbenchIndexPage() {
+  const navigate = useNavigate()
+
   return (
     <>
       <section style={debugPanelGridStyle} aria-label="调试路由索引">
@@ -61,21 +62,21 @@ export function DebugWorkbenchIndexPage() {
       </section>
 
       <section style={actionRowStyle} aria-label="调试路由快捷入口">
-        <Link to="/debug/page-states" style={primaryButtonStyle}>
+        <Button onPress={() => void navigate({ to: '/debug/page-states' })} size="sm" type="button" variant="primary">
           打开页面状态
-        </Link>
-        <Link to="/debug/runtime-config" style={secondaryButtonStyle}>
+        </Button>
+        <Button onPress={() => void navigate({ to: '/debug/runtime-config' })} size="sm" type="button" variant="outline">
           查看运行时配置
-        </Link>
-        <Link to="/debug/error-fallback" style={secondaryButtonStyle}>
+        </Button>
+        <Button onPress={() => void navigate({ to: '/debug/error-fallback' })} size="sm" type="button" variant="outline">
           触发错误兜底
-        </Link>
-        <Link to="/debug/route-playground" style={secondaryButtonStyle}>
+        </Button>
+        <Button onPress={() => void navigate({ to: '/debug/route-playground' })} size="sm" type="button" variant="outline">
           打开路由实验场
-        </Link>
-        <Link to="/debug/plugin-config-form" style={secondaryButtonStyle}>
+        </Button>
+        <Button onPress={() => void navigate({ to: '/debug/plugin-config-form' })} size="sm" type="button" variant="outline">
           打开插件配置表单
-        </Link>
+        </Button>
       </section>
     </>
   )
@@ -107,6 +108,7 @@ export function DebugPageStatesPage({
   state: DebugPageState
 }) {
   const current = getDebugPageRoute(route)
+  const navigate = useNavigate()
 
   return (
     <>
@@ -120,27 +122,29 @@ export function DebugPageStatesPage({
 
       <section style={actionRowStyle} aria-label="页面路由选择">
         {debugPageRoutes.map((option) => (
-          <Link
+          <Button
             key={option.key}
-            to="/debug/page-states"
-            search={{ route: option.key, state }}
-            style={option.key === current.key ? primaryButtonStyle : secondaryButtonStyle}
+            onPress={() => void navigate({ to: '/debug/page-states', search: { route: option.key, state } })}
+            size="sm"
+            type="button"
+            variant={option.key === current.key ? 'primary' : 'outline'}
           >
             {option.label}
-          </Link>
+          </Button>
         ))}
       </section>
 
       <section style={actionRowStyle} aria-label="页面状态选择">
         {debugPageStateOptions.map((option) => (
-          <Link
+          <Button
             key={option}
-            to="/debug/page-states"
-            search={{ route: current.key, state: option }}
-            style={option === state ? primaryButtonStyle : secondaryButtonStyle}
+            onPress={() => void navigate({ to: '/debug/page-states', search: { route: current.key, state: option } })}
+            size="sm"
+            type="button"
+            variant={option === state ? 'primary' : 'outline'}
           >
             {option}
-          </Link>
+          </Button>
         ))}
       </section>
 
@@ -163,9 +167,9 @@ export function DebugPageStatesPage({
             description={current.emptyDescription}
             cta={
               current.ctaLabel ? (
-                <button style={primaryButtonStyle} type="button">
+                <Button size="sm" type="button" variant="primary">
                   {current.ctaLabel}
-                </button>
+                </Button>
               ) : undefined
             }
           />
@@ -220,15 +224,15 @@ export function DebugErrorFallbackIndexPage() {
       </section>
 
       <section style={actionRowStyle}>
-        <button
-          style={primaryButtonStyle}
+        <Button
+          variant="primary"
           type="button"
           onClick={() => {
             void navigate({ to: '/debug/error-fallback/throw' })
           }}
         >
           触发受控渲染错误
-        </button>
+        </Button>
       </section>
 
       <section style={{ marginTop: 'var(--qa-spacing-lg)' }}>
@@ -248,6 +252,8 @@ export function DebugErrorFallbackThrowPage() {
 }
 
 export function DebugRoutePlaygroundPage({ preview }: { preview?: DebugRoutePreview }) {
+  const navigate = useNavigate()
+
   return (
     <>
       <section className="page-header">
@@ -259,30 +265,33 @@ export function DebugRoutePlaygroundPage({ preview }: { preview?: DebugRoutePrev
       </section>
 
       <section style={actionRowStyle}>
-        <Link to="/debug/route-playground" style={!preview ? primaryButtonStyle : secondaryButtonStyle}>
+        <Button onPress={() => void navigate({ to: '/debug/route-playground' })} size="sm" type="button" variant={!preview ? 'primary' : 'outline'}>
           默认概览
-        </Link>
-        <Link
-          to="/debug/route-playground"
-          search={{ preview: 'loading' }}
-          style={preview === 'loading' ? primaryButtonStyle : secondaryButtonStyle}
+        </Button>
+        <Button
+          onPress={() => void navigate({ to: '/debug/route-playground', search: { preview: 'loading' } })}
+          size="sm"
+          type="button"
+          variant={preview === 'loading' ? 'primary' : 'outline'}
         >
           preview=loading
-        </Link>
-        <Link
-          to="/debug/route-playground"
-          search={{ preview: 'empty' }}
-          style={preview === 'empty' ? primaryButtonStyle : secondaryButtonStyle}
+        </Button>
+        <Button
+          onPress={() => void navigate({ to: '/debug/route-playground', search: { preview: 'empty' } })}
+          size="sm"
+          type="button"
+          variant={preview === 'empty' ? 'primary' : 'outline'}
         >
           preview=empty
-        </Link>
-        <Link
-          to="/debug/route-playground"
-          search={{ preview: 'loading' as never, ignored: '1' as never }}
-          style={secondaryButtonStyle}
+        </Button>
+        <Button
+          onPress={() => void navigate({ to: '/debug/route-playground', search: { preview: 'loading' as never, ignored: '1' as never } })}
+          size="sm"
+          type="button"
+          variant="outline"
         >
           添加忽略参数
-        </Link>
+        </Button>
       </section>
 
       {preview === 'loading' ? <PageLoading message="正在加载路由实验场预览..." /> : null}
