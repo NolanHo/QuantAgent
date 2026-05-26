@@ -1,4 +1,1 @@
-export * from './PluginConfigDebugPanel'
-export * from './mock'
-export * from './queries'
-export * from './types'
+export * from './debug-config-form'
