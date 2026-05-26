@@ -11,8 +11,8 @@ export default defineConfig(({ command, mode }) => {
   const isProductionBundle = command === "build";
   const apiProxyTarget = env.VITE_DEV_API_PROXY_TARGET || "http://127.0.0.1:8000";
   const debugRouteRuntimePath = isProductionBundle
-    ? "./src/debug/route-api.production.ts"
-    : "./src/debug/route-api.development.tsx";
+    ? "./src/debug/router/route-api.production.ts"
+    : "./src/debug/router/route-api.development.tsx";
 
   return {
     plugins: [

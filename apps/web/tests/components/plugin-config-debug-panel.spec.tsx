@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/experimental-ct-react'
 
-import { PluginConfigDebugPanel } from '@/features/plugins'
+import { PluginConfigDebugPanel } from '@/debug/plugin-config-form'
 import { renderWithProviders } from '@/test/render'
 
 test('renders debug plugin config panel and surfaces validation errors', async ({ mount }) => {
