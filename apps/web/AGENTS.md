@@ -18,10 +18,21 @@
 - 运行时配置收敛到 `src/shared/config/`；不要在组件中硬编码后端地址或部署参数。
 - 应用级 provider、router、layout 放在 `src/app/`。
 - 路由页面放在 `src/routes/`，遵守 TanStack Router 文件路由约定。
+- route 文件只负责页面入口、loader、search params 和页面组合；业务 query、mutation、组件和局部类型进入 `src/features/<domain>/`，跨模块基础 UI/API/auth/config/errors/utils 进入 `src/shared/`。
 - 公开页面保持在应用 shell 外；受保护后台页统一挂到后台路由壳下，不把鉴权、布局切换和根跳转重新堆回根路由。
 - `src/routeTree.gen.ts` 是生成文件，不手写业务逻辑。
 - 新增共享 UI、应用基础设施或样式前，先检查现有 `src/app/`、`src/shared/` 边界，能复用就不要平行再造。
 - 新增样式优先复用现有 Tailwind token 和 utility；只有 Tailwind 明显不适合时才使用 `*.module.css`。全局样式只保留跨页面 tokens、layout 和 fallback。
+- 服务端状态使用 TanStack Query；页面不得把 REST 快照长期复制进 React state 或绕过 shared API client 手写 envelope/error 处理。
+
+## 组件与样式
+
+- HeroUI v3 是基础组件库；Button、Input、Modal、Table、Tabs、Tooltip、Toast、Menu 等基础交互优先使用 HeroUI，不要随手自造同类组件。
+- TailwindCSS 是默认样式表达；优先使用现有 token、utility 和 `tailwind-merge` 组合样式，避免为普通布局、间距、颜色和状态单独写 CSS。
+- 页面出现可复用区块、复杂状态、表单、表格、timeline、risk panel、权限状态、错误/空/加载态时，必须拆成命名组件和必要 hooks，不能把所有 JSX、请求和状态堆在 route 文件里。
+- 业务组件优先放在对应 `src/features/<domain>/components/`；只有跨两个以上业务域复用且不含业务规则的组件才进入 `src/shared/ui/`。
+- 新增 UI 必须覆盖 loading、empty、error、permission denied、sensitive masked 等与本功能相关的状态；权限不足和后端错误应显示可排查的 request id。
+- 管理台 UI 应保持密度、可扫描性和操作反馈，不写营销落地页式 hero、装饰性大卡片或与运行时管理无关的介绍文案。
 
 ## UI 与安全
 

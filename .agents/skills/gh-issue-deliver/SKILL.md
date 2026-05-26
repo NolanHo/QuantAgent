@@ -36,7 +36,8 @@ metadata:
 3. issue 正文里链接的 OpenSpec change、设计文档、PRD、PR 或相关 issue
 4. 影响设计或产品边界时，读相关 `docs/design/*.md`，必要时再读 `docs/prd/*.md`
 5. 已有关联 change 时，读 `proposal.md`、`tasks.md`、`design.md` 和 `specs/**/spec.md`
-6. 需要执行清单时再读 `references/workflow.md`
+6. 需要判断工程质量门槛时读 `.agents/skills/references/engineering-quality-gate.md`
+7. 需要执行清单时再读 `references/workflow.md`
 
 不要批量扫仓库。不要创建、读取或更新 `docs/openspec`。
 
@@ -50,6 +51,16 @@ metadata:
 - 成功和失败信号
 
 如果 issue 本身还很散，先问 1-3 个会改变实现路径的问题。不要问低价值偏好题，也不要把未确认设计问题直接下放给实现。
+
+## 工程质量 Gate
+
+进入实现前必须按 `.agents/skills/references/engineering-quality-gate.md` 完成硬检查：
+
+- 是否已经读取根 `AGENTS.md`、最近层级 `AGENTS.md`、issue/comment、相关 design/PRD/OpenSpec 和目标模块现有实现。
+- 是否说清目录/文件规划、职责边界、核心模型、接口字段、复用点、数据流、失败路径和验证入口。
+- 前端工作是否覆盖 HeroUI、Tailwind、route/features/shared 分层、TanStack Query、组件拆分和页面状态。
+- 后端工作是否覆盖薄 router、service/provider/repository/port、DTO/ORM/领域对象分层、审计权限和最小测试。
+- OpenSpec artifacts 或 issue 是否足以指导实现；如果缺少目录蓝图、架构分层、模型/字段草案、复用判断、失败路径或验证口径，必须先补 artifacts 或追问，不能直接编码。
 
 ## 沉淀提醒
 

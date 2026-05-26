@@ -30,7 +30,8 @@ gh api repos/BqLee-AI/QuantAgent/pulls/<pr>/comments
 ```
 
 4. 关联 issue、OpenSpec change、设计文档和 CI 日志
-5. 需要分类处理时再读 `references/comment-triage.md`
+5. 需要判断工程质量门槛时读 `.agents/skills/references/engineering-quality-gate.md`
+6. 需要分类处理时再读 `references/comment-triage.md`
 
 ## 分类原则
 
@@ -44,6 +45,8 @@ gh api repos/BqLee-AI/QuantAgent/pulls/<pr>/comments
 
 不要因为评论来自 AI 就全接，也不要因为来自 AI 就直接忽略。用代码、版本、文档、测试和项目规则判断。
 
+如果评论指出组件拆分、HeroUI/Tailwind、薄 router、service/repository/port、DTO/ORM 分层、注释、OpenSpec 质量或验证缺口，必须对照 `.agents/skills/references/engineering-quality-gate.md` 判断是否属于 must-fix 或 should-fix；不能用“当前能跑”作为跳过理由。
+
 ## 判断较新技术栈
 
 如果评论涉及库 API、框架行为或最佳实践：
@@ -56,7 +59,7 @@ gh api repos/BqLee-AI/QuantAgent/pulls/<pr>/comments
 ## 修改规则
 
 - 只修评论要求且属于当前 PR 范围的内容。
-- 如果评论暴露 OpenSpec、设计文档或任务不一致，先更新对应 artifact，再改代码。
+- 如果评论暴露 OpenSpec、设计文档、工程质量 gate 或任务不一致，先更新对应 artifact，再改代码。
 - 如果评论要求扩大范围，回复说明需要后续 issue 或新 change。
 - 如果评论错误，回复简短证据：当前代码、版本、文档或验证结果。
 - 修改后补跑受影响的最小验证，并更新 PR 评论或 PR body。

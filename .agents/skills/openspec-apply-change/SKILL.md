@@ -13,6 +13,8 @@ Implement tasks from an OpenSpec change.
 
 **Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
+**QuantAgent quality gate**: Before implementation, read `.agents/skills/references/engineering-quality-gate.md` and verify the selected change artifacts are implementation-ready. If the artifacts do not describe directory/file planning, responsibilities, core models, interface fields, reuse points, data flow, failure paths, and validation entrypoints, pause and propose artifact updates instead of writing code.
+
 **Steps**
 
 1. **Select the change**
@@ -56,7 +58,22 @@ Implement tasks from an OpenSpec change.
    - **spec-driven**: proposal, specs, design, tasks
    - Other schemas: follow the contextFiles from CLI output
 
-5. **Show current progress**
+   Also read `.agents/skills/references/engineering-quality-gate.md`, root `AGENTS.md`, and the nearest `AGENTS.md` files for the paths the tasks will touch.
+
+5. **Run engineering quality gate**
+
+   Before changing files, check whether the artifacts and local rules answer:
+   - Which module owns each responsibility?
+   - Which directories and files will be created or modified, and what does each own?
+   - What core models, DTO/schema/API/event/config/database fields are expected?
+   - What existing code or shared capability should be reused?
+   - What is the data flow, state source, error path, and recovery path?
+   - What frontend component/state boundaries or backend service/repository/port boundaries are required?
+   - What validation must be run after each meaningful slice?
+
+   Pause if the answer is missing or contradictory. Suggest updating proposal/design/tasks/specs in the same change rather than guessing in implementation.
+
+6. **Show current progress**
 
    Display:
    - Schema being used
@@ -64,7 +81,7 @@ Implement tasks from an OpenSpec change.
    - Remaining tasks overview
    - Dynamic instruction from CLI
 
-6. **Implement tasks (loop until done or blocked)**
+7. **Implement tasks (loop until done or blocked)**
 
    For each pending task:
    - Show which task is being worked on
@@ -79,7 +96,7 @@ Implement tasks from an OpenSpec change.
    - Error or blocker encountered → report and wait for guidance
    - User interrupts
 
-7. **On completion or pause, show status**
+8. **On completion or pause, show status**
 
    Display:
    - Tasks completed this session
@@ -141,6 +158,7 @@ What would you like to do?
 **Guardrails**
 - Keep going through tasks until done or blocked
 - Always read context files before starting (from the apply instructions output)
+- Always run the engineering quality gate before implementation
 - If task is ambiguous, pause and ask before implementing
 - If implementation reveals issues, pause and suggest artifact updates
 - Keep code changes minimal and scoped to each task

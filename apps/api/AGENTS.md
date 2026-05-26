@@ -57,6 +57,8 @@ apps/api/
 - 不在 API 层写需要被 worker、scheduler、插件或前端复用的核心逻辑。
 - 可复用的数据库、运行时配置、领域错误、Agent 调用、插件协议和跨端契约优先沉淀到对应 package。
 - 核心领域逻辑、共享数据库能力、跨应用配置和可复用基础设施应下沉到 `packages/core`。
+- 涉及状态变化、审计、权限、插件生命周期、数据库写入、外部适配或多步骤业务流程时，必须有明确的 service/provider/repository/port 边界，不能把流程塞进 router 函数。
+- Repository 或 storage port 只在存在真实持久化、跨调用复用、插件隔离或可替换存储需求时引入；简单 sample provider 不为“看起来专业”提前堆抽象。
 - 新增公开接口默认放在 `/api/v1` 前缀下，除非已有 spec 明确要求其他版本或路径。
 - 新增业务 API 时遵守 `docs/design/08-api-and-websocket-design.md` 的资源边界：REST 资源为主，副作用操作放在资源下的 `actions` 路径。
 - 标准 API v1 routes 统一通过 `quantagent.api.routers.v1.register.register_api_v1_routes` 注册；不要在 `main.py` 零散新增 `include_router(...)`。
@@ -70,6 +72,7 @@ apps/api/
 ### 路由骨架
 
 - request/response DTO 放在 `src/quantagent/api/schemas/`，保持 API 契约独立于 ORM model 和内部领域对象；不能直接返回 SQLAlchemy model。
+- API DTO、ORM model、领域对象、插件 DTO 和响应 envelope 必须保持分层；需要转换时显式写 mapper/helper，不用数据库字段或内部对象形状冒充公开契约。
 - 当前 `src/quantagent/api/providers/` 只用于 sample data 或轻量替换点；需要数据库访问、外部服务调用、credentials、runtime 状态或核心领域逻辑时，应先通过 OpenSpec 明确边界，并优先下沉到 package 层。
 - route 应显式声明 FastAPI `response_model=ApiResponse[T]` 和 OpenAPI `tags`。
 - 新增 API v1 route 时，按 `schemas/` DTO、`providers/` seam、`routers/` route、`register_api_v1_routes` 注册、`src/tests/` 运行时和 OpenAPI 契约测试的顺序落地。

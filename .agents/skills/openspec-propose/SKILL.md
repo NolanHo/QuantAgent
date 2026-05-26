@@ -22,6 +22,13 @@ When ready to implement, run /opsx:apply
 
 **Input**: The user's request should include a change name (kebab-case) OR a description of what they want to build.
 
+**QuantAgent quality gate**: Before generating artifacts, read the relevant project truth sources:
+- `AGENTS.md` and the nearest `AGENTS.md` under affected paths.
+- Related `docs/design/*.md`, `docs/prd/*.md`, existing `openspec/changes/*`, issue comments, and PR discussion when referenced.
+- `.agents/skills/references/engineering-quality-gate.md`.
+
+Generated artifacts must be specific enough for implementation. Do not produce generic proposal/design/tasks text. If the change affects architecture, behavior, contracts, frontend UI, backend services, persistence, permissions, or auditability, the artifacts must record directory/file planning, layered architecture, responsibilities, core models, API/DTO/schema/event/config/database field drafts, reuse points, data flow, failure paths, and validation entrypoints.
+
 **Steps**
 
 1. **If no clear input provided, ask what they want to build**
@@ -33,13 +40,23 @@ When ready to implement, run /opsx:apply
 
    **IMPORTANT**: Do NOT proceed without understanding what the user wants to build.
 
-2. **Create the change directory**
+2. **Read QuantAgent context**
+
+   Read the quality gate and only the directly relevant project truth sources. At minimum:
+   - Root `AGENTS.md`
+   - The nearest `AGENTS.md` for affected app/package/plugin paths
+   - `.agents/skills/references/engineering-quality-gate.md`
+   - Related design/PRD/OpenSpec/issue/PR context named by the user or required by the affected boundary
+
+   If context conflicts, capture the conflict in the artifacts instead of silently choosing.
+
+3. **Create the change directory**
    ```bash
    openspec new change "<name>"
    ```
    This creates a scaffolded change at `openspec/changes/<name>/` with `.openspec.yaml`.
 
-3. **Get the artifact build order**
+4. **Get the artifact build order**
    ```bash
    openspec status --change "<name>" --json
    ```
@@ -47,7 +64,7 @@ When ready to implement, run /opsx:apply
    - `applyRequires`: array of artifact IDs needed before implementation (e.g., `["tasks"]`)
    - `artifacts`: list of all artifacts with their status and dependencies
 
-4. **Create artifacts in sequence until apply-ready**
+5. **Create artifacts in sequence until apply-ready**
 
    Use the **TodoWrite tool** to track progress through the artifacts.
 
@@ -67,6 +84,11 @@ When ready to implement, run /opsx:apply
         - `dependencies`: Completed artifacts to read for context
       - Read any completed dependency files for context
       - Create the artifact file using `template` as the structure
+      - Apply `.agents/skills/references/engineering-quality-gate.md`:
+        - `proposal.md` must cover why now, current gap, non-goals, and risk boundary.
+        - `design.md` must be an implementation blueprint covering directory/file planning, layered architecture, module responsibilities, core models, DTO/schema/API/event/config/database field drafts, data flow, failure paths, reuse decisions, and validation strategy.
+        - `specs/**/spec.md` must describe verifiable requirements and scenarios, not implementation chores.
+        - `tasks.md` must show dependencies, parallel boundaries, write scopes, review gates, and validation actions.
       - Apply `context` and `rules` as constraints - but do NOT copy them into the file
       - Show brief progress: "Created <artifact-id>"
 
@@ -79,7 +101,7 @@ When ready to implement, run /opsx:apply
       - Use **AskUserQuestion tool** to clarify
       - Then continue with creation
 
-5. **Show final status**
+6. **Show final status**
    ```bash
    openspec status --change "<name>"
    ```

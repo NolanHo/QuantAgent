@@ -18,6 +18,9 @@
 - 插件不能直接持有数据库 session；后续应通过 repository、storage port 或 RuntimeContext 访问持久化能力。
 - 审计和状态流转类数据按 append-only 思路设计，不为省事覆盖历史。
 - 不默认保存完整模型推理链、secret、私有策略或敏感工具参数。
+- 共享能力必须有清晰职责和调用方；只有被 API、worker、scheduler、插件或其他 package 复用的基础能力才进入 core。
+- 涉及数据库写入、状态机、审计、插件运行时或外部端口时，优先用 service/repository/port 等边界表达职责，避免把持久化、校验和领域流程混在 ORM model 或散落函数里。
+- Repository / storage port 的引入必须服务真实持久化、跨模块复用或插件隔离需求；不为“以后可能会用”提前设计完整框架。
 
 ## 局部规则
 
