@@ -85,4 +85,10 @@ test('renders the debug plugin config form route in development', async ({ page 
   await expect(page.getByRole('button', { name: '触发保存' })).toBeVisible()
   await expect(page.getByText('Schema Inspect')).toBeVisible()
   await expect(page.getByRole('textbox', { name: '监控指标项 第 1 项' })).toBeVisible()
+
+  await page.getByRole('link', { name: '调试工作台' }).click()
+
+  await expect(page).toHaveURL(/\/debug\/?$/)
+  await expect(page.getByRole('heading', { name: '调试工作台' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '打开插件配置表单' })).toBeVisible()
 })
