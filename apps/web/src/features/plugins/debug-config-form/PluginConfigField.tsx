@@ -7,7 +7,6 @@ import {
   inputStyle,
   labelStyle,
   secondaryButtonStyle,
-  supportBadgeStyle,
   textareaStyle,
 } from './PluginConfigDebug.styles'
 import {
@@ -151,10 +150,6 @@ export function PluginConfigField({
     <label style={fieldStyle}>
       <span style={labelStyle}>
         {definition.label}
-        <span style={supportBadgeStyle(definition.support)}>{definition.support}</span>
-        {definition.sensitive ? (
-          <span style={supportBadgeStyle('degraded')}>masked</span>
-        ) : null}
       </span>
       <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
         {definition.description}
