@@ -42,7 +42,35 @@ test('renders the debug plugin config form route in development', async ({ page 
       body: JSON.stringify({
         code: 0,
         data: {
+          $schema: 'http://json-schema.org/draft-07/schema#',
+          type: 'object',
           title: 'PluginConfig',
+          properties: {
+            pluginId: {
+              description: '插件唯一标识符|title:插件 ID;desc:系统自动生成的插件实例唯一 UUID',
+              pattern:
+                '^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$',
+              type: 'string',
+            },
+            environment: {
+              description: '运行环境|title:部署环境;desc:当前插件实例运行的目标集群环境',
+              enum: ['development', 'staging', 'production'],
+              type: 'string',
+            },
+            advancedMetrics: {
+              description: '高级监控|title:可观测性度量;desc:配置底层 Agent 行为及风险水位提示',
+              properties: {
+                monitoredKeys: {
+                  description: '指标键名|title:监控指标项;desc:指定系统运行时需要上报的核心可观测性指标',
+                  items: { type: 'string' },
+                  type: 'array',
+                },
+              },
+              required: ['monitoredKeys'],
+              type: 'object',
+            },
+          },
+          required: ['pluginId', 'environment', 'advancedMetrics'],
         },
         msg: 'ok',
       }),
@@ -56,4 +84,5 @@ test('renders the debug plugin config form route in development', async ({ page 
   await expect(page.getByRole('heading', { name: '插件配置调试表单' })).toBeVisible()
   await expect(page.getByRole('button', { name: '触发保存' })).toBeVisible()
   await expect(page.getByText('Schema Inspect')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '监控指标项 第 1 项' })).toBeVisible()
 })

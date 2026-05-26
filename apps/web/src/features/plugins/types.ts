@@ -26,6 +26,23 @@ export type PluginConfigSchemaFieldType =
   | 'string'
   | 'union'
 
+export type PluginConfigJsonSchema = {
+  $schema?: string
+  additionalProperties?: PluginConfigJsonSchema | boolean
+  const?: unknown
+  default?: unknown
+  description?: string
+  enum?: unknown[]
+  items?: PluginConfigJsonSchema
+  oneOf?: PluginConfigJsonSchema[]
+  pattern?: string
+  properties?: Record<string, PluginConfigJsonSchema>
+  propertyNames?: PluginConfigJsonSchema
+  required?: string[]
+  title?: string
+  type?: string | string[]
+}
+
 export type PluginConfigFieldDefinition = {
   path: string
   key: string
@@ -82,6 +99,7 @@ export type PluginConfigSaveResult = {
 }
 
 export type PluginConfigDebugFixture = {
+  jsonSchema: PluginConfigJsonSchema
   schema: PluginConfigSchemaSnapshot
   config: PluginConfigSnapshot
 }
