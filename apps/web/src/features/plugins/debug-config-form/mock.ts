@@ -57,6 +57,43 @@ function parseArrayInput(value: string): string[] {
     .filter(Boolean)
 }
 
+function isValidFormat(value: string, format: string): boolean {
+  if (format === 'uuid') {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  }
+
+  if (format === 'uri' || format === 'url') {
+    try {
+      new URL(value)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  if (format === 'date-time') {
+    return !Number.isNaN(Date.parse(value))
+  }
+
+  if (format === 'ipv4') {
+    return /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(value)
+  }
+
+  return true
+}
+
+function formatIssueMessage(definition: PluginConfigFieldDefinition): string {
+  if (definition.path === 'pluginId') {
+    return '插件 ID 必须是 UUID 形式。'
+  }
+
+  if (definition.path === 'auth.tokenEndpoint') {
+    return 'Token 地址必须是合法 URL。'
+  }
+
+  return '格式不符合要求。'
+}
+
 function parseScalarValue(definition: PluginConfigFieldDefinition, rawValue: string): unknown {
   switch (definition.type) {
     case 'boolean':
@@ -184,6 +221,30 @@ function validateFieldDefinitions(
       continue
     }
 
+    const constraints = definition.constraints
+
+    if (constraints?.minLength !== undefined && trimmedValue.length < constraints.minLength) {
+      issues.push({ path: definition.path, message: `至少需要 ${constraints.minLength} 个字符。` })
+    }
+
+    if (constraints?.maxLength !== undefined && trimmedValue.length > constraints.maxLength) {
+      issues.push({ path: definition.path, message: `最多允许 ${constraints.maxLength} 个字符。` })
+    }
+
+    if (constraints?.pattern) {
+      try {
+        if (!new RegExp(constraints.pattern).test(trimmedValue)) {
+          issues.push({ path: definition.path, message: formatIssueMessage(definition) })
+        }
+      } catch {
+        issues.push({ path: definition.path, message: '字段格式规则无效。' })
+      }
+    }
+
+    if (constraints?.format && !isValidFormat(trimmedValue, constraints.format)) {
+      issues.push({ path: definition.path, message: formatIssueMessage(definition) })
+    }
+
     if (definition.enumValues && !definition.enumValues.includes(trimmedValue)) {
       issues.push({
         path: definition.path,
@@ -200,10 +261,37 @@ function validateFieldDefinitions(
       Number.isNaN(Number(trimmedValue))
     ) {
       issues.push({ path: definition.path, message: '该字段需要数字格式。' })
+      continue
     }
 
     if (definition.type === 'integer' && !Number.isInteger(Number(trimmedValue))) {
       issues.push({ path: definition.path, message: '该字段需要整数格式。' })
+    }
+
+    const numericValue = Number(trimmedValue)
+    if ((definition.type === 'integer' || definition.type === 'number') && !Number.isNaN(numericValue)) {
+      if (constraints?.minimum !== undefined && numericValue < constraints.minimum) {
+        issues.push({ path: definition.path, message: `数值不能小于 ${constraints.minimum}。` })
+      }
+      if (constraints?.exclusiveMinimum !== undefined && numericValue <= constraints.exclusiveMinimum) {
+        issues.push({ path: definition.path, message: `数值必须大于 ${constraints.exclusiveMinimum}。` })
+      }
+      if (constraints?.maximum !== undefined && numericValue > constraints.maximum) {
+        issues.push({ path: definition.path, message: `数值不能大于 ${constraints.maximum}。` })
+      }
+      if (constraints?.exclusiveMaximum !== undefined && numericValue >= constraints.exclusiveMaximum) {
+        issues.push({ path: definition.path, message: `数值必须小于 ${constraints.exclusiveMaximum}。` })
+      }
+    }
+
+    if (definition.type === 'array' && definition.support === 'supported') {
+      const items = parseArrayInput(trimmedValue)
+      if (constraints?.minItems !== undefined && items.length < constraints.minItems) {
+        issues.push({ path: definition.path, message: `至少需要 ${constraints.minItems} 项。` })
+      }
+      if (constraints?.maxItems !== undefined && items.length > constraints.maxItems) {
+        issues.push({ path: definition.path, message: `最多允许 ${constraints.maxItems} 项。` })
+      }
     }
 
     if (
@@ -212,7 +300,15 @@ function validateFieldDefinitions(
       (definition.type === 'array' && definition.support === 'degraded')
     ) {
       try {
-        JSON.parse(trimmedValue)
+        const parsedValue = JSON.parse(trimmedValue)
+        if (definition.type === 'array' && Array.isArray(parsedValue)) {
+          if (constraints?.minItems !== undefined && parsedValue.length < constraints.minItems) {
+            issues.push({ path: definition.path, message: `至少需要 ${constraints.minItems} 项。` })
+          }
+          if (constraints?.maxItems !== undefined && parsedValue.length > constraints.maxItems) {
+            issues.push({ path: definition.path, message: `最多允许 ${constraints.maxItems} 项。` })
+          }
+        }
       } catch {
         issues.push({ path: definition.path, message: '需要提供合法的 JSON 文本。' })
       }
@@ -243,8 +339,9 @@ export async function validateDebugPluginConfig(
 ): Promise<PluginConfigValidationResult> {
   await delay()
 
-  if (schema.schemaSource === 'registry-api') {
-    return validateFieldDefinitions(schema, values)
+  const fieldValidation = validateFieldDefinitions(schema, values)
+  if (!fieldValidation.ok || schema.schemaSource === 'registry-api') {
+    return fieldValidation
   }
 
   try {

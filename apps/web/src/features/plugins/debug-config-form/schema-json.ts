@@ -121,6 +121,26 @@ function unionOptionsFromJsonSchema(schema: PluginConfigJsonSchema): string[] | 
   return options.length > 0 ? options : undefined
 }
 
+function constraintsFromJsonSchema(
+  schema: PluginConfigJsonSchema,
+): PluginConfigFieldDefinition['constraints'] {
+  const constraints = {
+    exclusiveMaximum: schema.exclusiveMaximum,
+    exclusiveMinimum: schema.exclusiveMinimum,
+    format: schema.format,
+    maximum: schema.maximum,
+    maxItems: schema.maxItems,
+    maxLength: schema.maxLength,
+    minimum: schema.minimum,
+    minItems: schema.minItems,
+    minLength: schema.minLength,
+    pattern: schema.pattern,
+  }
+  const hasConstraints = Object.values(constraints).some((value) => value !== undefined)
+
+  return hasConstraints ? constraints : undefined
+}
+
 export function flattenJsonSchema(
   schema: PluginConfigJsonSchema,
   context: JsonSchemaContext,
@@ -170,6 +190,7 @@ export function flattenJsonSchema(
           fieldType === 'record' ? '{ targetCluster, weight, timeoutMs }' : undefined,
         unionOptions: unionOptionsFromJsonSchema(childSchema),
         examples,
+        constraints: constraintsFromJsonSchema(childSchema),
         support: metadata.support ?? (schemaSupportsDegradedMode(childSchema) ? 'degraded' : undefined),
         supportNote:
           metadata.supportNote ??

@@ -33,7 +33,16 @@ export type PluginConfigJsonSchema = {
   default?: unknown
   description?: string
   enum?: unknown[]
+  exclusiveMaximum?: number
+  exclusiveMinimum?: number
+  format?: string
   items?: PluginConfigJsonSchema
+  maximum?: number
+  maxItems?: number
+  maxLength?: number
+  minimum?: number
+  minItems?: number
+  minLength?: number
   oneOf?: PluginConfigJsonSchema[]
   pattern?: string
   properties?: Record<string, PluginConfigJsonSchema>
@@ -57,6 +66,18 @@ export type PluginConfigFieldDefinition = {
   recordValueShape?: string
   unionOptions?: string[]
   examples?: string[]
+  constraints?: {
+    exclusiveMaximum?: number
+    exclusiveMinimum?: number
+    format?: string
+    maximum?: number
+    maxItems?: number
+    maxLength?: number
+    minimum?: number
+    minItems?: number
+    minLength?: number
+    pattern?: string
+  }
   support: PluginConfigSupportLevel
   supportNote?: string
 }

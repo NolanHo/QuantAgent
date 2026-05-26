@@ -189,6 +189,40 @@ function normalizeZodIssueMessage(path: string, message: string): string {
   return message
 }
 
+function messageFromZodIssue(issue: z.core.$ZodIssue): string | null {
+  if (issue.code === 'too_small') {
+    const minimum = 'minimum' in issue ? issue.minimum : undefined
+    if (issue.origin === 'string') {
+      return `至少需要 ${minimum} 个字符。`
+    }
+    if (issue.origin === 'array') {
+      return `至少需要 ${minimum} 项。`
+    }
+    if (issue.origin === 'number') {
+      return issue.inclusive ? `数值不能小于 ${minimum}。` : `数值必须大于 ${minimum}。`
+    }
+  }
+
+  if (issue.code === 'too_big') {
+    const maximum = 'maximum' in issue ? issue.maximum : undefined
+    if (issue.origin === 'string') {
+      return `最多允许 ${maximum} 个字符。`
+    }
+    if (issue.origin === 'array') {
+      return `最多允许 ${maximum} 项。`
+    }
+    if (issue.origin === 'number') {
+      return issue.inclusive ? `数值不能大于 ${maximum}。` : `数值必须小于 ${maximum}。`
+    }
+  }
+
+  if (issue.code === 'invalid_type') {
+    return '输入类型不符合要求。'
+  }
+
+  return null
+}
+
 function formatIssuePath(path: ReadonlyArray<PropertyKey>): string {
   return path
     .map((segment) =>
@@ -210,7 +244,7 @@ function mapZodIssues(error: z.ZodError): PluginConfigValidationIssue[] {
 
     return {
       path,
-      message: normalizeZodIssueMessage(path, issue.message),
+      message: messageFromZodIssue(issue) ?? normalizeZodIssueMessage(path, issue.message),
     }
   })
 }

@@ -27,6 +27,44 @@ describe('plugin config debug mock validation', () => {
     )
   })
 
+  it('reports zod length, count, and range validation messages', async () => {
+    const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
+    expect(fixture).not.toBeNull()
+
+    const result = await validateDebugPluginConfig(fixture!.schema, {
+      ...fixture!.config.values,
+      'auth.clientId': 'abc',
+      'auth.scopes': '',
+      'advancedMetrics.alertThresholdRatio': '1',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        { path: 'auth.clientId', message: '至少需要 5 个字符。' },
+        { path: 'auth.scopes', message: '该字段为必填项。' },
+        { path: 'advancedMetrics.alertThresholdRatio', message: '数值不能大于 0.95。' },
+      ]),
+    )
+  })
+
+  it('reports required errors when required array input is empty', async () => {
+    const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
+    expect(fixture).not.toBeNull()
+
+    const result = await validateDebugPluginConfig(fixture!.schema, {
+      ...fixture!.config.values,
+      'advancedMetrics.monitoredKeys': '',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        { path: 'advancedMetrics.monitoredKeys', message: '该字段为必填项。' },
+      ]),
+    )
+  })
+
   it('rejects production environment after trimming whitespace in save guard', async () => {
     const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
     expect(fixture).not.toBeNull()

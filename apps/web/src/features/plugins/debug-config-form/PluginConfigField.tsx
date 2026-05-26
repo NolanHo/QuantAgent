@@ -10,6 +10,8 @@ import {
   textareaStyle,
 } from './PluginConfigDebug.styles'
 import {
+  fieldConstraintCopies,
+  fieldRequirementCopy,
   joinArrayDraftValue,
   splitArrayDraftItems,
   splitArrayPreview,
@@ -146,6 +148,8 @@ export function PluginConfigField({
   onChange,
   value,
 }: PluginConfigFieldProps) {
+  const constraintCopies = fieldConstraintCopies(definition)
+
   return (
     <label style={fieldStyle}>
       <span style={labelStyle}>
@@ -153,6 +157,10 @@ export function PluginConfigField({
       </span>
       <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
         {definition.description}
+      </span>
+      <span style={{ color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
+        {fieldRequirementCopy(definition)}
+        {constraintCopies.length > 0 ? ` · ${constraintCopies.join(' · ')}` : ''}
       </span>
       {renderFieldInput({ definition, value, onChange })}
       {definition.type === 'array' && definition.support === 'supported' && value ? (

@@ -120,4 +120,99 @@ describe('fetchPluginConfigSchema', () => {
       }),
     )
   })
+
+  it('returns field issues for required, length, count, and range errors', async () => {
+    const apiClient = {
+      get: vi.fn().mockResolvedValue({
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        type: 'object',
+        title: 'RemotePluginConfig',
+        properties: {
+          displayName: {
+            description: '展示名称|title:展示名称;desc:用于测试字符数限制',
+            minLength: 3,
+            maxLength: 8,
+            type: 'string',
+          },
+          optionalMemo: {
+            description: '备注|title:备注;desc:可选字段允许为空',
+            minLength: 2,
+            type: 'string',
+          },
+          codeName: {
+            description: '代号|title:大写代号;desc:用于测试格式限制',
+            pattern: '^[A-Z]+$',
+            type: 'string',
+          },
+          retryCount: {
+            description: '重试次数|title:重试次数;desc:用于测试数字范围',
+            minimum: 1,
+            maximum: 3,
+            type: 'integer',
+          },
+          scopes: {
+            description: '权限|title:权限列表;desc:用于测试数组数量',
+            items: { type: 'string' },
+            minItems: 2,
+            maxItems: 3,
+            type: 'array',
+          },
+        },
+        required: ['displayName', 'codeName', 'retryCount', 'scopes'],
+      }),
+    }
+
+    const schema = await fetchPluginConfigSchema(
+      apiClient as never,
+      'quantagent.debug.plugin-form.complex',
+    )
+
+    expect(schema.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'displayName',
+          required: true,
+          constraints: expect.objectContaining({ minLength: 3, maxLength: 8 }),
+        }),
+        expect.objectContaining({
+          path: 'optionalMemo',
+          required: false,
+        }),
+      ]),
+    )
+
+    const result = await validatePluginConfigDraft(schema, {
+      displayName: 'ab',
+      codeName: 'abc',
+      optionalMemo: '',
+      retryCount: '5',
+      scopes: 'read',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        { path: 'displayName', message: '至少需要 3 个字符。' },
+        { path: 'codeName', message: '格式不符合要求。' },
+        { path: 'retryCount', message: '数值不能大于 3。' },
+        { path: 'scopes', message: '至少需要 2 项。' },
+      ]),
+    )
+    expect(result.issues).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'optionalMemo' })]),
+    )
+
+    const missingRequired = await validatePluginConfigDraft(schema, {
+      displayName: '',
+      codeName: 'ABC',
+      retryCount: '2',
+      scopes: 'read,write',
+    })
+
+    expect(missingRequired.issues).toEqual(
+      expect.arrayContaining([
+        { path: 'displayName', message: '该字段为必填项。' },
+      ]),
+    )
+  })
 })
