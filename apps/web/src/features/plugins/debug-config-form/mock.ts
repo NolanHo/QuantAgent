@@ -16,9 +16,19 @@ import type {
   PluginConfigSaveResult,
   PluginConfigSchemaSnapshot,
   PluginConfigSnapshot,
+  PluginConfigValidationIssue,
   PluginConfigValidationResult,
   PluginRecord,
 } from './types'
+
+class JsonFieldParseError extends Error {
+  readonly path: string
+
+  constructor(path: string) {
+    super('Invalid JSON field value.')
+    this.path = path
+  }
+}
 
 function delay(ms = 120): Promise<void> {
   return new Promise((resolve) => {
@@ -55,10 +65,21 @@ function parseScalarValue(definition: PluginConfigFieldDefinition, rawValue: str
     case 'number':
       return Number(rawValue)
     case 'array':
-      return definition.support === 'degraded' ? JSON.parse(rawValue) : parseArrayInput(rawValue)
+      if (definition.support !== 'degraded') {
+        return parseArrayInput(rawValue)
+      }
+      try {
+        return JSON.parse(rawValue)
+      } catch {
+        throw new JsonFieldParseError(definition.path)
+      }
     case 'record':
     case 'union':
-      return JSON.parse(rawValue)
+      try {
+        return JSON.parse(rawValue)
+      } catch {
+        throw new JsonFieldParseError(definition.path)
+      }
     default:
       return rawValue
   }
@@ -123,6 +144,7 @@ export function getDebugPluginJsonSchema(pluginId: string): PluginConfigJsonSche
 export function createSchemaSnapshotFromJsonSchema(
   pluginId: string,
   jsonSchema: PluginConfigJsonSchema,
+  schemaSource: PluginConfigSchemaSnapshot['schemaSource'] = 'registry-api',
 ): PluginConfigSchemaSnapshot {
   const fixture = getDebugPluginFixture(pluginId)
 
@@ -134,12 +156,72 @@ export function createSchemaSnapshotFromJsonSchema(
 
   return {
     ...baseSchema,
-    schemaSource: 'registry-api',
+    schemaSource,
     schemaTitle: jsonSchema.title ?? baseSchema.schemaTitle,
     fields: flattenJsonSchema(jsonSchema, {
       metadataByPath: metadataForPlugin(pluginId),
       sampleAtPath: sampleReaderForPlugin(pluginId),
     }),
+  }
+}
+
+function validateFieldDefinitions(
+  schema: PluginConfigSchemaSnapshot,
+  values: Record<string, string>,
+): PluginConfigValidationResult {
+  const issues: PluginConfigValidationIssue[] = []
+
+  for (const definition of schema.fields) {
+    const rawValue = values[definition.path] ?? ''
+    const trimmedValue = rawValue.trim()
+
+    if (definition.required && trimmedValue.length === 0) {
+      issues.push({ path: definition.path, message: '该字段为必填项。' })
+      continue
+    }
+
+    if (trimmedValue.length === 0) {
+      continue
+    }
+
+    if (definition.enumValues && !definition.enumValues.includes(trimmedValue)) {
+      issues.push({
+        path: definition.path,
+        message: `可选值为：${definition.enumValues.join(' / ')}`,
+      })
+    }
+
+    if (definition.type === 'boolean' && trimmedValue !== 'true' && trimmedValue !== 'false') {
+      issues.push({ path: definition.path, message: '布尔字段只能填写 true 或 false。' })
+    }
+
+    if (
+      (definition.type === 'integer' || definition.type === 'number') &&
+      Number.isNaN(Number(trimmedValue))
+    ) {
+      issues.push({ path: definition.path, message: '该字段需要数字格式。' })
+    }
+
+    if (definition.type === 'integer' && !Number.isInteger(Number(trimmedValue))) {
+      issues.push({ path: definition.path, message: '该字段需要整数格式。' })
+    }
+
+    if (
+      definition.type === 'record' ||
+      definition.type === 'union' ||
+      (definition.type === 'array' && definition.support === 'degraded')
+    ) {
+      try {
+        JSON.parse(trimmedValue)
+      } catch {
+        issues.push({ path: definition.path, message: '需要提供合法的 JSON 文本。' })
+      }
+    }
+  }
+
+  return {
+    ok: issues.length === 0,
+    issues,
   }
 }
 
@@ -161,7 +243,21 @@ export async function validateDebugPluginConfig(
 ): Promise<PluginConfigValidationResult> {
   await delay()
 
-  return validateDebugPayload(schema, parseFormValues(schema, values))
+  if (schema.schemaSource === 'registry-api') {
+    return validateFieldDefinitions(schema, values)
+  }
+
+  try {
+    return validateDebugPayload(schema, parseFormValues(schema, values))
+  } catch (error) {
+    if (error instanceof JsonFieldParseError) {
+      return {
+        ok: false,
+        issues: [{ path: error.path, message: '需要提供合法的 JSON 文本。' }],
+      }
+    }
+    throw error
+  }
 }
 
 export async function saveDebugPluginConfig(
@@ -169,6 +265,11 @@ export async function saveDebugPluginConfig(
   values: Record<string, string>,
 ): Promise<PluginConfigSaveResult> {
   await delay(220)
+
+  const validation = await validateDebugPluginConfig(schema, values)
+  if (!validation.ok) {
+    throw new Error(`配置校验失败：${validation.issues[0]?.message ?? '请先修正表单。'}`)
+  }
 
   if ((values.environment ?? '').trim().toLowerCase() === 'production') {
     throw new Error('调试页 mock save 拒绝直接把环境切换为 production。')

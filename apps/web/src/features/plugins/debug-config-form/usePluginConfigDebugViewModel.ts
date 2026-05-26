@@ -64,13 +64,16 @@ export function usePluginConfigDebugViewModel() {
       return
     }
 
-    const result = await validationMutation.mutateAsync(draftValues)
-    setIssues(result.issues)
-    setState(result.ok ? 'idle' : 'validation-error')
-    if (result.ok) {
-      setSaveMessage('当前草稿通过 mock validate，可继续测试保存流程。')
-    } else {
-      setSaveMessage(null)
+    try {
+      const result = await validationMutation.mutateAsync(draftValues)
+      setIssues(result.issues)
+      setState(result.ok ? 'idle' : 'validation-error')
+      setSaveMessage(result.ok ? '当前草稿通过 mock validate，可继续测试保存流程。' : null)
+    } catch (error) {
+      const message = error instanceof ApiError || error instanceof Error ? error.message : '校验失败'
+      setIssues([])
+      setState('validation-error')
+      setSaveMessage(message)
     }
   }
 
@@ -79,7 +82,17 @@ export function usePluginConfigDebugViewModel() {
       return
     }
 
-    const validationResult = await validationMutation.mutateAsync(draftValues)
+    let validationResult
+    try {
+      validationResult = await validationMutation.mutateAsync(draftValues)
+    } catch (error) {
+      const message = error instanceof ApiError || error instanceof Error ? error.message : '校验失败'
+      setIssues([])
+      setState('validation-error')
+      setSaveMessage(message)
+      return
+    }
+
     setIssues(validationResult.issues)
     if (!validationResult.ok) {
       setState('validation-error')

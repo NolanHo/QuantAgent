@@ -29,7 +29,7 @@ export async function fetchPluginConfigSchema(
   } catch {
     const debugJsonSchema = getDebugPluginJsonSchema(pluginId)
     if (debugJsonSchema) {
-      return createSchemaSnapshotFromJsonSchema(pluginId, debugJsonSchema)
+      return createSchemaSnapshotFromJsonSchema(pluginId, debugJsonSchema, 'debug-mock')
     }
 
     return loadDebugPluginSchema(pluginId)

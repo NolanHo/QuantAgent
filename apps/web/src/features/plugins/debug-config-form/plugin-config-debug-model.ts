@@ -7,19 +7,19 @@ import type {
 export function statusCopy(state: PluginConfigDebugState): { detail: string; title: string } {
   switch (state) {
     case 'loading':
-      return { title: 'Loading', detail: '正在加载 schema 与当前配置快照。' }
+      return { title: '加载中', detail: '正在加载 schema 与当前配置快照。' }
     case 'empty':
-      return { title: 'Empty', detail: '当前没有可用的配置样例或字段。' }
+      return { title: '空状态', detail: '当前没有可用的配置样例或字段。' }
     case 'validation-error':
-      return { title: 'Validation Error', detail: '字段级校验失败，需先修正表单。' }
+      return { title: '校验失败', detail: '字段级校验失败，需先修正表单。' }
     case 'save-pending':
-      return { title: 'Save Pending', detail: '正在执行受控保存，不写入正式业务接口。' }
+      return { title: '保存中', detail: '正在执行受控保存，不写入正式业务接口。' }
     case 'save-success':
-      return { title: 'Save Success', detail: '当前草稿已通过 mock save 流程。' }
+      return { title: '保存成功', detail: '当前草稿已通过 mock save 流程。' }
     case 'save-failure':
-      return { title: 'Save Failure', detail: '保存失败分支已触发，可用于验证错误反馈。' }
+      return { title: '保存失败', detail: '保存失败分支已触发，可用于验证错误反馈。' }
     default:
-      return { title: 'Ready', detail: '当前处于受控调试态，可验证字段映射与状态机。' }
+      return { title: '就绪', detail: '当前处于受控调试态，可验证字段映射与状态机。' }
   }
 }
 

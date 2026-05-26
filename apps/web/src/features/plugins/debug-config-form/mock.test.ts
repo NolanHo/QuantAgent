@@ -53,6 +53,24 @@ describe('plugin config debug mock validation', () => {
     expect(result.issues).toEqual([])
   })
 
+  it('maps malformed JSON text to structured field issues', async () => {
+    const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
+    expect(fixture).not.toBeNull()
+
+    const result = await validateDebugPluginConfig(fixture!.schema, {
+      ...fixture!.config.values,
+      'topology.routingRules': '{bad json',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues).toEqual([
+      {
+        path: 'topology.routingRules',
+        message: '需要提供合法的 JSON 文本。',
+      },
+    ])
+  })
+
   it('derives internal field definitions from standard JSON schema input', () => {
     const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
     expect(fixture).not.toBeNull()

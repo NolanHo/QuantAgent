@@ -17,7 +17,7 @@ test('renders debug plugin config panel and surfaces validation errors', async (
 
   await expect(component.getByText('插件 ID 必须是 UUID 形式。')).toBeVisible()
   await expect(
-    component.getByText('Validation Error · 字段级校验失败，需先修正表单。'),
+    component.getByText('校验失败 · 字段级校验失败，需先修正表单。'),
   ).toBeVisible()
 })
 
