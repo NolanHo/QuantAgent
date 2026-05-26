@@ -35,7 +35,7 @@ export default defineConfig(({ command, mode }) => {
       ],
       alias: [
         {
-          find: /^@\/debug\/route-api\.runtime$/,
+          find: /^@\/debug\/(?:router\/)?route-api\.runtime$/,
           replacement: fileURLToPath(new URL(debugRouteRuntimePath, import.meta.url)),
         },
         {
