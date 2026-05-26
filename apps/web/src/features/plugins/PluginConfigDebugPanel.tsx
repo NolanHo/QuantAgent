@@ -59,6 +59,18 @@ const fieldStyle: CSSProperties = {
   gap: '8px',
 }
 
+const arrayListStyle: CSSProperties = {
+  display: 'grid',
+  gap: '10px',
+}
+
+const arrayItemRowStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) auto',
+  gap: '10px',
+  alignItems: 'center',
+}
+
 const labelStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -203,6 +215,18 @@ function splitArrayPreview(value: string): string[] {
     .filter(Boolean)
 }
 
+function splitArrayDraftItems(value: string): string[] {
+  if (value.length === 0) {
+    return ['']
+  }
+
+  return value.split(',').map((entry) => entry.trim())
+}
+
+function joinArrayDraftValue(items: string[]): string {
+  return items.map((entry) => entry.trim()).join(',')
+}
+
 function renderFieldInput(
   definition: PluginConfigFieldDefinition,
   value: string,
@@ -256,6 +280,52 @@ function renderFieldInput(
           </option>
         ))}
       </select>
+    )
+  }
+
+  if (definition.type === 'array' && definition.support === 'supported') {
+    const items = splitArrayDraftItems(value)
+
+    return (
+      <div style={arrayListStyle}>
+        {items.map((itemValue, index) => (
+          <div key={`${definition.path}-${index}`} style={arrayItemRowStyle}>
+            <input
+              aria-label={`${definition.label} 第 ${index + 1} 项`}
+              onChange={(event) => {
+                const nextItems = [...items]
+                nextItems[index] = event.target.value
+                onChange(definition.path, joinArrayDraftValue(nextItems))
+              }}
+              placeholder={definition.placeholder ?? definition.examples?.[0] ?? `请输入第 ${index + 1} 项`}
+              style={inputStyle}
+              type="text"
+              value={itemValue}
+            />
+            <button
+              aria-label={`移除 ${definition.label} 第 ${index + 1} 项`}
+              onClick={() => {
+                const nextItems = items.filter((_, itemIndex) => itemIndex !== index)
+                onChange(definition.path, joinArrayDraftValue(nextItems))
+              }}
+              style={secondaryButtonStyle}
+              type="button"
+            >
+              删除
+            </button>
+          </div>
+        ))}
+        <button
+          aria-label={`添加 ${definition.label} 项`}
+          onClick={() => {
+            onChange(definition.path, joinArrayDraftValue([...items, '']))
+          }}
+          style={secondaryButtonStyle}
+          type="button"
+        >
+          添加一项
+        </button>
+      </div>
     )
   }
 
