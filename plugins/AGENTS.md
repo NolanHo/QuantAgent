@@ -15,7 +15,7 @@
 - Source Plugin 只负责采集、接收和标准化原始信息，不能直接调用行业包。
 - Source Plugin 只消费平台传入的 DTO / `effective_config` 并返回平台约定的 source 输出结构，不负责 `RawEvent` 入库、去重、`SourceBinding`、`Event Bus`、权限或生命周期托管。
 - Industry Plugin 可以提供 AgentDefinition、Skill、工具、market mapping 和 scoring hints，但不能绕过 AgentRuntime、ToolRegistry、Skill Registry 或 Decision。
-- Executor Plugin 初版必须默认禁用真实执行，只允许 disabled、dry-run 或 mock 路径。
+- Broker Plugin 初版必须默认禁用真实执行，只允许 disabled、dry-run 或 mock 路径。
 - 插件安装、升级、降级、启停、reload、配置变更和执行错误需要可审计。
 
 ## 局部规则
