@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from sqlalchemy.engine import Engine
 
 from quantagent.core.config.settings import Settings
 from quantagent.core.db.base import Base
-from quantagent.core.db.session import create_session_factory, create_sync_engine, require_database_url
+from quantagent.core.db import wallet_models
+from quantagent.core.db.session import create_session_factory, create_sync_engine, require_database_url, settings as db_settings
 
 
 class CorePackageTestCase(unittest.TestCase):
@@ -31,11 +33,13 @@ class CorePackageTestCase(unittest.TestCase):
 
     def test_base_metadata_is_importable(self) -> None:
         self.assertIsNotNone(Base.metadata)
-        self.assertEqual(Base.metadata.tables, {})
+        self.assertIn("trading_accounts", Base.metadata.tables)
+        self.assertIn("wallet_ledger_entries", Base.metadata.tables)
 
     def test_database_url_is_required_for_default_engine(self) -> None:
-        with self.assertRaisesRegex(ValueError, "DATABASE_URL must be configured"):
-            require_database_url()
+        with patch.object(db_settings, "DATABASE_URL", None):
+            with self.assertRaisesRegex(ValueError, "DATABASE_URL must be configured"):
+                require_database_url()
 
     def test_sync_engine_and_session_factory_are_importable(self) -> None:
         engine = create_sync_engine("sqlite:///:memory:")
