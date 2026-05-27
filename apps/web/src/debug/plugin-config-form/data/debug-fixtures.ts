@@ -17,6 +17,7 @@ import {
   complexPluginConfigSchema,
   simplePluginConfigSchema,
 } from './debug-zod-schemas'
+import { delay } from './utils'
 
 export const debugPluginRecords: PluginRecord[] = [
   {
@@ -244,4 +245,65 @@ export const debugFixtures: Record<string, PluginConfigDebugFixture> = {
     schema: simpleSchema,
     config: simpleConfig,
   },
+}
+
+function metadataForPlugin(pluginId: string) {
+  return pluginId === COMPLEX_PLUGIN_ID ? complexFieldMetadata : simpleFieldMetadata
+}
+
+function sampleReaderForPlugin(pluginId: string) {
+  return pluginId === COMPLEX_PLUGIN_ID ? complexConfigSourceAtPath : simpleConfigSourceAtPath
+}
+
+export function getDebugPluginFixture(pluginId: string): PluginConfigDebugFixture | null {
+  return debugFixtures[pluginId] ?? null
+}
+
+export function requireDebugPluginFixture(pluginId: string): PluginConfigDebugFixture {
+  const fixture = getDebugPluginFixture(pluginId)
+  if (!fixture) {
+    throw new Error(`Unknown debug plugin fixture: ${pluginId}`)
+  }
+
+  return fixture
+}
+
+export function listDebugPluginFixtures(): PluginRecord[] {
+  return debugPluginRecords
+}
+
+export async function loadDebugPluginSchema(
+  pluginId: string,
+): Promise<PluginConfigSchemaSnapshot> {
+  await delay()
+  return requireDebugPluginFixture(pluginId).schema
+}
+
+export function getDebugPluginJsonSchema(pluginId: string): PluginConfigJsonSchema | null {
+  return getDebugPluginFixture(pluginId)?.jsonSchema ?? null
+}
+
+export function createSchemaSnapshotFromJsonSchema(
+  pluginId: string,
+  jsonSchema: PluginConfigJsonSchema,
+  schemaSource: PluginConfigSchemaSnapshot['schemaSource'] = 'registry-api',
+): PluginConfigSchemaSnapshot {
+  const baseSchema = requireDebugPluginFixture(pluginId).schema
+
+  return {
+    ...baseSchema,
+    schemaSource,
+    schemaTitle: jsonSchema.title ?? baseSchema.schemaTitle,
+    fields: flattenJsonSchema(jsonSchema, {
+      metadataByPath: metadataForPlugin(pluginId),
+      sampleAtPath: sampleReaderForPlugin(pluginId),
+    }),
+  }
+}
+
+export async function loadDebugPluginConfig(
+  pluginId: string,
+): Promise<PluginConfigSnapshot> {
+  await delay()
+  return requireDebugPluginFixture(pluginId).config
 }

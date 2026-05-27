@@ -1,36 +1,61 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
-import { ApiError } from '@/shared/api'
+import { fetchPluginConfigJsonSchema } from '@/shared/api'
+import { useAuth } from '@/shared/auth'
 import {
-  issueMap,
-  normalizeInitialValues,
-} from '@/features/plugins/config-form'
-import type {
-  PluginConfigValidationIssue,
+  usePluginConfigDraftState,
+  usePluginConfigSaveMutation,
+  usePluginConfigSchemaQuery,
+  usePluginConfigValidationMutation,
+  usePluginCurrentConfigQuery,
 } from '@/features/plugins/config-form'
 import type { PluginConfigDebugState } from '../model'
 
 import {
-  useDebugPluginRecords,
-  usePluginConfigSave,
-  usePluginConfigSchema,
-  usePluginConfigValidation,
-  usePluginCurrentConfig,
-} from '../data/queries'
+  fetchPluginConfigSchema,
+  fetchPluginCurrentConfig,
+  savePluginConfigDraft,
+  validatePluginConfigDraft,
+} from '../data/api'
+import { listDebugPluginFixtures } from '../data/debug-fixtures'
+import { toUiErrorMessage } from '../data/utils'
 import { statusCopy } from '../model'
 
 export function usePluginConfigDebugViewModel() {
-  const pluginsQuery = useDebugPluginRecords()
+  const { apiClient } = useAuth()
+  const pluginsQuery = useQuery({
+    queryFn: async () => listDebugPluginFixtures(),
+    queryKey: ['debug-plugin-records'],
+    staleTime: Number.POSITIVE_INFINITY,
+  })
   const plugins = pluginsQuery.data ?? []
   const firstPluginId = plugins[0]?.id ?? ''
   const [selectedPluginId, setSelectedPluginId] = useState('')
-  const schemaQuery = usePluginConfigSchema(selectedPluginId)
-  const configQuery = usePluginCurrentConfig(selectedPluginId)
-  const validationMutation = usePluginConfigValidation(schemaQuery.data ?? null)
-  const saveMutation = usePluginConfigSave(schemaQuery.data ?? null)
-  const [draftValues, setDraftValues] = useState<Record<string, string>>({})
+  const schemaQuery = usePluginConfigSchemaQuery(
+    selectedPluginId,
+    (pluginId) => fetchPluginConfigSchema(
+      (currentPluginId) => fetchPluginConfigJsonSchema(apiClient, currentPluginId),
+      pluginId,
+    ),
+  )
+  const configQuery = usePluginCurrentConfigQuery(selectedPluginId, fetchPluginCurrentConfig)
+  const validationMutation = usePluginConfigValidationMutation(
+    schemaQuery.data ?? null,
+    validatePluginConfigDraft,
+  )
+  const saveMutation = usePluginConfigSaveMutation(
+    schemaQuery.data ?? null,
+    savePluginConfigDraft,
+  )
+  const {
+    draftValues,
+    issueLookup,
+    resetDraftState,
+    setIssues,
+    updateDraft,
+  } = usePluginConfigDraftState(schemaQuery.data ?? null, configQuery.data ?? null)
   const [state, setState] = useState<PluginConfigDebugState>('idle')
-  const [issues, setIssues] = useState<PluginConfigValidationIssue[]>([])
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
   useEffect(() => {
@@ -50,21 +75,11 @@ export function usePluginConfigDebugViewModel() {
       return
     }
 
-    setDraftValues(normalizeInitialValues(schemaQuery.data.fields, configQuery.data.values))
-    setIssues([])
     setSaveMessage(null)
     setState(schemaQuery.data.fields.length === 0 ? 'empty' : 'idle')
   }, [configQuery.data, schemaQuery.data])
 
-  const issueLookup = useMemo(() => issueMap(issues), [issues])
   const currentStatus = useMemo(() => statusCopy(state), [state])
-
-  function updateDraft(path: string, nextValue: string) {
-    setDraftValues((current) => ({
-      ...current,
-      [path]: nextValue,
-    }))
-  }
 
   async function validateDraft() {
     if (!schemaQuery.data) {
@@ -77,10 +92,9 @@ export function usePluginConfigDebugViewModel() {
       setState(result.ok ? 'idle' : 'validation-error')
       setSaveMessage(result.ok ? '当前草稿通过 mock validate，可继续测试保存流程。' : null)
     } catch (error) {
-      const message = error instanceof ApiError || error instanceof Error ? error.message : '校验失败'
       setIssues([])
       setState('validation-error')
-      setSaveMessage(message)
+      setSaveMessage(toUiErrorMessage(error, '校验失败'))
     }
   }
 
@@ -93,10 +107,9 @@ export function usePluginConfigDebugViewModel() {
     try {
       validationResult = await validationMutation.mutateAsync(draftValues)
     } catch (error) {
-      const message = error instanceof ApiError || error instanceof Error ? error.message : '校验失败'
       setIssues([])
       setState('validation-error')
-      setSaveMessage(message)
+      setSaveMessage(toUiErrorMessage(error, '校验失败'))
       return
     }
 
@@ -117,13 +130,12 @@ export function usePluginConfigDebugViewModel() {
       if (schemaQuery.data.fields.some((field) => field.sensitive)) {
         const nextConfig = await configQuery.refetch()
         if (nextConfig.data) {
-          setDraftValues(normalizeInitialValues(schemaQuery.data.fields, nextConfig.data.values))
+          resetDraftState(nextConfig.data)
         }
       }
     } catch (error) {
-      const message = error instanceof ApiError || error instanceof Error ? error.message : '保存失败'
       setState('save-failure')
-      setSaveMessage(message)
+      setSaveMessage(toUiErrorMessage(error, '保存失败'))
     }
   }
 

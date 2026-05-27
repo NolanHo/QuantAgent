@@ -1,10 +1,10 @@
-import type { ApiClient } from '@/shared/api'
 import type {
   PluginConfigJsonSchema,
   PluginConfigSaveResult,
   PluginConfigSchemaSnapshot,
   PluginConfigSnapshot,
   PluginConfigValidationResult,
+  PluginConfigValueMap,
 } from '@/features/plugins/config-form'
 
 import {
@@ -12,19 +12,22 @@ import {
   getDebugPluginJsonSchema,
   loadDebugPluginConfig,
   loadDebugPluginSchema,
+} from './debug-fixtures'
+import {
   saveDebugPluginConfig,
   validateDebugPluginConfig,
 } from './mock'
 
+export type PluginConfigSchemaLoader = (
+  pluginId: string,
+) => Promise<PluginConfigJsonSchema>
+
 export async function fetchPluginConfigSchema(
-  apiClient: ApiClient,
+  loadRemoteSchema: PluginConfigSchemaLoader,
   pluginId: string,
 ): Promise<PluginConfigSchemaSnapshot> {
   try {
-    const remoteSchema = await apiClient.get<PluginConfigJsonSchema>(
-      `/plugins/${pluginId}/config-schema`,
-      { dedupeKey: `plugin-config-schema:${pluginId}` },
-    )
+    const remoteSchema = await loadRemoteSchema(pluginId)
     return createSchemaSnapshotFromJsonSchema(pluginId, remoteSchema)
   } catch {
     const debugJsonSchema = getDebugPluginJsonSchema(pluginId)
@@ -42,14 +45,14 @@ export function fetchPluginCurrentConfig(pluginId: string): Promise<PluginConfig
 
 export function validatePluginConfigDraft(
   schema: PluginConfigSchemaSnapshot,
-  values: Record<string, string>,
+  values: PluginConfigValueMap,
 ): Promise<PluginConfigValidationResult> {
   return validateDebugPluginConfig(schema, values)
 }
 
 export function savePluginConfigDraft(
   schema: PluginConfigSchemaSnapshot,
-  values: Record<string, string>,
+  values: PluginConfigValueMap,
 ): Promise<PluginConfigSaveResult> {
   return saveDebugPluginConfig(schema, values)
 }

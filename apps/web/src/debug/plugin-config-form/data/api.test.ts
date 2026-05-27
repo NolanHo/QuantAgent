@@ -8,36 +8,31 @@ import {
 
 describe('fetchPluginConfigSchema', () => {
   it('converts remote json schema into internal field definitions', async () => {
-    const apiClient = {
-      get: vi.fn().mockResolvedValue({
-        $schema: 'http://json-schema.org/draft-07/schema#',
-        type: 'object',
-        title: 'RemotePluginConfig',
-        properties: {
-          pluginId: {
-            description: '插件唯一标识符|title:插件 ID;desc:系统自动生成的插件实例唯一 UUID',
-            type: 'string',
-          },
-          advancedMetrics: {
-            properties: {
-              monitoredKeys: {
-                description: '指标键名|title:监控指标项;desc:指定系统运行时需要上报的核心可观测性指标',
-                items: { type: 'string' },
-                type: 'array',
-              },
-            },
-            required: ['monitoredKeys'],
-            type: 'object',
-          },
+    const loadRemoteSchema = vi.fn().mockResolvedValue({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      title: 'RemotePluginConfig',
+      properties: {
+        pluginId: {
+          description: '插件唯一标识符|title:插件 ID;desc:系统自动生成的插件实例唯一 UUID',
+          type: 'string',
         },
-        required: ['pluginId', 'advancedMetrics'],
-      }),
-    }
+        advancedMetrics: {
+          properties: {
+            monitoredKeys: {
+              description: '指标键名|title:监控指标项;desc:指定系统运行时需要上报的核心可观测性指标',
+              items: { type: 'string' },
+              type: 'array',
+            },
+          },
+          required: ['monitoredKeys'],
+          type: 'object',
+        },
+      },
+      required: ['pluginId', 'advancedMetrics'],
+    })
 
-    const result = await fetchPluginConfigSchema(
-      apiClient as never,
-      'quantagent.debug.plugin-form.complex',
-    )
+    const result = await fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex')
 
     expect(result.schemaSource).toBe('registry-api')
     expect(result.schemaTitle).toBe('RemotePluginConfig')
@@ -58,14 +53,9 @@ describe('fetchPluginConfigSchema', () => {
   })
 
   it('marks local JSON schema fallback as debug mock source', async () => {
-    const apiClient = {
-      get: vi.fn().mockRejectedValue(new Error('network down')),
-    }
+    const loadRemoteSchema = vi.fn().mockRejectedValue(new Error('network down'))
 
-    const result = await fetchPluginConfigSchema(
-      apiClient as never,
-      'quantagent.debug.plugin-form.complex',
-    )
+    const result = await fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex')
 
     expect(result.schemaSource).toBe('debug-mock')
     expect(result.fields).toEqual(
@@ -76,29 +66,24 @@ describe('fetchPluginConfigSchema', () => {
   })
 
   it('validates and saves registry schema drafts against the rendered schema fields', async () => {
-    const apiClient = {
-      get: vi.fn().mockResolvedValue({
-        $schema: 'http://json-schema.org/draft-07/schema#',
-        type: 'object',
-        title: 'RemotePluginConfig',
-        properties: {
-          pluginId: {
-            description: '插件唯一标识符|title:插件 ID;desc:系统自动生成的插件实例唯一 UUID',
-            type: 'string',
-          },
-          remoteOnlyFlag: {
-            description: '远端字段|title:远端开关;desc:仅存在于 registry schema 的布尔字段',
-            type: 'boolean',
-          },
+    const loadRemoteSchema = vi.fn().mockResolvedValue({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      title: 'RemotePluginConfig',
+      properties: {
+        pluginId: {
+          description: '插件唯一标识符|title:插件 ID;desc:系统自动生成的插件实例唯一 UUID',
+          type: 'string',
         },
-        required: ['pluginId', 'remoteOnlyFlag'],
-      }),
-    }
+        remoteOnlyFlag: {
+          description: '远端字段|title:远端开关;desc:仅存在于 registry schema 的布尔字段',
+          type: 'boolean',
+        },
+      },
+      required: ['pluginId', 'remoteOnlyFlag'],
+    })
 
-    const schema = await fetchPluginConfigSchema(
-      apiClient as never,
-      'quantagent.debug.plugin-form.complex',
-    )
+    const schema = await fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex')
 
     expect(schema.schemaSource).toBe('registry-api')
     expect(schema.fields.map((field) => field.path)).toContain('remoteOnlyFlag')
@@ -122,50 +107,45 @@ describe('fetchPluginConfigSchema', () => {
   })
 
   it('returns field issues for required, length, count, and range errors', async () => {
-    const apiClient = {
-      get: vi.fn().mockResolvedValue({
-        $schema: 'http://json-schema.org/draft-07/schema#',
-        type: 'object',
-        title: 'RemotePluginConfig',
-        properties: {
-          displayName: {
-            description: '展示名称|title:展示名称;desc:用于测试字符数限制',
-            minLength: 3,
-            maxLength: 8,
-            type: 'string',
-          },
-          optionalMemo: {
-            description: '备注|title:备注;desc:可选字段允许为空',
-            minLength: 2,
-            type: 'string',
-          },
-          codeName: {
-            description: '代号|title:大写代号;desc:用于测试格式限制',
-            pattern: '^[A-Z]+$',
-            type: 'string',
-          },
-          retryCount: {
-            description: '重试次数|title:重试次数;desc:用于测试数字范围',
-            minimum: 1,
-            maximum: 3,
-            type: 'integer',
-          },
-          scopes: {
-            description: '权限|title:权限列表;desc:用于测试数组数量',
-            items: { type: 'string' },
-            minItems: 2,
-            maxItems: 3,
-            type: 'array',
-          },
+    const loadRemoteSchema = vi.fn().mockResolvedValue({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      title: 'RemotePluginConfig',
+      properties: {
+        displayName: {
+          description: '展示名称|title:展示名称;desc:用于测试字符数限制',
+          minLength: 3,
+          maxLength: 8,
+          type: 'string',
         },
-        required: ['displayName', 'codeName', 'retryCount', 'scopes'],
-      }),
-    }
+        optionalMemo: {
+          description: '备注|title:备注;desc:可选字段允许为空',
+          minLength: 2,
+          type: 'string',
+        },
+        codeName: {
+          description: '代号|title:大写代号;desc:用于测试格式限制',
+          pattern: '^[A-Z]+$',
+          type: 'string',
+        },
+        retryCount: {
+          description: '重试次数|title:重试次数;desc:用于测试数字范围',
+          minimum: 1,
+          maximum: 3,
+          type: 'integer',
+        },
+        scopes: {
+          description: '权限|title:权限列表;desc:用于测试数组数量',
+          items: { type: 'string' },
+          minItems: 2,
+          maxItems: 3,
+          type: 'array',
+        },
+      },
+      required: ['displayName', 'codeName', 'retryCount', 'scopes'],
+    })
 
-    const schema = await fetchPluginConfigSchema(
-      apiClient as never,
-      'quantagent.debug.plugin-form.complex',
-    )
+    const schema = await fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex')
 
     expect(schema.fields).toEqual(
       expect.arrayContaining([

@@ -73,7 +73,7 @@ export const complexPluginConfigSchema = z.object({
         .describe('最大重试次数|title:重试阈值;desc:请求失败时的最大自动重试次数，范围 0-10'),
       routingRules: z
         .record(
-          z.string().regex(/^\/[a-zA-Z0-9_\-*\/]+$/),
+          z.string().regex(/^\/[a-zA-Z0-9_\-*/]+$/),
           z.object({
             targetCluster: z
               .string()

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  createSchemaSnapshotFromJsonSchema,
-  getDebugPluginFixture,
   saveDebugPluginConfig,
   validateDebugPluginConfig,
 } from './mock'
+import {
+  createSchemaSnapshotFromJsonSchema,
+  getDebugPluginFixture,
+} from './debug-fixtures'
 
 describe('plugin config debug mock validation', () => {
   it('flags invalid UUID and short secret for the complex fixture', async () => {
