@@ -2,25 +2,28 @@ import { Card, Chip } from '@heroui/react'
 
 import {
   asideListStyle,
-  sectionTitleStyle,
   supportBadgeColor,
 } from '../lib/PluginConfigForm.styles'
 import type { PluginConfigSchemaSnapshot } from '../types'
 
 type PluginConfigSupportMatrixProps = {
+  description?: string
+  title?: string
   supportMatrix: PluginConfigSchemaSnapshot['supportMatrix']
 }
 
 export function PluginConfigSupportMatrix({
+  description,
+  title = '支持矩阵',
   supportMatrix,
 }: PluginConfigSupportMatrixProps) {
   return (
     <Card>
       <Card.Header>
-        <Card.Title style={sectionTitleStyle}>Schema Inspect</Card.Title>
-        <Card.Description className="page-description">
-          当前视图只展示受控的 schema 摘要、支持矩阵和状态边界，不接受任意 schema playground 输入。
-        </Card.Description>
+        <Card.Title>{title}</Card.Title>
+        {description ? (
+          <Card.Description className="page-description">{description}</Card.Description>
+        ) : null}
       </Card.Header>
 
       <Card.Content>
@@ -40,15 +43,6 @@ export function PluginConfigSupportMatrix({
               </Card.Content>
             </Card>
           ))}
-        </section>
-
-        <section style={{ marginTop: 'var(--qa-spacing-lg)' }}>
-          <h3 style={{ margin: 0, fontSize: '16px' }}>调试态状态机</h3>
-          <ul style={{ margin: '10px 0 0', paddingInlineStart: '20px', color: 'var(--qa-color-text-subtle)' }}>
-            <li>加载中 / 空状态：用于验证 schema 与 config 入口状态。</li>
-            <li>校验失败：字段级错误由表单 UI 明确承接。</li>
-            <li>保存中 / 保存成功 / 保存失败：不依赖正式业务接口即可验证保存反馈。</li>
-          </ul>
         </section>
       </Card.Content>
     </Card>

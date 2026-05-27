@@ -4,4 +4,5 @@ export * from "./client-config";
 export * from "./dedupe";
 export * from "./envelope";
 export * from "./errors";
+export * from "./plugins";
 export * from "./types";
