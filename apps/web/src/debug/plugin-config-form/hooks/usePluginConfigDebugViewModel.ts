@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
+import { useAppRuntime } from '@/app/runtime'
 import { fetchPluginConfigJsonSchema } from '@/shared/api'
-import { useAuth } from '@/shared/auth'
 import {
   usePluginConfigDraftState,
   usePluginConfigSaveMutation,
@@ -23,7 +23,7 @@ import { toUiErrorMessage } from '../data/utils'
 import { statusCopy } from '../model'
 
 export function usePluginConfigDebugViewModel() {
-  const { apiClient } = useAuth()
+  const { apiClient } = useAppRuntime()
   const pluginsQuery = useQuery({
     queryFn: async () => listDebugPluginFixtures(),
     queryKey: ['debug-plugin-records'],

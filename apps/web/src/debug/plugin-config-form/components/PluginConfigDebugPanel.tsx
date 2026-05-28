@@ -59,6 +59,7 @@ export function PluginConfigDebugPanel() {
   const [modalPortalContainer, setModalPortalContainer] =
     useState<HTMLElement | null>(null);
   const [previewFormatVersion, setPreviewFormatVersion] = useState(0);
+  const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [drawerTabKey, setDrawerTabKey] = useState<"form" | "preview">("form");
   const [drawerWidth, setDrawerWidth] = useState(DEFAULT_DRAWER_WIDTH);
   const [isResizingDrawer, setIsResizingDrawer] = useState(false);
@@ -172,6 +173,7 @@ export function PluginConfigDebugPanel() {
     selectPlugin(pluginId);
     setDrawerTabKey("form");
     setDrawerWidth(getDefaultDrawerWidth());
+    setPreviewMessage(null);
     setIsModalOpen(true);
   }
 
@@ -180,6 +182,7 @@ export function PluginConfigDebugPanel() {
     if (!nextOpen) {
       setEditingPluginId(null);
       setDrawerTabKey("form");
+      setPreviewMessage(null);
     }
   }
 
@@ -190,9 +193,9 @@ export function PluginConfigDebugPanel() {
 
     try {
       await navigator.clipboard.writeText(previewPayload);
-      setSaveMessage("当前样例 JSON 已复制到剪贴板。");
+      setPreviewMessage("当前样例 JSON 已复制到剪贴板。");
     } catch {
-      setSaveMessage("复制失败，请手动选中右侧 JSON 内容。");
+      setPreviewMessage("复制失败，请手动选中右侧 JSON 内容。");
       setDrawerTabKey("preview");
       setPreviewFormatVersion((current) => current + 1);
     }
@@ -494,9 +497,7 @@ export function PluginConfigDebugPanel() {
                                 containerWidth={drawerWidth}
                                 issueLookup={issueLookup}
                                 onValueChange={updateDraft}
-                                plugins={plugins}
                                 schema={schema}
-                                selectedPluginId={selectedPlugin?.id}
                                 showSupportMatrix={false}
                                 values={draftValues}
                               />
@@ -579,6 +580,32 @@ export function PluginConfigDebugPanel() {
                             </motion.div>
 
                             <motion.div layout transition={staggeredTransition}>
+                              {previewMessage ? (
+                                <motion.div
+                                  className="mb-3"
+                                  layout
+                                  transition={staggeredTransition}
+                                >
+                                  <Surface
+                                    className="rounded-[22px]"
+                                    variant="secondary"
+                                  >
+                                    <div className="p-4">
+                                      <motion.p
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="m-0 text-sm leading-6 text-slate-600"
+                                        initial={{
+                                          opacity: 0,
+                                          y: prefersReducedMotion ? 0 : 8,
+                                        }}
+                                        transition={fadeSlideTransition}
+                                      >
+                                        {previewMessage}
+                                      </motion.p>
+                                    </div>
+                                  </Surface>
+                                </motion.div>
+                              ) : null}
                               <Card>
                                 <Card.Header>
                                   <Card.Title>样例配置 JSON</Card.Title>

@@ -15,19 +15,11 @@ import { PluginConfigSupportMatrix } from "./PluginConfigSupportMatrix";
 
 const MOTION_EASE = [0.22, 1, 0.36, 1] as const;
 
-export type PluginConfigFormPluginOption = {
-  id: string;
-  name: string;
-};
-
 type PluginConfigFormProps = {
   containerWidth?: number;
-  isSaving?: boolean;
   issueLookup: Map<string, string>;
   onValueChange: (path: string, nextValue: string) => void;
-  plugins?: PluginConfigFormPluginOption[];
   schema: PluginConfigSchemaSnapshot;
-  selectedPluginId?: string;
   showSupportMatrix?: boolean;
   values: Record<string, string>;
 };
@@ -36,9 +28,7 @@ export function PluginConfigForm({
   containerWidth,
   issueLookup,
   onValueChange,
-  plugins = [],
   schema,
-  selectedPluginId,
   showSupportMatrix = true,
   values,
 }: PluginConfigFormProps) {
@@ -51,9 +41,6 @@ export function PluginConfigForm({
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(
     defaultSelectedGroupKey,
   );
-  const selectedPluginName =
-    plugins.find((plugin) => plugin.id === selectedPluginId)?.name ??
-    schema.pluginName;
   const isCompactLayout = (containerWidth ?? Number.POSITIVE_INFINITY) < 860;
   const panelTransition = prefersReducedMotion
     ? { duration: 0 }
