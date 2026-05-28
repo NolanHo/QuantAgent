@@ -83,21 +83,7 @@ export function DebugWorkbenchIndexPage() {
 }
 
 export function DebugPluginConfigFormPage() {
-  return (
-    <>
-      <section className="page-header">
-        <p className="page-kicker">仅开发环境</p>
-        <h1 className="page-title">插件配置调试表单</h1>
-        <p className="page-description">
-          用于在 `/debug` 下受控验证插件配置 schema-driven form 首版能力。当前优先覆盖
-          Zod authoring -&gt; zod-to-json-schema 来源链路、敏感字段掩码和保存状态机，不作为正式
-          `/plugins` 功能交付。
-        </p>
-      </section>
-
-      <PluginConfigDebugPanel />
-    </>
-  )
+  return <PluginConfigDebugPanel />
 }
 
 export function DebugPageStatesPage({

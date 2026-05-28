@@ -1,20 +1,19 @@
-import { Card, Chip } from '@heroui/react'
+import { Card, Chip, ListBox, Surface } from "@heroui/react";
 
-import {
-  asideListStyle,
-  supportBadgeColor,
-} from '../lib/PluginConfigForm.styles'
-import type { PluginConfigSchemaSnapshot } from '../types'
+import type {
+  PluginConfigSchemaSnapshot,
+  PluginConfigSupportLevel,
+} from "../types";
 
 type PluginConfigSupportMatrixProps = {
-  description?: string
-  title?: string
-  supportMatrix: PluginConfigSchemaSnapshot['supportMatrix']
-}
+  description?: string;
+  title?: string;
+  supportMatrix: PluginConfigSchemaSnapshot["supportMatrix"];
+};
 
 export function PluginConfigSupportMatrix({
   description,
-  title = '支持矩阵',
+  title = "支持矩阵",
   supportMatrix,
 }: PluginConfigSupportMatrixProps) {
   return (
@@ -22,29 +21,55 @@ export function PluginConfigSupportMatrix({
       <Card.Header>
         <Card.Title>{title}</Card.Title>
         {description ? (
-          <Card.Description className="page-description">{description}</Card.Description>
+          <Card.Description>{description}</Card.Description>
         ) : null}
       </Card.Header>
 
       <Card.Content>
-        <section style={asideListStyle} aria-label="支持矩阵">
+        <ListBox aria-label="支持矩阵">
           {supportMatrix.map((entry) => (
-            <Card key={entry.feature} variant="secondary">
-              <Card.Header style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                <strong>{entry.feature}</strong>
-                <Chip color={supportBadgeColor(entry.level)} size="sm" variant="soft">
-                  {entry.level}
-                </Chip>
-              </Card.Header>
-              <Card.Content>
-                <p style={{ margin: 0, color: 'var(--qa-color-text-subtle)', fontSize: '13px' }}>
-                  {entry.note}
-                </p>
-              </Card.Content>
-            </Card>
+            <ListBox.Item
+              id={entry.feature}
+              key={entry.feature}
+              textValue={entry.feature}
+            >
+              <Surface variant="secondary">
+                <div className="grid gap-2 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="m-0 text-sm font-bold text-slate-900">
+                      {entry.feature}
+                    </p>
+                    <Chip
+                      color={supportBadgeColor(entry.level)}
+                      size="sm"
+                      variant="soft"
+                    >
+                      {entry.level}
+                    </Chip>
+                  </div>
+                  <p className="m-0 text-sm leading-6 text-slate-500">
+                    {entry.note}
+                  </p>
+                </div>
+              </Surface>
+            </ListBox.Item>
           ))}
-        </section>
+        </ListBox>
       </Card.Content>
     </Card>
-  )
+  );
+}
+
+function supportBadgeColor(
+  level: PluginConfigSupportLevel,
+): "success" | "warning" | "danger" {
+  if (level === "supported") {
+    return "success";
+  }
+
+  if (level === "degraded") {
+    return "warning";
+  }
+
+  return "danger";
 }

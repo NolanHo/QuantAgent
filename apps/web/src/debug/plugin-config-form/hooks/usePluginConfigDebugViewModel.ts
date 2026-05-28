@@ -50,6 +50,7 @@ export function usePluginConfigDebugViewModel() {
   )
   const {
     draftValues,
+    isDirty,
     issueLookup,
     resetDraftState,
     setIssues,
@@ -83,7 +84,7 @@ export function usePluginConfigDebugViewModel() {
 
   async function validateDraft() {
     if (!schemaQuery.data) {
-      return
+      return false
     }
 
     try {
@@ -91,16 +92,18 @@ export function usePluginConfigDebugViewModel() {
       setIssues(result.issues)
       setState(result.ok ? 'idle' : 'validation-error')
       setSaveMessage(result.ok ? '当前草稿通过 mock validate，可继续测试保存流程。' : null)
+      return result.ok
     } catch (error) {
       setIssues([])
       setState('validation-error')
       setSaveMessage(toUiErrorMessage(error, '校验失败'))
+      return false
     }
   }
 
   async function saveDraft() {
     if (!schemaQuery.data) {
-      return
+      return false
     }
 
     let validationResult
@@ -110,14 +113,14 @@ export function usePluginConfigDebugViewModel() {
       setIssues([])
       setState('validation-error')
       setSaveMessage(toUiErrorMessage(error, '校验失败'))
-      return
+      return false
     }
 
     setIssues(validationResult.issues)
     if (!validationResult.ok) {
       setState('validation-error')
       setSaveMessage(null)
-      return
+      return false
     }
 
     setState('save-pending')
@@ -127,28 +130,41 @@ export function usePluginConfigDebugViewModel() {
       const result = await saveMutation.mutateAsync(draftValues)
       setState('save-success')
       setSaveMessage(`已写入 debug mock snapshot，版本标签：${result.versionTag}`)
-      if (schemaQuery.data.fields.some((field) => field.sensitive)) {
-        const nextConfig = await configQuery.refetch()
-        if (nextConfig.data) {
-          resetDraftState(nextConfig.data)
-        }
+      const nextConfig = await configQuery.refetch()
+      if (nextConfig.data) {
+        resetDraftState(nextConfig.data)
       }
+      return true
     } catch (error) {
       setState('save-failure')
       setSaveMessage(toUiErrorMessage(error, '保存失败'))
+      return false
     }
+  }
+
+  function resetDraft() {
+    if (!configQuery.data) {
+      return
+    }
+
+    resetDraftState(configQuery.data)
+    setSaveMessage(null)
+    setState(schemaQuery.data?.fields.length ? 'idle' : 'empty')
   }
 
   return {
     config: configQuery.data ?? null,
     currentStatus,
     draftValues,
+    isDirty,
     isLoading:
       pluginsQuery.isLoading ||
       (selectedPluginId.length > 0 && (schemaQuery.isLoading || configQuery.isLoading)),
     issueLookup,
     plugins,
+    resetDraft,
     saveDraft,
+    savePending: saveMutation.isPending,
     saveMessage,
     schema: schemaQuery.data ?? null,
     selectedPluginId,

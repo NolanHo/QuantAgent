@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import type {
@@ -12,6 +12,7 @@ import {
   issueMap,
   normalizeInitialValues,
   updateValueMap,
+  validateSchemaFields,
 } from './lib/model'
 
 export function usePluginConfigSchemaQuery(
@@ -76,6 +77,10 @@ export function usePluginConfigDraftState(
   schema: PluginConfigSchemaSnapshot | null,
   config: PluginConfigSnapshot | null,
 ) {
+  const initialDraftValues = useMemo(
+    () => (schema && config ? normalizeInitialValues(schema.fields, config.values) : {}),
+    [config, schema],
+  )
   const [draftValues, setDraftValues] = useState<PluginConfigValueMap>({})
   const [issues, setIssues] = useState<PluginConfigValidationIssue[]>([])
 
@@ -84,31 +89,65 @@ export function usePluginConfigDraftState(
       return
     }
 
-    setDraftValues(normalizeInitialValues(schema.fields, config.values))
+    setDraftValues(initialDraftValues)
     setIssues([])
-  }, [config, schema])
+  }, [config, initialDraftValues, schema])
 
   const issueLookup = useMemo(() => issueMap(issues), [issues])
+  const isDirty = useMemo(
+    () => !isSameValueMap(draftValues, initialDraftValues),
+    [draftValues, initialDraftValues],
+  )
 
-  function updateDraft(path: string, nextValue: string) {
-    setDraftValues((current) => updateValueMap(current, path, nextValue))
-  }
+  const updateDraft = useCallback((path: string, nextValue: string) => {
+    setDraftValues((current) => {
+      const nextValues = updateValueMap(current, path, nextValue)
 
-  function resetDraftState(nextConfig: PluginConfigSnapshot) {
+      if (schema) {
+        setIssues(validateSchemaFields(schema, nextValues).issues)
+      }
+
+      return nextValues
+    })
+  }, [schema])
+
+  const resetDraftState = useCallback((nextConfig: PluginConfigSnapshot) => {
     if (!schema) {
       return
     }
 
     setDraftValues(normalizeInitialValues(schema.fields, nextConfig.values))
     setIssues([])
-  }
+  }, [schema])
 
   return {
     draftValues,
+    initialDraftValues,
+    isDirty,
     issueLookup,
     issues,
     resetDraftState,
     setIssues,
     updateDraft,
   }
+}
+
+function isSameValueMap(
+  left: PluginConfigValueMap,
+  right: PluginConfigValueMap,
+): boolean {
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false
+  }
+
+  for (const key of leftKeys) {
+    if (left[key] !== right[key]) {
+      return false
+    }
+  }
+
+  return true
 }

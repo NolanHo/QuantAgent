@@ -41,12 +41,15 @@ export type PluginConfigFieldDefinition = {
   key: string
   label: string
   description?: string
+  constValue?: unknown
   type: PluginConfigSchemaFieldType
   required: boolean
+  readOnly?: boolean
   sensitive?: boolean
   placeholder?: string
   defaultValue?: unknown
   enumValues?: string[]
+  choiceOptions?: string[]
   recordValueShape?: string
   unionOptions?: string[]
   examples?: string[]

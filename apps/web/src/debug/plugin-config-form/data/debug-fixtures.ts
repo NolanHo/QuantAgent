@@ -35,6 +35,9 @@ export const debugPluginRecords: PluginRecord[] = [
 ]
 
 export const complexFieldMetadata = new Map([
+  ['pluginId', { readOnly: true, supportNote: '系统生成的插件实例标识，不允许手动修改。' }],
+  ['version', { readOnly: true, supportNote: '版本号来自插件发布产物，不在此处编辑。' }],
+  ['auth.type', { supportNote: '认证协议由插件实现固定为 oauth2，不在此处编辑。' }],
   ['auth.clientSecret', { sensitive: true, placeholder: '保持掩码表示不修改' }],
   [
     'topology.routingRules',
@@ -51,20 +54,33 @@ export const complexFieldMetadata = new Map([
     },
   ],
   [
+    'topology.maxRetryAttempts',
+    {
+      constraints: {
+        minimum: 0,
+        maximum: 10,
+      },
+    },
+  ],
+  [
     'auth.scopes',
     {
+      choiceOptions: ['read:events', 'write:plugins', 'audit:logs'],
       placeholder: 'read:events,write:plugins',
     },
   ],
   [
     'advancedMetrics.monitoredKeys',
     {
+      choiceOptions: ['latency.p95', 'error.rate', 'queue.depth', 'cpu.usage'],
       placeholder: 'latency.p95,error.rate',
     },
   ],
 ])
 
-export const simpleFieldMetadata = new Map()
+export const simpleFieldMetadata = new Map([
+  ['enabled', { readOnly: true, supportNote: '调试样例的启用状态由系统控制，不在此处修改。' }],
+])
 
 const complexSupportMatrix: PluginConfigSchemaSnapshot['supportMatrix'] = [
   { feature: '嵌套对象', level: 'supported', note: '以 dot path 展平渲染。' },

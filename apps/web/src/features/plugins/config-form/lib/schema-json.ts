@@ -3,9 +3,12 @@ import type { PluginConfigFieldDefinition, PluginConfigJsonSchema } from '../typ
 const descriptionPattern = /^(?<label>[^|]+?)(?:\|title:(?<title>[^;|]+))?(?:;desc:(?<desc>.+))?$/
 
 export type FieldMetadata = {
+  choiceOptions?: string[]
+  constraints?: PluginConfigFieldDefinition['constraints']
   description?: string
   label?: string
   placeholder?: string
+  readOnly?: boolean
   sensitive?: boolean
   support?: PluginConfigFieldDefinition['support']
   supportNote?: string
@@ -15,6 +18,8 @@ type JsonSchemaContext = {
   metadataByPath: Map<string, FieldMetadata>
   sampleAtPath: (path: string) => unknown
 }
+
+const SYSTEM_MANAGED_FIELD_PATHS = new Set(['pluginId', 'version'])
 
 function parseDescribeMetadata(description: string | undefined): FieldMetadata {
   if (!description) {
@@ -99,6 +104,64 @@ function inferFieldTypeFromJsonSchema(
   return 'string'
 }
 
+function inferFieldTypeFromConstValue(
+  value: unknown,
+): PluginConfigFieldDefinition['type'] {
+  if (Array.isArray(value)) {
+    return 'array'
+  }
+
+  if (typeof value === 'boolean') {
+    return 'boolean'
+  }
+
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? 'integer' : 'number'
+  }
+
+  if (isPlainObject(value)) {
+    return 'object'
+  }
+
+  return 'string'
+}
+
+function inferReadOnly(path: string, schema: PluginConfigJsonSchema, metadata: FieldMetadata): boolean {
+  if (metadata.readOnly !== undefined) {
+    return metadata.readOnly
+  }
+
+  if (schema.const !== undefined) {
+    return true
+  }
+
+  return SYSTEM_MANAGED_FIELD_PATHS.has(path)
+}
+
+function inferReadOnlySupportNote(
+  path: string,
+  schema: PluginConfigJsonSchema,
+  metadata: FieldMetadata,
+): string | undefined {
+  if (metadata.supportNote) {
+    return metadata.supportNote
+  }
+
+  if (schema.const !== undefined) {
+    return '该字段由插件实现固定，不在此处编辑。'
+  }
+
+  if (path === 'pluginId') {
+    return '系统生成的插件实例标识，不允许手动修改。'
+  }
+
+  if (path === 'version') {
+    return '版本号来自插件发布产物，不在此处编辑。'
+  }
+
+  return undefined
+}
+
 function schemaSupportsDegradedMode(schema: PluginConfigJsonSchema): boolean {
   const fieldType = inferFieldTypeFromJsonSchema(schema)
 
@@ -123,18 +186,19 @@ function unionOptionsFromJsonSchema(schema: PluginConfigJsonSchema): string[] | 
 
 function constraintsFromJsonSchema(
   schema: PluginConfigJsonSchema,
+  metadata?: FieldMetadata,
 ): PluginConfigFieldDefinition['constraints'] {
   const constraints = {
-    exclusiveMaximum: schema.exclusiveMaximum,
-    exclusiveMinimum: schema.exclusiveMinimum,
-    format: schema.format,
-    maximum: schema.maximum,
-    maxItems: schema.maxItems,
-    maxLength: schema.maxLength,
-    minimum: schema.minimum,
-    minItems: schema.minItems,
-    minLength: schema.minLength,
-    pattern: schema.pattern,
+    exclusiveMaximum: metadata?.constraints?.exclusiveMaximum ?? schema.exclusiveMaximum,
+    exclusiveMinimum: metadata?.constraints?.exclusiveMinimum ?? schema.exclusiveMinimum,
+    format: metadata?.constraints?.format ?? schema.format,
+    maximum: metadata?.constraints?.maximum ?? schema.maximum,
+    maxItems: metadata?.constraints?.maxItems ?? schema.maxItems,
+    maxLength: metadata?.constraints?.maxLength ?? schema.maxLength,
+    minimum: metadata?.constraints?.minimum ?? schema.minimum,
+    minItems: metadata?.constraints?.minItems ?? schema.minItems,
+    minLength: metadata?.constraints?.minLength ?? schema.minLength,
+    pattern: metadata?.constraints?.pattern ?? schema.pattern,
   }
   const hasConstraints = Object.values(constraints).some((value) => value !== undefined)
 
@@ -156,16 +220,17 @@ export function flattenJsonSchema(
       ...parseDescribeMetadata(childSchema.description),
       ...context.metadataByPath.get(path),
     }
-    const fieldType = inferFieldTypeFromJsonSchema(childSchema)
-    const sample = context.sampleAtPath(path)
+    const fieldType =
+      childSchema.const !== undefined
+        ? inferFieldTypeFromConstValue(childSchema.const)
+        : inferFieldTypeFromJsonSchema(childSchema)
+    const sample = childSchema.const ?? context.sampleAtPath(path)
     const examples =
       metadata.placeholder !== undefined
         ? [metadata.placeholder]
         : makeExamples(sample, fieldType)
-
-    if (childSchema.const !== undefined) {
-      continue
-    }
+    const readOnly = inferReadOnly(path, childSchema, metadata)
+    const readOnlySupportNote = inferReadOnlySupportNote(path, childSchema, metadata)
 
     if (fieldType === 'object') {
       fields.push(...flattenJsonSchema(childSchema, context, path))
@@ -177,23 +242,26 @@ export function flattenJsonSchema(
         path,
         key,
         label: metadata.label ?? key,
+        constValue: childSchema.const,
         description: metadata.description,
         type: fieldType,
         required: required.has(key),
+        readOnly,
         sensitive: metadata.sensitive,
         placeholder: metadata.placeholder,
         defaultValue: childSchema.default,
         enumValues: Array.isArray(childSchema.enum)
           ? childSchema.enum.filter((value): value is string => typeof value === 'string')
           : undefined,
+        choiceOptions: metadata.choiceOptions,
         recordValueShape:
           fieldType === 'record' ? '{ targetCluster, weight, timeoutMs }' : undefined,
         unionOptions: unionOptionsFromJsonSchema(childSchema),
         examples,
-        constraints: constraintsFromJsonSchema(childSchema),
+        constraints: constraintsFromJsonSchema(childSchema, metadata),
         support: metadata.support ?? (schemaSupportsDegradedMode(childSchema) ? 'degraded' : undefined),
         supportNote:
-          metadata.supportNote ??
+          readOnlySupportNote ??
           (fieldType === 'record'
             ? '首版以 JSON 文本区域编辑 record，并展示 key pattern 要求。'
             : fieldType === 'union'

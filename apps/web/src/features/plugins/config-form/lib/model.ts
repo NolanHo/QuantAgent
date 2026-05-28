@@ -17,15 +17,47 @@ export function normalizeInitialValues(
       continue
     }
 
+    if (definition.constValue !== undefined) {
+      nextValues[definition.path] = serializeFieldValue(definition, definition.constValue)
+      continue
+    }
+
     if (definition.defaultValue === undefined) {
       nextValues[definition.path] = ''
       continue
     }
 
-    nextValues[definition.path] = String(definition.defaultValue)
+    nextValues[definition.path] = serializeFieldValue(definition, definition.defaultValue)
   }
 
   return nextValues
+}
+
+function serializeFieldValue(
+  definition: PluginConfigFieldDefinition,
+  value: unknown,
+): string {
+  if (value === undefined || value === null) {
+    return ''
+  }
+
+  if (definition.type === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+
+  if (definition.type === 'integer' || definition.type === 'number' || definition.type === 'string') {
+    return String(value)
+  }
+
+  if (definition.type === 'array') {
+    if (definition.support === 'degraded') {
+      return JSON.stringify(value)
+    }
+
+    return Array.isArray(value) ? value.map((entry) => String(entry)).join(',') : String(value)
+  }
+
+  return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
 export function issueMap(issues: PluginConfigValidationIssue[]): Map<string, string> {
@@ -141,6 +173,10 @@ function parseDraftFieldValue(
   }
 }
 
+function hasDefinitionFallbackValue(definition: PluginConfigFieldDefinition): boolean {
+  return definition.constValue !== undefined || definition.defaultValue !== undefined
+}
+
 function defaultFormatIssueMessage(definition: PluginConfigFieldDefinition): string {
   if (definition.path === 'pluginId') {
     return '插件 ID 必须是 UUID 形式。'
@@ -168,6 +204,9 @@ export function validateSchemaFields(
     const trimmedValue = rawValue.trim()
 
     if (definition.required && trimmedValue.length === 0) {
+      if (hasDefinitionFallbackValue(definition)) {
+        continue
+      }
       issues.push({ path: definition.path, message: '该字段为必填项。' })
       continue
     }
@@ -292,6 +331,11 @@ export function parseConfigDraftPayload(
     const trimmedValue = rawValue.trim()
 
     if (trimmedValue.length === 0) {
+      if (definition.constValue !== undefined) {
+        setNestedValue(payload, definition.path.split('.'), definition.constValue)
+      } else if (definition.defaultValue !== undefined) {
+        setNestedValue(payload, definition.path.split('.'), definition.defaultValue)
+      }
       continue
     }
 
