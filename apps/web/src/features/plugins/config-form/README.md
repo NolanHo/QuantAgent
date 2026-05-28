@@ -24,7 +24,7 @@
 
 ## 公开入口
 
-统一从 [index.ts](/home/gotobed/QuantAgent/QuantAgent-issue-119/apps/web/src/features/plugins/config-form/index.ts:1) 导入。
+统一从 [index.ts](./index.ts) 导入。
 
 ### 组件
 

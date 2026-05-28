@@ -55,5 +55,5 @@
 
 - `/debug/plugin-config-form` 是 development-only 调试页，用于验证插件配置 schema-driven form 的首版边界，不进入正式 `/plugins` 导航。
 - 当前优先兼容 `Zod authoring -> zod-to-json-schema` 来源链路，并以复杂 fixture 覆盖嵌套对象、数组、record、discriminated union、default 和敏感字段掩码。
-- 当前后端只稳定提供 `GET /api/v1/plugins/{plugin_id}/config-schema`；debug 页会消费该 JSON Schema 并转换为内部渲染字段，配置读取与保存仍由 `apps/web/src/features/plugins/debug-config-form/mock.ts` 中的隔离 mock adapter 承接。
+- 当前后端只稳定提供 `GET /api/v1/plugins/{plugin_id}/config-schema`；debug 页会消费该 JSON Schema 并转换为内部渲染字段，配置读取与保存仍由 `apps/web/src/debug/plugin-config-form/data/mock.ts` 中的隔离 mock adapter 承接。
 - 首版显式区分 `supported`、`degraded` 和 `unsupported` 结构；不支持插件注入自定义前端组件，也不把该页扩展为通用 schema playground。
