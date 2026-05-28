@@ -23,6 +23,8 @@ export function usePluginConfigSchemaQuery(
     enabled: pluginId.length > 0,
     queryFn: () => loadSchema(pluginId),
     queryKey: ['plugin-config-schema', pluginId],
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   })
 }
 
@@ -34,6 +36,8 @@ export function usePluginCurrentConfigQuery(
     enabled: pluginId.length > 0,
     queryFn: () => loadConfig(pluginId),
     queryKey: ['plugin-current-config', pluginId],
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   })
 }
 

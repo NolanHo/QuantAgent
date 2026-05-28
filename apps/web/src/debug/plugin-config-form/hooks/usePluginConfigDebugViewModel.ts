@@ -129,11 +129,12 @@ export function usePluginConfigDebugViewModel() {
     try {
       const result = await saveMutation.mutateAsync(draftValues)
       setState('save-success')
-      setSaveMessage(`已写入 debug mock snapshot，版本标签：${result.versionTag}`)
+      const nextSaveMessage = `已写入 debug mock snapshot，版本标签：${result.versionTag}`
       const nextConfig = await configQuery.refetch()
       if (nextConfig.data) {
         resetDraftState(nextConfig.data)
       }
+      setSaveMessage(nextSaveMessage)
       return true
     } catch (error) {
       setState('save-failure')

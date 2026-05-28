@@ -107,6 +107,44 @@ describe('fetchPluginConfigSchema', () => {
     )
   })
 
+  it('derives a generic record shape for non-fixture record schemas', async () => {
+    const loadRemoteSchema = vi.fn().mockResolvedValue({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      title: 'RemotePluginConfig',
+      properties: {
+        pluginId: {
+          description: '插件唯一标识符|title:插件 ID;desc:系统自动生成的插件实例唯一 UUID',
+          type: 'string',
+        },
+        dynamicRules: {
+          description: '动态规则|title:动态规则;desc:用于测试通用 record 摘要',
+          type: 'object',
+          additionalProperties: {
+            type: 'object',
+            properties: {
+              endpoint: { type: 'string' },
+              retry: { type: 'integer' },
+            },
+          },
+        },
+      },
+      required: ['pluginId', 'dynamicRules'],
+    })
+
+    const schema = await fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex')
+
+    expect(schema.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'dynamicRules',
+          type: 'record',
+          recordValueShape: '{ endpoint, retry }',
+        }),
+      ]),
+    )
+  })
+
   it('returns field issues for required, length, count, and range errors', async () => {
     const loadRemoteSchema = vi.fn().mockResolvedValue({
       $schema: 'http://json-schema.org/draft-07/schema#',

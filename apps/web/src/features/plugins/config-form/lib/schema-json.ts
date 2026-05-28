@@ -205,6 +205,32 @@ function constraintsFromJsonSchema(
   return hasConstraints ? constraints : undefined
 }
 
+function recordValueShapeFromJsonSchema(schema: PluginConfigJsonSchema): string | undefined {
+  if (!schema.additionalProperties || typeof schema.additionalProperties !== 'object') {
+    return 'Record<string, any>'
+  }
+
+  const valueSchema = schema.additionalProperties
+
+  if (valueSchema.type === 'object' && valueSchema.properties) {
+    const propertyNames = Object.keys(valueSchema.properties)
+    if (propertyNames.length > 0) {
+      return `{ ${propertyNames.join(', ')} }`
+    }
+    return '{ ... }'
+  }
+
+  if (Array.isArray(valueSchema.oneOf) && valueSchema.oneOf.length > 0) {
+    return 'Record<string, union>'
+  }
+
+  if (valueSchema.type) {
+    return `Record<string, ${valueSchema.type}>`
+  }
+
+  return 'Record<string, any>'
+}
+
 export function flattenJsonSchema(
   schema: PluginConfigJsonSchema,
   context: JsonSchemaContext,
@@ -255,7 +281,7 @@ export function flattenJsonSchema(
           : undefined,
         choiceOptions: metadata.choiceOptions,
         recordValueShape:
-          fieldType === 'record' ? '{ targetCluster, weight, timeoutMs }' : undefined,
+          fieldType === 'record' ? recordValueShapeFromJsonSchema(childSchema) : undefined,
         unionOptions: unionOptionsFromJsonSchema(childSchema),
         examples,
         constraints: constraintsFromJsonSchema(childSchema, metadata),
