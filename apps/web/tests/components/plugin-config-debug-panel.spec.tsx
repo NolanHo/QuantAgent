@@ -72,6 +72,23 @@ test('renders switch for boolean fields and slider for bounded numeric fields', 
   await expect(component.getByText('数值不能大于 0.95。').first()).toBeVisible()
 })
 
+test('renders degraded JSON fields as highlighted code editors', async ({ mount }) => {
+  const component = await renderWithProviders(mount, <PluginConfigDebugPanel />)
+  await component.getByRole('button', { name: /设置/ }).first().click()
+
+  await component.getByRole('tab', { name: '部署拓扑' }).click()
+  const topologyGroup = component.locator('#plugin-group-topology')
+  const routingRulesEditor = topologyGroup.getByLabel('动态路由表')
+  const activeNodesEditor = topologyGroup.getByLabel('活跃节点集群')
+
+  await expect(routingRulesEditor).toBeVisible()
+  await expect(activeNodesEditor).toBeVisible()
+  await expect(routingRulesEditor).toContainText('"targetCluster"')
+  await expect(activeNodesEditor).toContainText('"nodeId"')
+  await expect(topologyGroup.getByText('JSON', { exact: true }).first()).toBeVisible()
+  await expect(topologyGroup.getByText('"targetCluster"').first()).toBeVisible()
+})
+
 test('shows inline field error immediately when bounded numeric input exceeds maximum', async ({ mount }) => {
   const component = await renderWithProviders(mount, <PluginConfigDebugPanel />)
   await component.getByRole('button', { name: /设置/ }).first().click()
@@ -124,14 +141,19 @@ test('shows a top-right save button after edits and saves all changes', async ({
   await component.getByRole('tab', { name: '认证配置' }).click()
 
   const tokenEndpointInput = component.getByRole('textbox', { name: 'Token 刷新地址' })
-  await tokenEndpointInput.fill('https://changed.example/token')
   const saveButton = component.getByRole('button', { name: '保存改动' })
+
   await expect(saveButton).toBeVisible()
+  await expect(saveButton).toBeDisabled()
+
+  await tokenEndpointInput.fill('https://changed.example/token')
+  await expect(saveButton).toBeEnabled()
 
   await saveButton.click()
 
   await expect(component.getByText(/已写入 debug mock snapshot/)).toBeVisible()
-  await expect(component.getByRole('button', { name: '保存改动' })).toHaveCount(0)
+  await expect(saveButton).toBeVisible()
+  await expect(saveButton).toBeDisabled()
   await expect(tokenEndpointInput).toHaveValue('https://changed.example/token')
 })
 

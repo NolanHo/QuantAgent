@@ -1,4 +1,8 @@
-import { memo, useState, type JSX } from "react";
+import { EditorState } from "@codemirror/state";
+import { json } from "@codemirror/lang-json";
+import { oneDark } from "@codemirror/theme-one-dark";
+import { basicSetup, EditorView } from "codemirror";
+import { memo, useEffect, useRef, useState, type JSX } from "react";
 import {
   Button,
   Chip,
@@ -13,7 +17,6 @@ import {
   Slider,
   Surface,
   Switch,
-  TextArea,
   TextField,
 } from "@heroui/react";
 import { FiEye, FiEyeOff, FiPlus, FiTrash2 } from "react-icons/fi";
@@ -47,6 +50,8 @@ const sliderWrapClassName =
   "grid gap-3 rounded-[18px] border border-slate-200/80 bg-slate-50/70 p-3";
 const switchWrapClassName =
   "rounded-[16px] border border-slate-200 bg-slate-50/80 px-3 py-3";
+const codeEditorWrapClassName =
+  "overflow-hidden rounded-[22px] border border-slate-800/70 bg-slate-950 shadow-[0_18px_40px_rgba(15,23,42,0.18)]";
 
 type NumericRangeConfig = {
   max: number;
@@ -63,6 +68,137 @@ type ArrayPreviewPopoverProps = {
   onSelectOption: (option: string) => void;
   options: string[];
 };
+
+type JsonCodeEditorProps = Pick<
+  PluginConfigFieldProps,
+  "definition" | "onChange" | "value"
+>;
+
+function JsonCodeEditor({
+  definition,
+  onChange,
+  value,
+}: JsonCodeEditorProps) {
+  const editorHostRef = useRef<HTMLDivElement | null>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const onChangeRef = useRef(onChange);
+  const isApplyingExternalUpdateRef = useRef(false);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    if (!editorHostRef.current) {
+      return;
+    }
+
+    const view = new EditorView({
+      parent: editorHostRef.current,
+      state: EditorState.create({
+        doc: value,
+        extensions: [
+          basicSetup,
+          json(),
+          oneDark,
+          EditorView.lineWrapping,
+          EditorView.contentAttributes.of({
+            "aria-label": definition.label,
+            spellcheck: "false",
+          }),
+          EditorView.theme({
+            "&": {
+              backgroundColor: "transparent",
+              fontSize: "12px",
+              minHeight: "168px",
+            },
+            ".cm-scroller": {
+              fontFamily:
+                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+              lineHeight: "1.5rem",
+              minHeight: "168px",
+              overflow: "auto",
+            },
+            ".cm-content": {
+              minHeight: "168px",
+              padding: "1rem",
+              caretColor: "#f8fafc",
+            },
+            ".cm-focused": {
+              outline: "none",
+            },
+            ".cm-activeLine": {
+              backgroundColor: "rgba(148, 163, 184, 0.08)",
+            },
+            ".cm-selectionBackground, ::selection": {
+              backgroundColor: "rgba(14, 165, 233, 0.25)",
+            },
+            ".cm-gutters": {
+              display: "none",
+            },
+          }),
+          EditorView.updateListener.of((update) => {
+            if (!update.docChanged || isApplyingExternalUpdateRef.current) {
+              return;
+            }
+
+            onChangeRef.current(
+              definition.path,
+              update.state.doc.toString(),
+            );
+          }),
+        ],
+      }),
+    });
+
+    viewRef.current = view;
+
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
+  }, [definition.label, definition.path]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+
+    if (!view) {
+      return;
+    }
+
+    const currentValue = view.state.doc.toString();
+
+    if (currentValue === value) {
+      return;
+    }
+
+    isApplyingExternalUpdateRef.current = true;
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: currentValue.length,
+        insert: value,
+      },
+    });
+    isApplyingExternalUpdateRef.current = false;
+  }, [value]);
+
+  return (
+    <div className={codeEditorWrapClassName}>
+      <div className="flex items-center justify-between border-b border-white/10 bg-white/5 px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-400/90" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-300/90" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
+        </div>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+          JSON
+        </span>
+      </div>
+      <div ref={editorHostRef} className="min-h-[168px]" />
+    </div>
+  );
+}
 
 function ArrayPreviewPopover({
   actionLabel,
@@ -161,6 +297,7 @@ function renderSelectInput({
   return (
     <Select<FieldOption>
       aria-label={definition.label}
+      className="w-full"
       fullWidth
       onSelectionChange={(key) => {
         onChange(definition.path, key === null ? "" : String(key));
@@ -194,24 +331,14 @@ function renderFieldInput({
   onToggleSensitiveVisibility?: () => void;
 }): JSX.Element {
   const numericRange = inferNumericRange(definition);
+  const shouldStretchFieldInput = definition.path === "auth.tokenEndpoint";
 
   if (
     definition.type === "record" ||
     definition.type === "union" ||
     (definition.type === "array" && definition.support === "degraded")
   ) {
-    return (
-      <TextArea
-        aria-label={definition.label}
-        fullWidth
-        onChange={(event) => {
-          onChange(definition.path, event.target.value);
-        }}
-        placeholder={definition.placeholder ?? definition.examples?.[0] ?? ""}
-        value={value}
-        variant="primary"
-      />
-    );
+    return <JsonCodeEditor definition={definition} onChange={onChange} value={value} />;
   }
 
   if (definition.type === "boolean") {
@@ -267,6 +394,7 @@ function renderFieldInput({
         </Slider>
         <Input
           aria-label={definition.label}
+          className="w-full"
           fullWidth
           inputMode={definition.type === "integer" ? "numeric" : "decimal"}
           onChange={(event) => {
@@ -314,6 +442,7 @@ function renderFieldInput({
             <Input
               aria-label={`${definition.label} 第 ${index + 1} 项`}
               autoComplete={undefined}
+              className="w-full"
               fullWidth
               onChange={(event) => {
                 const nextItems = [...items];
@@ -393,7 +522,7 @@ function renderFieldInput({
 
   if (definition.sensitive) {
     return (
-      <InputGroup.Root fullWidth variant="primary">
+      <InputGroup.Root className="w-full" fullWidth variant="primary">
         <InputGroup.Input
           autoComplete="new-password"
           aria-label={definition.label}
@@ -430,11 +559,21 @@ function renderFieldInput({
     <Input
       autoComplete={undefined}
       aria-label={definition.label}
+      className="w-full"
       fullWidth
       onChange={(event) => {
         onChange(definition.path, event.target.value);
       }}
       placeholder={definition.placeholder ?? definition.examples?.[0] ?? ""}
+      style={
+        shouldStretchFieldInput
+          ? {
+              display: "block",
+              minWidth: "100%",
+              width: "100%",
+            }
+          : undefined
+      }
       type="text"
       value={value}
       variant="primary"
@@ -466,7 +605,9 @@ function PluginConfigFieldComponent({
       : definition.support === "degraded"
         ? "warning"
         : "danger";
+  const prefersExpandedInlineEditor = definition.path === "auth.tokenEndpoint";
   const prefersWideEditor =
+    prefersExpandedInlineEditor ||
     definition.type === "record" ||
     definition.type === "union" ||
     definition.type === "array";
@@ -484,6 +625,7 @@ function PluginConfigFieldComponent({
       ? "md:w-full"
       : "",
   ].join(" ");
+  const shouldStretchFieldInput = prefersExpandedInlineEditor;
   const fieldMeta = (
     <div className="grid min-w-0 gap-1.5 pt-0.5">
       <div className="flex flex-wrap items-center gap-2">
@@ -590,6 +732,7 @@ function PluginConfigFieldComponent({
               </Slider>
               <Input
                 aria-label={definition.label}
+                className="w-full"
                 fullWidth
                 readOnly
                 type="text"
@@ -663,6 +806,7 @@ function PluginConfigFieldComponent({
     <div className={fieldRowClassName}>
       <TextField
         className="grid w-full min-w-0 gap-2.5"
+        fullWidth={shouldStretchFieldInput}
         isInvalid={Boolean(issue)}
         isRequired={definition.required}
       >
@@ -773,6 +917,7 @@ function countDecimals(value: number): number {
   const [, fraction = ""] = normalized.split(".");
   return fraction.length;
 }
+
 
 function coerceSliderValue(value: string, range: NumericRangeConfig): number {
   const numericValue = Number(value);

@@ -6,6 +6,7 @@ import {
   PluginConfigForm,
   PluginConfigSupportMatrix,
 } from "@/features/plugins/config-form";
+import { renderHighlightedJson } from "@/features/plugins/config-form/lib/json-highlight";
 import {
   Button,
   Card,
@@ -362,8 +363,8 @@ export function PluginConfigDebugPanel() {
                 transition={fadeSlideTransition}
               />
               <Drawer.Header>
-                <div className="relative flex min-h-[48px] w-full pr-[9.5rem] sm:pr-[12.5rem]">
-                  <div className="grid gap-1">
+                <div className="flex min-h-[48px] w-full items-start justify-between gap-3">
+                  <div className="grid min-w-0 gap-1">
                     <p className="m-0 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
                       插件设置
                     </p>
@@ -371,18 +372,48 @@ export function PluginConfigDebugPanel() {
                       {selectedPlugin?.name ?? "插件"} 配置
                     </Drawer.Heading>
                   </div>
-                  <div className="absolute right-0 top-0 flex items-center gap-2">
-                    {isModalContentReady && isDirty ? (
-                      <Button
-                        isDisabled={savePending}
-                        onPress={() => void saveDraft()}
-                        size="sm"
-                        type="button"
-                        variant="primary"
-                      >
-                        <FiSave aria-hidden="true" className="text-[14px]" />
-                        <span>{savePending ? "保存中" : "保存改动"}</span>
-                      </Button>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {isModalContentReady ? (
+                      <>
+                        <Button
+                          aria-label="校验插件"
+                          isDisabled={savePending}
+                          onPress={() => void validateDraft()}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <HiOutlineCheckBadge
+                            aria-hidden="true"
+                            className="text-[15px]"
+                          />
+                          <span>校验</span>
+                        </Button>
+                        <Button
+                          aria-label="重置草稿"
+                          isDisabled={savePending || !isDirty}
+                          onPress={() => resetDraft()}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <FiRotateCcw
+                            aria-hidden="true"
+                            className="text-[14px]"
+                          />
+                          <span>重置</span>
+                        </Button>
+                        <Button
+                          isDisabled={savePending || !isDirty}
+                          onPress={() => void saveDraft()}
+                          size="sm"
+                          type="button"
+                          variant="primary"
+                        >
+                          <FiSave aria-hidden="true" className="text-[14px]" />
+                          <span>{savePending ? "保存中" : "保存改动"}</span>
+                        </Button>
+                      </>
                     ) : null}
                     <CloseButton
                       aria-label="关闭配置抽屉"
@@ -439,79 +470,23 @@ export function PluginConfigDebugPanel() {
                           >
                             <motion.div layout transition={staggeredTransition}>
                               <Surface className="rounded-[22px]" variant="secondary">
-                                <div className="flex flex-wrap items-center justify-between gap-3 p-4">
-                                  <div className="grid gap-1">
-                                    <p className="m-0 text-sm font-bold text-slate-900">
-                                      当前状态
-                                    </p>
-                                    <p className="m-0 text-xs leading-5 text-slate-500">
-                                      {currentStatus.detail}
-                                    </p>
-                                  </div>
-                                  <Chip
-                                    color={statusTone}
-                                    size="sm"
-                                    variant="soft"
-                                  >
-                                    {currentStatus.title}
-                                  </Chip>
-                                </div>
-                              </Surface>
-                            </motion.div>
-
-                            <motion.div layout transition={staggeredTransition}>
-                              <PluginConfigForm
-                                containerWidth={drawerWidth}
-                                issueLookup={issueLookup}
-                                onValueChange={updateDraft}
-                                plugins={plugins}
-                                schema={schema}
-                                selectedPluginId={selectedPlugin?.id}
-                                showSupportMatrix={false}
-                                values={draftValues}
-                              />
-                            </motion.div>
-
-                            <motion.div layout transition={staggeredTransition}>
-                              <Surface className="rounded-[22px]" variant="secondary">
-                                <div className="grid gap-2.5 p-4">
+                                <div className="grid gap-3 p-4">
                                   <div className="flex flex-wrap items-center justify-between gap-3">
                                     <div className="grid gap-1">
                                       <p className="m-0 text-sm font-bold text-slate-900">
-                                        保存与校验
+                                        当前状态
                                       </p>
                                       <p className="m-0 text-xs leading-5 text-slate-500">
-                                        右上角保存按钮会一次性提交当前草稿；这里保留校验和重置。
+                                        {currentStatus.detail}
                                       </p>
                                     </div>
-                                    <div className="flex flex-wrap gap-2">
-                                      <Button
-                                        aria-label="校验插件"
-                                        isIconOnly
-                                        onPress={() => void validateDraft()}
-                                        size="sm"
-                                        type="button"
-                                        variant="ghost"
-                                      >
-                                        <HiOutlineCheckBadge
-                                          aria-hidden="true"
-                                          className="text-[15px]"
-                                        />
-                                      </Button>
-                                      <Button
-                                        aria-label="重置草稿"
-                                        isIconOnly
-                                        onPress={() => resetDraft()}
-                                        size="sm"
-                                        type="button"
-                                        variant="ghost"
-                                      >
-                                        <FiRotateCcw
-                                          aria-hidden="true"
-                                          className="text-[14px]"
-                                        />
-                                      </Button>
-                                    </div>
+                                    <Chip
+                                      color={statusTone}
+                                      size="sm"
+                                      variant="soft"
+                                    >
+                                      {currentStatus.title}
+                                    </Chip>
                                   </div>
                                   {saveMessage ? (
                                     <motion.p
@@ -528,6 +503,19 @@ export function PluginConfigDebugPanel() {
                                   ) : null}
                                 </div>
                               </Surface>
+                            </motion.div>
+
+                            <motion.div layout transition={staggeredTransition}>
+                              <PluginConfigForm
+                                containerWidth={drawerWidth}
+                                issueLookup={issueLookup}
+                                onValueChange={updateDraft}
+                                plugins={plugins}
+                                schema={schema}
+                                selectedPluginId={selectedPlugin?.id}
+                                showSupportMatrix={false}
+                                values={draftValues}
+                              />
                             </motion.div>
                           </motion.div>
                         </AnimatePresence>
@@ -746,130 +734,4 @@ function getDefaultDrawerWidth() {
   return clampDrawerWidth(
     Math.round(window.innerWidth * DEFAULT_DRAWER_VIEWPORT_RATIO),
   );
-}
-
-function renderHighlightedJson(source: string) {
-  return source.split("\n").map((line, lineIndex, lines) => (
-    <span key={`json-line-${lineIndex}`} className="block">
-      {tokenizeJsonLine(line).map((token, tokenIndex) => (
-        <span
-          key={`json-token-${lineIndex}-${tokenIndex}`}
-          className={jsonTokenClassName(token.type)}
-        >
-          {token.text}
-        </span>
-      ))}
-      {lineIndex < lines.length - 1 ? "\n" : null}
-    </span>
-  ));
-}
-
-function tokenizeJsonLine(line: string) {
-  const tokens: Array<{ text: string; type: JsonTokenType }> = [];
-  let index = 0;
-
-  while (index < line.length) {
-    const current = line[index];
-
-    if (/\s/.test(current)) {
-      let end = index + 1;
-      while (end < line.length && /\s/.test(line[end])) {
-        end += 1;
-      }
-      tokens.push({ text: line.slice(index, end), type: "plain" });
-      index = end;
-      continue;
-    }
-
-    if (current === '"') {
-      let end = index + 1;
-
-      while (end < line.length) {
-        if (line[end] === "\\" && end + 1 < line.length) {
-          end += 2;
-          continue;
-        }
-        if (line[end] === '"') {
-          end += 1;
-          break;
-        }
-        end += 1;
-      }
-
-      const text = line.slice(index, end);
-      let lookahead = end;
-      while (lookahead < line.length && /\s/.test(line[lookahead])) {
-        lookahead += 1;
-      }
-
-      tokens.push({
-        text,
-        type: line[lookahead] === ":" ? "key" : "string",
-      });
-      index = end;
-      continue;
-    }
-
-    if ("{}[],:".includes(current)) {
-      tokens.push({ text: current, type: "punctuation" });
-      index += 1;
-      continue;
-    }
-
-    if (current === "-" || /\d/.test(current)) {
-      let end = index + 1;
-      while (end < line.length && /[0-9eE+.-]/.test(line[end])) {
-        end += 1;
-      }
-      tokens.push({ text: line.slice(index, end), type: "number" });
-      index = end;
-      continue;
-    }
-
-    if (line.startsWith("true", index) || line.startsWith("false", index)) {
-      const text = line.startsWith("true", index) ? "true" : "false";
-      tokens.push({ text, type: "boolean" });
-      index += text.length;
-      continue;
-    }
-
-    if (line.startsWith("null", index)) {
-      tokens.push({ text: "null", type: "null" });
-      index += 4;
-      continue;
-    }
-
-    tokens.push({ text: current, type: "plain" });
-    index += 1;
-  }
-
-  return tokens;
-}
-
-type JsonTokenType =
-  | "boolean"
-  | "key"
-  | "null"
-  | "number"
-  | "plain"
-  | "punctuation"
-  | "string";
-
-function jsonTokenClassName(type: JsonTokenType) {
-  switch (type) {
-    case "key":
-      return "text-sky-300";
-    case "string":
-      return "text-emerald-300";
-    case "number":
-      return "text-amber-300";
-    case "boolean":
-      return "text-rose-300";
-    case "null":
-      return "text-fuchsia-300";
-    case "punctuation":
-      return "text-slate-500";
-    default:
-      return "text-slate-100";
-  }
 }

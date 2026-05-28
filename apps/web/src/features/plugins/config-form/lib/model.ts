@@ -14,6 +14,10 @@ export function normalizeInitialValues(
 
   for (const definition of schemaFields) {
     if (nextValues[definition.path] !== undefined) {
+      nextValues[definition.path] = normalizeExistingFieldValue(
+        definition,
+        nextValues[definition.path],
+      )
       continue
     }
 
@@ -31,6 +35,29 @@ export function normalizeInitialValues(
   }
 
   return nextValues
+}
+
+function serializeJsonValue(value: unknown): string {
+  return JSON.stringify(value, null, 2)
+}
+
+function normalizeExistingFieldValue(
+  definition: PluginConfigFieldDefinition,
+  value: string,
+): string {
+  if (
+    definition.type !== 'record' &&
+    definition.type !== 'union' &&
+    !(definition.type === 'array' && definition.support === 'degraded')
+  ) {
+    return value
+  }
+
+  try {
+    return serializeJsonValue(JSON.parse(value))
+  } catch {
+    return value
+  }
 }
 
 function serializeFieldValue(
@@ -51,13 +78,13 @@ function serializeFieldValue(
 
   if (definition.type === 'array') {
     if (definition.support === 'degraded') {
-      return JSON.stringify(value)
+      return serializeJsonValue(value)
     }
 
     return Array.isArray(value) ? value.map((entry) => String(entry)).join(',') : String(value)
   }
 
-  return typeof value === 'string' ? value : JSON.stringify(value)
+  return typeof value === 'string' ? value : serializeJsonValue(value)
 }
 
 export function issueMap(issues: PluginConfigValidationIssue[]): Map<string, string> {
