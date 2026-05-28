@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, Fieldset, Form, Tabs } from "@heroui/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
-import { parseConfigDraftPayload } from "../lib/model";
+import {
+  parseConfigDraftPayload,
+  PluginConfigJsonFieldParseError,
+} from "../lib/model";
 import type {
   PluginConfigFieldDefinition,
   PluginConfigSchemaSnapshot,
@@ -223,7 +226,17 @@ export function buildPluginConfigPreviewPayload(
 ) {
   try {
     return JSON.stringify(parseConfigDraftPayload(schema, values), null, 2);
-  } catch {
+  } catch (error) {
+    if (error instanceof PluginConfigJsonFieldParseError) {
+      return JSON.stringify(
+        {
+          error: `字段 ${error.path} 无法解析`,
+        },
+        null,
+        2,
+      );
+    }
+
     return '{\n  "error": "存在无法解析的 JSON 字段"\n}';
   }
 }

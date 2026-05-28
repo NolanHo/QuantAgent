@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { buildPluginConfigPreviewPayload } from '@/features/plugins/config-form'
 import {
   fetchPluginConfigSchema,
   savePluginConfigDraft,
@@ -194,5 +195,28 @@ describe('fetchPluginConfigSchema', () => {
         { path: 'displayName', message: '该字段为必填项。' },
       ]),
     )
+  })
+
+  it('surfaces invalid numeric draft values in preview payload instead of stringifying NaN to null', async () => {
+    const loadRemoteSchema = vi.fn().mockResolvedValue({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      title: 'RemotePluginConfig',
+      properties: {
+        retryCount: {
+          description: '重试次数|title:重试次数;desc:用于测试数字解析失败',
+          type: 'integer',
+        },
+      },
+      required: ['retryCount'],
+    })
+
+    const schema = await fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex')
+    const preview = buildPluginConfigPreviewPayload(schema, {
+      retryCount: 'not-a-number',
+    })
+
+    expect(preview).toContain('"error": "字段 retryCount 无法解析"')
+    expect(preview).not.toContain('null')
   })
 })

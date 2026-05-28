@@ -832,6 +832,7 @@ export const PluginConfigField = memo(
   PluginConfigFieldComponent,
   (previous, next) =>
     previous.definition === next.definition &&
+    previous.isCompactLayout === next.isCompactLayout &&
     previous.isInlineRow === next.isInlineRow &&
     previous.isReadOnly === next.isReadOnly &&
     previous.issue === next.issue &&

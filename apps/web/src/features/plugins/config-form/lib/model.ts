@@ -124,8 +124,8 @@ export function joinArrayDraftValue(items: string[]): string {
 export class PluginConfigJsonFieldParseError extends Error {
   readonly path: string
 
-  constructor(path: string) {
-    super('Invalid JSON field value.')
+  constructor(path: string, message = 'Invalid JSON field value.') {
+    super(message)
     this.path = path
   }
 }
@@ -177,8 +177,13 @@ function parseDraftFieldValue(
     case 'boolean':
       return rawValue === 'true'
     case 'integer':
-    case 'number':
-      return Number(rawValue)
+    case 'number': {
+      const numericValue = Number(rawValue)
+      if (Number.isNaN(numericValue)) {
+        throw new PluginConfigJsonFieldParseError(definition.path, 'Invalid numeric field value.')
+      }
+      return numericValue
+    }
     case 'array':
       if (definition.support !== 'degraded') {
         return splitArrayPreview(rawValue)

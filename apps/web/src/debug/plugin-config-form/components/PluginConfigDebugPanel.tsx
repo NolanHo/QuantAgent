@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { PageEmpty } from "@/app/components/PageEmpty";
 import { PageLoading } from "@/app/components/PageLoading";
 import {
@@ -189,7 +189,14 @@ export function PluginConfigDebugPanel() {
       return;
     }
 
-    await navigator.clipboard.writeText(previewPayload);
+    try {
+      await navigator.clipboard.writeText(previewPayload);
+      setSaveMessage("当前样例 JSON 已复制到剪贴板。");
+    } catch {
+      setSaveMessage("复制失败，请手动选中右侧 JSON 内容。");
+      setDrawerTabKey("preview");
+      setPreviewFormatVersion((current) => current + 1);
+    }
   }
 
   return (
@@ -341,7 +348,7 @@ export function PluginConfigDebugPanel() {
                     style={
                       {
                         "--plugin-drawer-width": `${drawerWidth}px`,
-                      } as React.CSSProperties
+                      } as CSSProperties
                     }
                   >
               <motion.div

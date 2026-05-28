@@ -81,10 +81,15 @@ test('renders the debug plugin config form route in development', async ({ page 
 
   await page.goto('/debug/plugin-config-form')
 
-  await expect(page.getByRole('heading', { name: '插件配置调试表单' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '触发保存' })).toBeVisible()
-  await expect(page.getByText('Schema Inspect')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '插件管理' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '全局插件列表' })).toBeVisible()
+  await page.getByRole('button', { name: /设置/ }).first().click()
+  await expect(page.getByRole('dialog', { name: /配置$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: '保存改动' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '样例配置 JSON' })).toBeVisible()
+  await page.getByRole('tab', { name: '高级监控' }).click()
   await expect(page.getByRole('textbox', { name: '监控指标项 第 1 项' })).toBeVisible()
+  await page.getByRole('button', { name: '关闭配置抽屉' }).click()
 
   await page.getByRole('link', { name: '调试工作台' }).click()
 
