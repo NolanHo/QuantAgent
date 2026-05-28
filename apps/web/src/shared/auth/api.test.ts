@@ -2,12 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ApiClient } from "@/shared/api";
 
-import {
-  fetchCurrentActor,
-  loginWithPassword,
-  logoutSession,
-  refreshCurrentSession,
-} from "./api";
+import { AuthApi, createAuthApi } from "./api";
 
 function createApiClientMock(): ApiClient {
   return {
@@ -24,17 +19,18 @@ function createApiClientMock(): ApiClient {
 
 describe("auth API helpers", () => {
   it("logs in without CSRF because no session exists yet", async () => {
-    const client = createApiClientMock();
-    vi.mocked(client.post).mockResolvedValue({
+    const apiClient = createApiClientMock();
+    vi.mocked(apiClient.post).mockResolvedValue({
       actor_id: "local_admin",
       actor_type: "local_single_user",
       capabilities: ["runtime.inspect"],
       csrf_token: "csrf-login",
     });
+    const authApi = createAuthApi(apiClient);
 
-    await loginWithPassword(client, { password: "admin-password" });
+    await authApi.loginWithPassword({ password: "admin-password" });
 
-    expect(client.post).toHaveBeenCalledWith(
+    expect(apiClient.post).toHaveBeenCalledWith(
       "/auth/login",
       { password: "admin-password" },
       { skipCsrf: true },
@@ -42,33 +38,35 @@ describe("auth API helpers", () => {
   });
 
   it("bootstraps the current actor through /me without request dedupe", async () => {
-    const client = createApiClientMock();
-    vi.mocked(client.get).mockResolvedValue({
+    const apiClient = createApiClientMock();
+    vi.mocked(apiClient.get).mockResolvedValue({
       actor_id: "local_admin",
       actor_type: "local_single_user",
       capabilities: ["runtime.inspect"],
       csrf_token: "csrf-me",
     });
+    const authApi = createAuthApi(apiClient);
 
-    await fetchCurrentActor(client);
+    await authApi.fetchCurrentActor();
 
-    expect(client.get).toHaveBeenCalledWith("/me", { dedupeKey: false });
+    expect(apiClient.get).toHaveBeenCalledWith("/me", { dedupeKey: false });
   });
 
   it("logs out through the shared API client so CSRF injection stays centralized", async () => {
-    const client = createApiClientMock();
-    vi.mocked(client.post).mockResolvedValue({ cleared: true });
+    const apiClient = createApiClientMock();
+    vi.mocked(apiClient.post).mockResolvedValue({ cleared: true });
+    const authApi = createAuthApi(apiClient);
 
-    await logoutSession(client);
+    await authApi.logoutSession();
 
-    expect(client.post).toHaveBeenCalledWith("/auth/logout", undefined, {
+    expect(apiClient.post).toHaveBeenCalledWith("/auth/logout", undefined, {
       dedupeKey: false,
     });
   });
 
   it("refreshes the current session through the explicit refresh endpoint", async () => {
-    const client = createApiClientMock();
-    vi.mocked(client.post).mockResolvedValue({
+    const apiClient = createApiClientMock();
+    vi.mocked(apiClient.post).mockResolvedValue({
       actor_id: "local_admin",
       actor_type: "local_single_user",
       capabilities: ["runtime.inspect"],
@@ -76,11 +74,18 @@ describe("auth API helpers", () => {
       expires_at: 1_700_000_000,
       max_expires_at: 1_700_003_600,
     });
+    const authApi = createAuthApi(apiClient);
 
-    await refreshCurrentSession(client);
+    await authApi.refreshCurrentSession();
 
-    expect(client.post).toHaveBeenCalledWith("/auth/refresh", undefined, {
+    expect(apiClient.post).toHaveBeenCalledWith("/auth/refresh", undefined, {
       dedupeKey: false,
     });
+  });
+
+  it("exposes a concrete feature API class on top of BaseApi", () => {
+    const authApi = new AuthApi(createApiClientMock());
+
+    expect(authApi).toBeInstanceOf(AuthApi);
   });
 });
