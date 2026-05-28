@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import importlib.util
 import inspect
 import logging
 import re
+import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from quantagent.core.registry.models import PluginError, PluginRecord, PluginStatus
@@ -125,7 +128,7 @@ class PluginRuntimeService:
 
         assert record.manifest is not None
         try:
-            plugin = self._load_entrypoint(record.manifest.entrypoint)
+            plugin = self._load_entrypoint(record.manifest.entrypoint, plugin_path=record.path)
             if not _has_runtime_shape(plugin):
                 return None, PluginError(
                     code="PLUGIN_RUNTIME_PROTOCOL_INVALID",
@@ -176,7 +179,7 @@ class PluginRuntimeService:
             return _to_plugin_error(exc, stage="stop", plugin_id=plugin_id)
         return None
 
-    def _load_entrypoint(self, entrypoint: str) -> Any:
+    def _load_entrypoint(self, entrypoint: str, *, plugin_path: Path | None = None) -> Any:
         module_name, separator, attribute_name = entrypoint.partition(":")
         if not separator or not module_name or not attribute_name:
             raise PluginRuntimeError(
@@ -185,7 +188,7 @@ class PluginRuntimeService:
                 stage="load",
             )
 
-        module = self._import_module(module_name)
+        module = self._load_plugin_module(module_name, plugin_path=plugin_path)
         entrypoint_object = module
         for attribute in attribute_name.split("."):
             entrypoint_object = getattr(entrypoint_object, attribute)
@@ -198,6 +201,25 @@ class PluginRuntimeService:
             message="Plugin entrypoint must be a plugin class or factory.",
             stage="load",
         )
+
+    def _load_plugin_module(self, module_name: str, *, plugin_path: Path | None = None) -> Any:
+        module_file = _find_plugin_module_file(module_name, plugin_path=plugin_path)
+        if module_file is None:
+            return self._import_module(module_name)
+
+        synthetic_name = f"_quantagent_plugin_{uuid.uuid4().hex}_{_safe_module_suffix(module_name)}"
+        spec = importlib.util.spec_from_file_location(synthetic_name, module_file)
+        if spec is None or spec.loader is None:
+            raise PluginRuntimeError(
+                code="PLUGIN_ENTRYPOINT_MODULE_INVALID",
+                message="Plugin entrypoint module could not be loaded from plugin path.",
+                stage="load",
+                details={"module": module_name},
+            )
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
 
 def _validate_record(record: PluginRecord) -> PluginError | None:
@@ -227,6 +249,34 @@ def _has_runtime_shape(plugin: Any) -> bool:
         callable(getattr(plugin, method_name, None))
         for method_name in ("load", "start", "stop", "health_check", "invoke")
     )
+
+
+def _find_plugin_module_file(module_name: str, *, plugin_path: Path | None = None) -> Path | None:
+    if plugin_path is None:
+        return None
+    plugin_root = plugin_path.resolve()
+    module_parts = module_name.split(".")
+    if not module_parts or any(not item for item in module_parts):
+        return None
+
+    module_path = plugin_root.joinpath(*module_parts)
+    candidates = (module_path.with_suffix(".py"), module_path / "__init__.py")
+    for candidate in candidates:
+        if candidate.is_file() and _is_path_inside_root(candidate, plugin_root):
+            return candidate
+    return None
+
+
+def _is_path_inside_root(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _safe_module_suffix(module_name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]", "_", module_name)
 
 
 async def _call_async(value: Awaitable[Any] | Any) -> Any:
