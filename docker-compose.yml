@@ -27,7 +27,7 @@ services:
     profiles:
       - migration
     working_dir: /app/packages/core
-    command: ["alembic", "upgrade", "head"]
+    command: ["quantagent-db", "upgrade"]
     environment:
       APP_ENV: ${APP_ENV:-local}
       DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgresql+psycopg://quantagent:quantagent@db:5432/quantagent}
@@ -48,7 +48,7 @@ services:
     volumes:
       - quantagent-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
