@@ -15,7 +15,6 @@ test('renders plugin config workbench layout and surfaces validation errors', as
   await expect(component.getByRole('dialog', { name: '复杂 Zod 样例 配置' })).toBeVisible()
   await expect(component.getByRole('separator', { name: '调整抽屉宽度' })).toBeAttached()
   await expect(component.getByRole('tab', { name: '配置表单' })).toHaveAttribute('aria-selected', 'true')
-  await expect(component.getByRole('heading', { name: '配置表单' })).toBeVisible()
 
   await component.getByRole('tab', { name: '认证配置' }).click()
   const authGroup = component.locator('#plugin-group-auth')
@@ -50,6 +49,22 @@ test('supports toggling sensitive input visibility for client secret', async ({ 
 
   await component.getByRole('button', { name: '隐藏敏感值' }).click()
   await expect(clientSecretInput).toHaveAttribute('type', 'password')
+})
+
+test('shows concrete client secret format guidance when the value is invalid', async ({ mount }) => {
+  const component = await renderWithProviders(mount, <PluginConfigDebugPanel />)
+  await component.getByRole('button', { name: /设置/ }).first().click()
+
+  await component.getByRole('tab', { name: '认证配置' }).click()
+  const authGroup = component.locator('#plugin-group-auth')
+  const clientSecretInput = authGroup.getByLabel('Client Secret')
+
+  await component.getByRole('button', { name: '显示敏感值' }).click()
+  await clientSecretInput.fill('short')
+
+  await expect(
+    authGroup.getByText('敏感字段必须保持掩码或输入不少于 16 位的新值。'),
+  ).toBeVisible()
 })
 
 test('renders switch for boolean fields and slider for bounded numeric fields', async ({ mount }) => {
@@ -151,7 +166,6 @@ test('shows a top-right save button after edits and saves all changes', async ({
 
   await saveButton.click()
 
-  await expect(component.getByText(/已写入 debug mock snapshot/)).toBeVisible()
   await expect(saveButton).toBeVisible()
   await expect(saveButton).toBeDisabled()
   await expect(tokenEndpointInput).toHaveValue('https://changed.example/token')

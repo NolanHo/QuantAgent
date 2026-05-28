@@ -1,6 +1,5 @@
 import { EditorState } from "@codemirror/state";
 import { json } from "@codemirror/lang-json";
-import { oneDark } from "@codemirror/theme-one-dark";
 import { basicSetup, EditorView } from "codemirror";
 import { memo, useEffect, useRef, useState, type JSX } from "react";
 import {
@@ -51,7 +50,7 @@ const sliderWrapClassName =
 const switchWrapClassName =
   "rounded-[16px] border border-slate-200 bg-slate-50/80 px-3 py-3";
 const codeEditorWrapClassName =
-  "overflow-hidden rounded-[22px] border border-slate-800/70 bg-slate-950 shadow-[0_18px_40px_rgba(15,23,42,0.18)]";
+  "overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-[0_18px_40px_rgba(15,23,42,0.08)]";
 
 type NumericRangeConfig = {
   max: number;
@@ -100,7 +99,6 @@ function JsonCodeEditor({
         extensions: [
           basicSetup,
           json(),
-          oneDark,
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({
             "aria-label": definition.label,
@@ -122,19 +120,23 @@ function JsonCodeEditor({
             ".cm-content": {
               minHeight: "168px",
               padding: "1rem",
-              caretColor: "#f8fafc",
+              caretColor: "#0f172a",
+              color: "#0f172a",
             },
             ".cm-focused": {
               outline: "none",
             },
             ".cm-activeLine": {
-              backgroundColor: "rgba(148, 163, 184, 0.08)",
+              backgroundColor: "rgba(148, 163, 184, 0.10)",
             },
             ".cm-selectionBackground, ::selection": {
-              backgroundColor: "rgba(14, 165, 233, 0.25)",
+              backgroundColor: "rgba(59, 130, 246, 0.18)",
             },
             ".cm-gutters": {
               display: "none",
+            },
+            ".cm-line": {
+              color: "#0f172a",
             },
           }),
           EditorView.updateListener.of((update) => {
@@ -185,13 +187,13 @@ function JsonCodeEditor({
 
   return (
     <div className={codeEditorWrapClassName}>
-      <div className="flex items-center justify-between border-b border-white/10 bg-white/5 px-4 py-2.5">
+      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-rose-400/90" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-300/90" />
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
         </div>
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
           JSON
         </span>
       </div>
@@ -678,15 +680,6 @@ function PluginConfigFieldComponent({
     <div className="grid gap-1.5">
       {issue ? (
         <FieldError>{issue}</FieldError>
-      ) : null}
-      {definition.supportNote ? (
-        <Surface className="rounded-[18px]" variant="secondary">
-          <div className="p-3">
-            <p className="m-0 text-xs leading-6 text-slate-500">
-              {definition.supportNote}
-            </p>
-          </div>
-        </Surface>
       ) : null}
     </div>
   );

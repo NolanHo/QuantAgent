@@ -108,18 +108,18 @@ function tokenizeJsonLine(line: string) {
 function jsonTokenClassName(type: JsonTokenType) {
   switch (type) {
     case "key":
-      return "text-sky-300";
+      return "text-sky-700";
     case "string":
-      return "text-emerald-300";
+      return "text-emerald-700";
     case "number":
-      return "text-amber-300";
+      return "text-amber-700";
     case "boolean":
-      return "text-rose-300";
+      return "text-rose-700";
     case "null":
-      return "text-fuchsia-300";
+      return "text-fuchsia-700";
     case "punctuation":
-      return "text-slate-500";
+      return "text-slate-400";
     default:
-      return "text-slate-100";
+      return "text-slate-900";
   }
 }

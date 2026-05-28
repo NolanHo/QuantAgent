@@ -4,7 +4,6 @@ import { PageLoading } from "@/app/components/PageLoading";
 import {
   buildPluginConfigPreviewPayload,
   PluginConfigForm,
-  PluginConfigSupportMatrix,
 } from "@/features/plugins/config-form";
 import { renderHighlightedJson } from "@/features/plugins/config-form/lib/json-highlight";
 import {
@@ -371,14 +370,9 @@ export function PluginConfigDebugPanel() {
               />
               <Drawer.Header>
                 <div className="flex min-h-[48px] w-full items-start justify-between gap-3">
-                  <div className="grid min-w-0 gap-1">
-                    <p className="m-0 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
-                      插件设置
-                    </p>
-                    <Drawer.Heading>
-                      {selectedPlugin?.name ?? "插件"} 配置
-                    </Drawer.Heading>
-                  </div>
+                  <p className="m-0 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                    插件设置
+                  </p>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {isModalContentReady ? (
                       <>
@@ -475,27 +469,10 @@ export function PluginConfigDebugPanel() {
                             }}
                             transition={fadeSlideTransition}
                           >
-                            <motion.div layout transition={staggeredTransition}>
-                              <Surface className="rounded-[22px]" variant="secondary">
-                                <div className="grid gap-3 p-4">
-                                  <div className="flex flex-wrap items-center justify-between gap-3">
-                                    <div className="grid gap-1">
-                                      <p className="m-0 text-sm font-bold text-slate-900">
-                                        当前状态
-                                      </p>
-                                      <p className="m-0 text-xs leading-5 text-slate-500">
-                                        {currentStatus.detail}
-                                      </p>
-                                    </div>
-                                    <Chip
-                                      color={statusTone}
-                                      size="sm"
-                                      variant="soft"
-                                    >
-                                      {currentStatus.title}
-                                    </Chip>
-                                  </div>
-                                  {saveMessage ? (
+                            {saveMessage ? (
+                              <motion.div layout transition={staggeredTransition}>
+                                <Surface className="rounded-[22px]" variant="secondary">
+                                  <div className="p-4">
                                     <motion.p
                                       animate={{ opacity: 1, y: 0 }}
                                       className="m-0 text-sm leading-6 text-slate-600"
@@ -507,10 +484,10 @@ export function PluginConfigDebugPanel() {
                                     >
                                       {saveMessage}
                                     </motion.p>
-                                  ) : null}
-                                </div>
-                              </Surface>
-                            </motion.div>
+                                  </div>
+                                </Surface>
+                              </motion.div>
+                            ) : null}
 
                             <motion.div layout transition={staggeredTransition}>
                               <PluginConfigForm
@@ -552,95 +529,7 @@ export function PluginConfigDebugPanel() {
                             <motion.div layout transition={staggeredTransition}>
                               <Card>
                                 <Card.Header>
-                                  <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div className="grid gap-1">
-                                      <Card.Title>样例配置 JSON</Card.Title>
-                                      <Card.Description>
-                                        当前草稿解析后的 payload
-                                        结果只在这个分页里查看。
-                                      </Card.Description>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <Button
-                                        aria-label="复制内容"
-                                        isIconOnly
-                                        onPress={() => void copyPreviewPayload()}
-                                        size="sm"
-                                        type="button"
-                                        variant="ghost"
-                                      >
-                                        <FiCopy
-                                          aria-hidden="true"
-                                          className="text-[14px]"
-                                        />
-                                      </Button>
-                                      <Button
-                                        aria-label="格式化"
-                                        isIconOnly
-                                        onPress={() => {
-                                          setPreviewFormatVersion(
-                                            (current) => current + 1,
-                                          );
-                                        }}
-                                        size="sm"
-                                        type="button"
-                                        variant="ghost"
-                                      >
-                                        <HiOutlineBars3BottomLeft
-                                          aria-hidden="true"
-                                          className="text-[15px]"
-                                        />
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </Card.Header>
-                                <Card.Content>
-                                  <div className="grid gap-3">
-                                    <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-slate-950 shadow-[0_18px_40px_rgba(15,23,42,0.18)]">
-                                      <div className="flex items-center justify-between border-b border-white/10 bg-white/5 px-4 py-2.5">
-                                        <div className="flex items-center gap-2">
-                                          <span className="h-2.5 w-2.5 rounded-full bg-rose-400/90" />
-                                          <span className="h-2.5 w-2.5 rounded-full bg-amber-300/90" />
-                                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
-                                        </div>
-                                        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                                          JSON
-                                        </span>
-                                      </div>
-                                      <div className="overflow-x-auto p-4">
-                                        <motion.pre
-                                          animate={{ opacity: 1, filter: "blur(0px)" }}
-                                          className="m-0 min-w-full whitespace-pre text-[12px] leading-6 text-slate-100"
-                                          data-format-version={previewFormatVersion}
-                                          initial={{
-                                            opacity: 0,
-                                            filter: prefersReducedMotion
-                                              ? "blur(0px)"
-                                              : "blur(6px)",
-                                          }}
-                                          transition={fadeSlideTransition}
-                                        >
-                                          <code className="block font-mono">
-                                            {renderHighlightedJson(previewPayload)}
-                                          </code>
-                                        </motion.pre>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </Card.Content>
-                              </Card>
-                            </motion.div>
-
-                            <motion.div layout transition={staggeredTransition}>
-                              <Card>
-                                <Card.Header>
-                                  <div className="grid gap-1">
-                                    <Card.Title>错误处理</Card.Title>
-                                    <Card.Description>
-                                      校验问题和支持矩阵集中放在样例 JSON
-                                      分页，便于边改边核对。
-                                    </Card.Description>
-                                  </div>
+                                  <Card.Title>错误处理</Card.Title>
                                 </Card.Header>
                                 <Card.Content>
                                   <div className="grid gap-3">
@@ -684,17 +573,80 @@ export function PluginConfigDebugPanel() {
                                         当前没有字段级问题，结果区会随着配置草稿实时更新。
                                       </p>
                                     )}
+                                  </div>
+                                </Card.Content>
+                              </Card>
+                            </motion.div>
 
-                                    <motion.div
-                                      layout
-                                      transition={staggeredTransition}
-                                    >
-                                      <PluginConfigSupportMatrix
-                                        title="支持矩阵"
-                                        description="当前视图只消费受控 schema 摘要，不接受任意 schema playground 输入。"
-                                        supportMatrix={schema.supportMatrix}
-                                      />
-                                    </motion.div>
+                            <motion.div layout transition={staggeredTransition}>
+                              <Card>
+                                <Card.Header>
+                                  <Card.Title>样例配置 JSON</Card.Title>
+                                </Card.Header>
+                                <Card.Content>
+                                  <div className="grid gap-3">
+                                    <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
+                                      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 py-2.5">
+                                        <div className="flex items-center gap-2">
+                                          <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
+                                          <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+                                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                          <Button
+                                            aria-label="复制内容"
+                                            isIconOnly
+                                            onPress={() => void copyPreviewPayload()}
+                                            size="sm"
+                                            type="button"
+                                            variant="ghost"
+                                          >
+                                            <FiCopy
+                                              aria-hidden="true"
+                                              className="text-[14px] text-slate-500"
+                                            />
+                                          </Button>
+                                          <Button
+                                            aria-label="格式化"
+                                            isIconOnly
+                                            onPress={() => {
+                                              setPreviewFormatVersion(
+                                                (current) => current + 1,
+                                              );
+                                            }}
+                                            size="sm"
+                                            type="button"
+                                            variant="ghost"
+                                          >
+                                            <HiOutlineBars3BottomLeft
+                                              aria-hidden="true"
+                                              className="text-[15px] text-slate-500"
+                                            />
+                                          </Button>
+                                          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                            JSON
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="overflow-x-auto p-4">
+                                        <motion.pre
+                                          animate={{ opacity: 1, filter: "blur(0px)" }}
+                                          className="m-0 min-w-full whitespace-pre text-[12px] leading-6 text-slate-900"
+                                          data-format-version={previewFormatVersion}
+                                          initial={{
+                                            opacity: 0,
+                                            filter: prefersReducedMotion
+                                              ? "blur(0px)"
+                                              : "blur(6px)",
+                                          }}
+                                          transition={fadeSlideTransition}
+                                        >
+                                          <code className="block font-mono">
+                                            {renderHighlightedJson(previewPayload)}
+                                          </code>
+                                        </motion.pre>
+                                      </div>
+                                    </div>
                                   </div>
                                 </Card.Content>
                               </Card>

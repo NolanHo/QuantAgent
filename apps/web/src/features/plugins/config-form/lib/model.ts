@@ -214,6 +214,10 @@ function defaultFormatIssueMessage(definition: PluginConfigFieldDefinition): str
     return '插件 ID 必须是 UUID 形式。'
   }
 
+  if (definition.path === 'auth.clientSecret') {
+    return '敏感字段必须保持掩码或输入不少于 16 位的新值。'
+  }
+
   if (definition.path === 'auth.tokenEndpoint') {
     return 'Token 地址必须是合法 URL。'
   }

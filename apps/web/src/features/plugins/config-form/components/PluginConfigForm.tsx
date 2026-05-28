@@ -71,12 +71,6 @@ export function PluginConfigForm({
     <Form className="grid w-full gap-4">
       <motion.div layout transition={panelTransition}>
         <Card className="overflow-visible">
-          <Card.Header>
-            <div className="grid gap-1">
-              <Card.Title>配置表单</Card.Title>
-              <Card.Description>{selectedPluginName} 配置</Card.Description>
-            </div>
-          </Card.Header>
           <Card.Content className="overflow-visible">
             <Tabs
               className="w-full"
@@ -108,18 +102,13 @@ export function PluginConfigForm({
                           key={group.key}
                           id={group.key}
                           className={[
-                            "h-auto min-h-16 items-start py-3",
+                            "h-auto min-h-0 items-center py-2.5",
                             isCompactLayout ? "min-w-[152px]" : "",
                           ].join(" ")}
                         >
-                          <div className="grid gap-1 text-left leading-5">
-                            <span className="text-[15px] font-semibold">
-                              {group.title}
-                            </span>
-                            <span className="text-xs text-slate-500">
-                              {group.summary}
-                            </span>
-                          </div>
+                          <span className="text-left text-[15px] font-semibold leading-5">
+                            {group.title}
+                          </span>
                           <Tabs.Indicator />
                         </Tabs.Tab>
                       ))}
@@ -193,12 +182,6 @@ function SelectedGroupPanel({
       id={`plugin-group-${group.key}`}
       className="grid w-full gap-2.5 rounded-[20px] border border-white/60 bg-white/72 p-3 ring-1 ring-black/5 backdrop-blur"
     >
-      <div className="grid gap-0.5 border-b border-black/5 pb-2.5 text-left">
-        <p className="m-0 text-[15px] font-bold text-slate-900">
-          {group.title}
-        </p>
-        <p className="m-0 text-xs text-slate-500">{group.summary}</p>
-      </div>
       <Fieldset>
         <div className="grid gap-2 rounded-[20px] border border-white/50 bg-white/55 p-3 ring-1 ring-black/5 backdrop-blur">
           <Fieldset.Group className="grid gap-0 px-3">
@@ -256,7 +239,6 @@ function groupFields(fields: PluginConfigFieldDefinition[]) {
   return Array.from(groups.entries()).map(([key, groupFields]) => ({
     key,
     title: groupTitle(key),
-    summary: groupSummary(groupFields),
     fields: groupFields,
   }));
 }
@@ -280,16 +262,4 @@ function groupTitle(groupKey: string) {
   return groupKey
     .replace(/([A-Z])/g, " $1")
     .replace(/^./, (value) => value.toUpperCase());
-}
-
-function groupSummary(fields: PluginConfigFieldDefinition[]) {
-  const requiredCount = fields.filter((field) => field.required).length;
-  const editableCount = fields.filter((field) => !field.readOnly).length;
-  const summary = [
-    `${fields.length} 个字段`,
-    `${requiredCount} 个必填`,
-    `${editableCount} 个可编辑`,
-  ];
-
-  return summary.join(" / ");
 }
