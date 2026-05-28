@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -24,7 +25,7 @@ from quantagent.api.auth import (
     require_csrf,
 )
 from quantagent.api.auth.session import SESSION_V2, _deserialize_session, _issue_v1_session, _serialize_session
-from quantagent.api.config.settings import Settings
+from quantagent.api.config.settings import Settings, _build_env_file_paths
 from quantagent.api.db import get_db_session
 from quantagent.api.http.errors import ServiceUnavailableError
 from quantagent.api.main import create_app
@@ -567,20 +568,20 @@ class ApiAppTestCase(unittest.TestCase):
             self._settings(
                 APP_ENV="production",
                 AUTH_ENABLED=False,
-                AUTH_ADMIN_PASSWORD="prod-password",
-                AUTH_SESSION_SECRET="prod-secret",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
+                AUTH_SESSION_SECRET="production-session-secret-0123456789abcdef",
             )
 
     def test_production_login_uses_secure_cookie(self) -> None:
         production_app = create_app(
             self._settings(
                 APP_ENV="production",
-                AUTH_ADMIN_PASSWORD="prod-password",
-                AUTH_SESSION_SECRET="prod-secret",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
+                AUTH_SESSION_SECRET="production-session-secret-0123456789abcdef",
             )
         )
         with TestClient(production_app) as client:
-            response = client.post("/api/v1/auth/login", json={"password": "prod-password"})
+            response = client.post("/api/v1/auth/login", json={"password": "prod-admin-password"})
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Secure", response.headers["set-cookie"])
@@ -588,31 +589,261 @@ class ApiAppTestCase(unittest.TestCase):
 
     def test_non_development_env_requires_explicit_auth_credentials(self) -> None:
         with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET is required when APP_ENV is not development/test/local"):
-            Settings(APP_ENV="staging", AUTH_ADMIN_PASSWORD="local-password")
+            Settings(_env_file=None, APP_ENV="staging", AUTH_ADMIN_PASSWORD="local-password")
 
     def test_production_rejects_whitespace_only_auth_credentials(self) -> None:
         with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD is required in production"):
             Settings(
+                _env_file=None,
                 APP_ENV="production",
                 AUTH_ADMIN_PASSWORD="   ",
-                AUTH_SESSION_SECRET="prod-secret",
+                AUTH_SESSION_SECRET="prod-session-secret-0123456789abcdef",
             )
 
         with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET is required in production"):
             Settings(
+                _env_file=None,
                 APP_ENV="production",
-                AUTH_ADMIN_PASSWORD="prod-password",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
                 AUTH_SESSION_SECRET="   ",
             )
 
+    def test_staging_and_production_reject_placeholder_auth_credentials(self) -> None:
+        with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD must not use a placeholder"):
+            Settings(
+                _env_file=None,
+                APP_ENV="staging",
+                AUTH_ADMIN_PASSWORD="change-me",
+                AUTH_SESSION_SECRET="staging-session-secret-0123456789abcdef",
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET must not use a placeholder"):
+            Settings(
+                _env_file=None,
+                APP_ENV="production",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
+                AUTH_SESSION_SECRET="change-me",
+                AUTH_COOKIE_SECURE=True,
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD must not use a placeholder"):
+            Settings(
+                _env_file=None,
+                APP_ENV="staging",
+                AUTH_ADMIN_PASSWORD="12345678",
+                AUTH_SESSION_SECRET="staging-session-secret-0123456789abcdef",
+            )
+
+    def test_staging_and_production_reject_weak_auth_credentials(self) -> None:
+        with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD must be at least 12 characters"):
+            Settings(
+                _env_file=None,
+                APP_ENV="staging",
+                AUTH_ADMIN_PASSWORD="short",
+                AUTH_SESSION_SECRET="staging-session-secret-0123456789abcdef",
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD must be at least 12 characters"):
+            Settings(
+                _env_file=None,
+                APP_ENV="production",
+                AUTH_ADMIN_PASSWORD="short-prod",
+                AUTH_SESSION_SECRET="production-session-secret-0123456789abcdef",
+                AUTH_COOKIE_SECURE=True,
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET must be at least 32 characters"):
+            Settings(
+                _env_file=None,
+                APP_ENV="production",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
+                AUTH_SESSION_SECRET="too-short-secret",
+                AUTH_COOKIE_SECURE=True,
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET must be at least 32 characters"):
+            Settings(
+                _env_file=None,
+                APP_ENV="staging",
+                AUTH_ADMIN_PASSWORD="staging-admin-password",
+                AUTH_SESSION_SECRET="stage-short-secret",
+            )
+
+    def test_non_dev_session_secret_allows_non_placeholder_words(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            APP_ENV="staging",
+            AUTH_ADMIN_PASSWORD="staging-admin-password",
+            AUTH_SESSION_SECRET="device-session-secret-0123456789abcdef",
+        )
+        self.assertEqual(settings.AUTH_SESSION_SECRET, "device-session-secret-0123456789abcdef")
+
     def test_test_env_still_receives_weak_auth_defaults(self) -> None:
-        settings = Settings(APP_ENV="test")
+        settings = Settings(_env_file=None, APP_ENV="test")
         self.assertEqual(settings.AUTH_ADMIN_PASSWORD, "12345678")
         self.assertEqual(settings.AUTH_SESSION_SECRET, "dev-session-secret-change-me")
+
+    def test_api_host_and_port_use_prefixed_names(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            API_HOST="0.0.0.0",
+            API_PORT=9000,
+            AUTH_ADMIN_PASSWORD="test-admin-password",
+            AUTH_SESSION_SECRET="test-session-secret",
+        )
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+        self.assertEqual(settings.API_PORT, 9000)
+
+    def test_legacy_host_and_port_env_names_still_work(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            HOST="0.0.0.0",
+            PORT=9100,
+            AUTH_ADMIN_PASSWORD="test-admin-password",
+            AUTH_SESSION_SECRET="test-session-secret",
+        )
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+        self.assertEqual(settings.API_PORT, 9100)
+
+    def test_api_host_and_port_env_names_are_loaded_from_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"API_HOST": "0.0.0.0", "API_PORT": "9200", "AUTH_ADMIN_PASSWORD": "test-admin-password", "AUTH_SESSION_SECRET": "test-session-secret"},
+            clear=False,
+        ):
+            settings = Settings(_env_file=None)
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+        self.assertEqual(settings.API_PORT, 9200)
+
+    def test_legacy_host_and_port_env_names_are_still_loaded_from_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"HOST": "0.0.0.0", "PORT": "9300", "AUTH_ADMIN_PASSWORD": "test-admin-password", "AUTH_SESSION_SECRET": "test-session-secret"},
+            clear=False,
+        ):
+            settings = Settings(_env_file=None)
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+        self.assertEqual(settings.API_PORT, 9300)
+
+    def test_api_dotenv_overrides_duplicate_root_variable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (workspace / ".env").write_text(
+                "DATABASE_URL=postgresql+psycopg://root:root@localhost:15432/rootdb\n",
+                encoding="utf-8",
+            )
+            (api_dir / ".env").write_text(
+                "DATABASE_URL=postgresql+psycopg://api:api@localhost:15432/apidb\n",
+                encoding="utf-8",
+            )
+
+            env_files = _build_env_file_paths(cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+            with patch.dict(os.environ, {"DATABASE_URL": "", "APP_ENV": ""}, clear=False):
+                os.environ.pop("DATABASE_URL", None)
+                os.environ.pop("APP_ENV", None)
+                settings = Settings(_env_file=tuple(str(path) for path in env_files))
+
+        self.assertEqual(settings.DATABASE_URL, "postgresql+psycopg://api:api@localhost:15432/apidb")
+
+    def test_process_environment_overrides_api_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (workspace / ".env").write_text("LOG_LEVEL=INFO\n", encoding="utf-8")
+            (api_dir / ".env").write_text("LOG_LEVEL=DEBUG\n", encoding="utf-8")
+            env_files = _build_env_file_paths(cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+
+            with patch.dict(os.environ, {"LOG_LEVEL": "ERROR"}, clear=False):
+                settings = Settings(_env_file=tuple(str(path) for path in env_files))
+
+        self.assertEqual(settings.LOG_LEVEL, "ERROR")
+
+    def test_app_env_selects_only_matching_api_environment_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env").write_text("AUTH_ENABLED=true\n", encoding="utf-8")
+            (api_dir / ".env.test").write_text("AUTH_ENABLED=false\n", encoding="utf-8")
+            (api_dir / ".env.production").write_text("AUTH_ENABLED=true\nLOG_LEVEL=ERROR\n", encoding="utf-8")
+            env_files = _build_env_file_paths(app_env="test", cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+
+            settings = Settings(_env_file=tuple(str(path) for path in env_files), APP_ENV="test")
+
+        self.assertFalse(settings.AUTH_ENABLED)
+        self.assertEqual(settings.LOG_LEVEL, "INFO")
+        self.assertIn(api_dir / ".env.test", env_files)
+        self.assertNotIn(api_dir / ".env.production", env_files)
+
+    def test_api_local_dotenv_can_select_environment_specific_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env.local").write_text("APP_ENV=staging\n", encoding="utf-8")
+            (api_dir / ".env.staging").write_text(
+                "LOG_LEVEL=WARNING\nAUTH_ADMIN_PASSWORD=staging-admin-password\nAUTH_SESSION_SECRET=staging-session-secret-0123456789abcdef\n",
+                encoding="utf-8",
+            )
+
+            env_files = _build_env_file_paths(cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+            settings = Settings(_env_file=tuple(str(path) for path in env_files))
+
+        self.assertEqual(settings.APP_ENV, "staging")
+        self.assertEqual(settings.LOG_LEVEL, "WARNING")
+
+    def test_selected_environment_local_dotenv_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env.staging").write_text(
+                "API_HOST=127.0.0.1\nAUTH_ADMIN_PASSWORD=staging-admin-password\nAUTH_SESSION_SECRET=staging-session-secret-0123456789abcdef\n",
+                encoding="utf-8",
+            )
+            (api_dir / ".env.staging.local").write_text("API_HOST=0.0.0.0\n", encoding="utf-8")
+
+            env_files = _build_env_file_paths(app_env="staging", cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+            settings = Settings(_env_file=tuple(str(path) for path in env_files), APP_ENV="staging")
+
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+
+    def test_app_env_uses_lowercase_when_selecting_environment_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env.production").write_text(
+                "LOG_LEVEL=ERROR\nAUTH_ADMIN_PASSWORD=prod-admin-password\nAUTH_SESSION_SECRET=production-session-secret-0123456789abcdef\n",
+                encoding="utf-8",
+            )
+
+            env_files = _build_env_file_paths(app_env="Production", cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+            settings = Settings(_env_file=tuple(str(path) for path in env_files), APP_ENV="Production")
+
+        self.assertIn(api_dir / ".env.production", env_files)
+        self.assertNotIn(api_dir / ".env.Production", env_files)
+        self.assertEqual(settings.LOG_LEVEL, "ERROR")
+        self.assertEqual(settings.APP_ENV, "Production")
+
+    def test_env_file_paths_do_not_assume_repo_root_when_source_layout_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            env_files = _build_env_file_paths(
+                cwd=workspace,
+                source_repo_root=None,
+                source_api_app_dir=None,
+            )
+
+        self.assertEqual(env_files, (workspace / ".env",))
 
     def test_same_site_none_requires_secure_cookie(self) -> None:
         with self.assertRaisesRegex(ValueError, "AUTH_COOKIE_SAME_SITE=none requires AUTH_COOKIE_SECURE=true"):
             Settings(
+                _env_file=None,
                 APP_ENV="development",
                 AUTH_ADMIN_PASSWORD="test-admin-password",
                 AUTH_SESSION_SECRET="test-session-secret",
@@ -1419,16 +1650,17 @@ class ApiAppTestCase(unittest.TestCase):
     def _settings(self, **overrides) -> Settings:
         """生成测试默认配置，并允许按场景覆盖个别字段。"""
         baseline = {
+            "_env_file": None,
             "APP_ENV": "development",
             "DATABASE_URL": None,
             "RUNTIME_DIR": "runtime",
             "LOG_LEVEL": "INFO",
             "API_V1_PREFIX": "/api/v1",
-            "HOST": "127.0.0.1",
-            "PORT": 8000,
+            "API_HOST": "127.0.0.1",
+            "API_PORT": 8000,
             "AUTH_ENABLED": True,
             "AUTH_ADMIN_PASSWORD": "test-admin-password",
-            "AUTH_SESSION_SECRET": "test-session-secret",
+            "AUTH_SESSION_SECRET": "test-session-secret-0123456789abcdef",
         }
         baseline.update(overrides)
         return Settings(**baseline)
