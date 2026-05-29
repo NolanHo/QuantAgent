@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { buildPluginConfigPreviewPayload } from '@/features/plugins/config-form'
+import { ApiError } from '@/shared/api'
 import {
   fetchPluginConfigSchema,
   fetchPluginCurrentConfigWithFallback,
@@ -59,7 +60,9 @@ describe('fetchPluginConfigSchema', () => {
   })
 
   it('marks local JSON schema fallback as debug mock source', async () => {
-    const loadRemoteSchema = vi.fn().mockRejectedValue(new Error('network down'))
+    const loadRemoteSchema = vi.fn().mockRejectedValue(
+      new ApiError({ code: 404, msg: 'schema not found', status: 404 }),
+    )
 
     const result = await fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex')
 
@@ -69,6 +72,20 @@ describe('fetchPluginConfigSchema', () => {
         expect.objectContaining({ path: 'pluginId', type: 'string' }),
       ]),
     )
+  })
+
+  it('keeps non-404 remote schema errors observable instead of falling back silently', async () => {
+    const serverError = new ApiError({
+      code: 500,
+      msg: 'registry unavailable',
+      requestId: 'req-schema-500',
+      status: 500,
+    })
+    const loadRemoteSchema = vi.fn().mockRejectedValue(serverError)
+
+    await expect(
+      fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex'),
+    ).rejects.toBe(serverError)
   })
 
   it('validates and saves registry schema drafts against the rendered schema fields', async () => {
@@ -112,6 +129,50 @@ describe('fetchPluginConfigSchema', () => {
     )
   })
 
+  it('keeps non-404 remote config, validate, and save errors observable', async () => {
+    const schema = await fetchPluginConfigSchema(
+      vi.fn().mockResolvedValue({
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        properties: {
+          pluginId: { type: 'string' },
+        },
+        required: ['pluginId'],
+        title: 'RemotePluginConfig',
+        type: 'object',
+      }),
+      'quantagent.debug.plugin-form.complex',
+    )
+    const serverError = new ApiError({
+      code: 500,
+      msg: 'registry unavailable',
+      requestId: 'req-plugin-500',
+      status: 500,
+    })
+    const remoteAdapter = {
+      fetchConfig: vi.fn().mockRejectedValue(serverError),
+      fetchConfigSchema: vi.fn(),
+      updateConfig: vi.fn().mockRejectedValue(serverError),
+      validateConfig: vi.fn().mockRejectedValue(serverError),
+    }
+
+    await expect(
+      fetchPluginCurrentConfigWithFallback(
+        remoteAdapter,
+        'quantagent.debug.plugin-form.complex',
+      ),
+    ).rejects.toBe(serverError)
+    await expect(
+      validatePluginConfigDraftWithFallback(remoteAdapter, schema, {
+        pluginId: 'remote-plugin-id',
+      }),
+    ).rejects.toBe(serverError)
+    await expect(
+      savePluginConfigDraftWithFallback(remoteAdapter, schema, {
+        pluginId: 'remote-plugin-id',
+      }),
+    ).rejects.toBe(serverError)
+  })
+
   it('prefers remote config snapshot and falls back to debug mock when remote config is unavailable', async () => {
     const remoteAdapter = {
       fetchConfig: vi.fn().mockResolvedValue({
@@ -135,7 +196,9 @@ describe('fetchPluginConfigSchema', () => {
       versionTag: 'remote-v1',
     })
 
-    remoteAdapter.fetchConfig.mockRejectedValueOnce(new Error('not ready'))
+    remoteAdapter.fetchConfig.mockRejectedValueOnce(
+      new ApiError({ code: 404, msg: 'config not found', status: 404 }),
+    )
     await expect(
       fetchPluginCurrentConfigWithFallback(
         remoteAdapter,

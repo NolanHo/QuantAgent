@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageEmpty } from "@/app/components/PageEmpty";
 import { PageLoading } from "@/app/components/PageLoading";
-import type { PluginConfigSnapshot } from "@/features/plugins/config-form";
+import { isSameValueMap, type PluginConfigSnapshot } from "@/features/plugins/config-form";
 import { usePluginConfigDebugViewModel } from "../../hooks";
 import { PluginConfigDebugCards } from "../cards/PluginConfigDebugCards";
 import { PluginConfigDebugDrawer } from "../drawer/PluginConfigDebugDrawer";
@@ -152,24 +152,4 @@ export function PluginConfigDebugPanel() {
       />
     </div>
   );
-}
-
-function isSameValueMap(
-  left: Record<string, string>,
-  right: Record<string, string>,
-): boolean {
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-
-  if (leftKeys.length !== rightKeys.length) {
-    return false;
-  }
-
-  for (const key of leftKeys) {
-    if (left[key] !== right[key]) {
-      return false;
-    }
-  }
-
-  return true;
 }

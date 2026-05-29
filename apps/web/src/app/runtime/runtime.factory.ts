@@ -26,7 +26,7 @@ export function createAppRuntime({
     apiClient,
     apis: {
       auth: new AuthApi(apiClient),
-      pluginConfig: new PluginConfigApi(apiClient),
+      plugins: new PluginConfigApi(apiClient),
     },
     realtime: {
       client: null,

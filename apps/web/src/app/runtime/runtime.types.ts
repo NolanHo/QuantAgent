@@ -11,7 +11,7 @@ export interface RealtimeRuntime {
 
 export interface RuntimeApis {
   auth: AuthApi;
-  pluginConfig: PluginConfigApi;
+  plugins: PluginConfigApi;
 }
 
 export interface AppRuntime {

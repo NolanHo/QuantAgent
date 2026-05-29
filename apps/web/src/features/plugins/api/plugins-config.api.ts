@@ -61,7 +61,3 @@ export interface PluginConfigApiContract {
     payload: PluginConfigValidateRequest,
   ): Promise<PluginConfigValidateResponse>;
 }
-
-export function createPluginConfigApi(apiClient: ApiClient): PluginConfigApi {
-  return new PluginConfigApi(apiClient);
-}

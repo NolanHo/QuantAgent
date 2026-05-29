@@ -23,7 +23,7 @@ import { toUiErrorMessage } from '../data/utils/ui-error'
 import { statusCopy } from '../model'
 
 export function usePluginConfigDebugViewModel() {
-  const { pluginConfig } = useApis()
+  const { plugins: pluginsApi } = useApis()
   const pluginsQuery = useQuery({
     queryFn: async () => listDebugPluginFixtures(),
     queryKey: ['debug-plugin-records'],
@@ -35,21 +35,21 @@ export function usePluginConfigDebugViewModel() {
   const schemaQuery = usePluginConfigSchemaQuery(
     selectedPluginId,
     (pluginId) => fetchPluginConfigSchema(
-      (currentPluginId) => pluginConfig.fetchConfigSchema(currentPluginId),
+      (currentPluginId) => pluginsApi.fetchConfigSchema(currentPluginId),
       pluginId,
     ),
   )
   const configQuery = usePluginCurrentConfigQuery(
     selectedPluginId,
-    (pluginId) => fetchPluginCurrentConfigWithFallback(pluginConfig, pluginId),
+    (pluginId) => fetchPluginCurrentConfigWithFallback(pluginsApi, pluginId),
   )
   const validationMutation = usePluginConfigValidationMutation(
     schemaQuery.data ?? null,
-    (schema, values) => validatePluginConfigDraftWithFallback(pluginConfig, schema, values),
+    (schema, values) => validatePluginConfigDraftWithFallback(pluginsApi, schema, values),
   )
   const saveMutation = usePluginConfigSaveMutation(
     schemaQuery.data ?? null,
-    (schema, values) => savePluginConfigDraftWithFallback(pluginConfig, schema, values),
+    (schema, values) => savePluginConfigDraftWithFallback(pluginsApi, schema, values),
   )
   const {
     clearDraftState,

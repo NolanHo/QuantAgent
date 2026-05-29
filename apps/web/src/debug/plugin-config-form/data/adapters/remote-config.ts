@@ -12,6 +12,7 @@ import type {
   PluginConfigUpdateResponse,
   PluginConfigValidateResponse,
 } from '@/features/plugins'
+import { ApiError } from '@/shared/api'
 
 import {
   createSchemaSnapshotFromJsonSchema,
@@ -41,7 +42,11 @@ export async function fetchPluginConfigSchema(
   try {
     const remoteSchema = await loadRemoteSchema(pluginId)
     return createSchemaSnapshotFromJsonSchema(pluginId, remoteSchema)
-  } catch {
+  } catch (error) {
+    if (!canFallbackToDebugAdapter(error)) {
+      throw error
+    }
+
     const debugJsonSchema = getDebugPluginJsonSchema(pluginId)
     if (debugJsonSchema) {
       return createSchemaSnapshotFromJsonSchema(pluginId, debugJsonSchema, 'debug-mock')
@@ -49,6 +54,15 @@ export async function fetchPluginConfigSchema(
 
     return loadDebugPluginSchema(pluginId)
   }
+}
+
+function canFallbackToDebugAdapter(error: unknown): boolean {
+  if (!(error instanceof ApiError)) {
+    return false
+  }
+
+  // 只有后端明确表示插件配置接口尚不存在时才降级；鉴权、5xx 和网络错误必须继续可观测。
+  return error.status === 404 || (error.status === undefined && error.code === 404)
 }
 
 function toPluginConfigSnapshot(response: PluginConfigSnapshotResponse): PluginConfigSnapshot {
@@ -80,7 +94,11 @@ export async function fetchPluginCurrentConfigWithFallback(
 ): Promise<PluginConfigSnapshot> {
   try {
     return toPluginConfigSnapshot(await remoteAdapter.fetchConfig(pluginId))
-  } catch {
+  } catch (error) {
+    if (!canFallbackToDebugAdapter(error)) {
+      throw error
+    }
+
     return fetchPluginCurrentConfig(pluginId)
   }
 }
@@ -96,7 +114,11 @@ export async function validatePluginConfigDraftWithFallback(
         values: JSON.parse(buildPreviewPayloadAsJson(schema, values)),
       }),
     )
-  } catch {
+  } catch (error) {
+    if (!canFallbackToDebugAdapter(error)) {
+      throw error
+    }
+
     return validatePluginConfigDraft(schema, values)
   }
 }
@@ -112,7 +134,11 @@ export async function savePluginConfigDraftWithFallback(
         values: JSON.parse(buildPreviewPayloadAsJson(schema, values)),
       }),
     )
-  } catch {
+  } catch (error) {
+    if (!canFallbackToDebugAdapter(error)) {
+      throw error
+    }
+
     return savePluginConfigDraft(schema, values)
   }
 }
