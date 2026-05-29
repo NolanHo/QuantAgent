@@ -1,4 +1,5 @@
 import { createApiClient } from "@/shared/api";
+import { PluginConfigApi } from "@/features/plugins";
 import { AuthApi } from "@/shared/auth/api";
 import type { RuntimeConfig } from "@/shared/config";
 
@@ -25,6 +26,7 @@ export function createAppRuntime({
     apiClient,
     apis: {
       auth: new AuthApi(apiClient),
+      plugins: new PluginConfigApi(apiClient),
     },
     realtime: {
       client: null,

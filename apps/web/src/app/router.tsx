@@ -2,7 +2,7 @@ import { createRouter } from '@tanstack/react-router'
 
 import { routeTree } from '../routeTree.gen'
 import type { AuthState } from '../shared/auth'
-import { debugRouteApi } from '@/debug/route-api.runtime'
+import { debugRouteApi } from '@/debug/router/route-api.runtime'
 
 export type RouterContext = {
   auth?: Pick<AuthState, 'capabilities' | 'forbidden' | 'status'>

@@ -13,6 +13,13 @@ const routeLabels = new Map<string, string>([
   ['tools', '工具'],
   ['industries', '行业包'],
   ['settings', '设置'],
+  ['debug', '调试工作台'],
+  ['page-states', '页面状态'],
+  ['runtime-config', '运行时配置'],
+  ['error-fallback', '错误兜底'],
+  ['route-playground', '路由实验场'],
+  ['plugin-config-form', '插件配置表单'],
+  ['throw', '触发错误'],
 ])
 
 export function MainLayout({ children }: PropsWithChildren) {
@@ -50,7 +57,13 @@ export function MainLayout({ children }: PropsWithChildren) {
             {breadcrumbs.map((breadcrumb, index) => (
               <span key={breadcrumb.path} className="app-breadcrumb-item">
                 {index > 0 ? <span className="app-breadcrumb-separator">/</span> : null}
-                {breadcrumb.label}
+                {index < breadcrumbs.length - 1 ? (
+                  <Link to={breadcrumb.path} className="app-breadcrumb-link">
+                    {breadcrumb.label}
+                  </Link>
+                ) : (
+                  breadcrumb.label
+                )}
               </span>
             ))}
           </nav>
