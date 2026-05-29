@@ -8,6 +8,11 @@ import {
   createSchemaSnapshotFromJsonSchema,
   getDebugPluginFixture,
 } from './debug-fixtures'
+import {
+  COMPLEX_PLUGIN_ID,
+  SIMPLE_PLUGIN_ID,
+  validateDebugPayload,
+} from './debug-zod-schemas'
 
 describe('plugin config debug mock validation', () => {
   it('flags invalid UUID and short secret for the complex fixture', async () => {
@@ -158,5 +163,22 @@ describe('plugin config debug mock validation', () => {
         }),
       ]),
     )
+  })
+
+  it('rejects unknown debug plugin ids instead of validating against the simple schema', () => {
+    const complexFixture = getDebugPluginFixture(COMPLEX_PLUGIN_ID)
+    const simpleFixture = getDebugPluginFixture(SIMPLE_PLUGIN_ID)
+    expect(complexFixture).not.toBeNull()
+    expect(simpleFixture).not.toBeNull()
+
+    expect(() =>
+      validateDebugPayload(
+        {
+          ...simpleFixture!.schema,
+          pluginId: 'quantagent.debug.plugin-form.unknown',
+        },
+        { displayName: 'fallback?', enabled: true },
+      ),
+    ).toThrow('Unknown debug plugin schema: quantagent.debug.plugin-form.unknown')
   })
 })

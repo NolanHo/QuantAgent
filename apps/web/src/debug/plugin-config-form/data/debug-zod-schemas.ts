@@ -253,10 +253,7 @@ export function validateDebugPayload(
   schema: PluginConfigSchemaSnapshot,
   payload: Record<string, unknown>,
 ): PluginConfigValidationResult {
-  const parsed =
-    schema.pluginId === COMPLEX_PLUGIN_ID
-      ? complexPluginConfigSchema.safeParse(payload)
-      : simplePluginConfigSchema.safeParse(payload)
+  const parsed = resolveDebugPayloadSchema(schema.pluginId).safeParse(payload)
 
   if (parsed.success) {
     return {
@@ -269,4 +266,16 @@ export function validateDebugPayload(
     ok: false,
     issues: mapZodIssues(parsed.error),
   }
+}
+
+function resolveDebugPayloadSchema(pluginId: string) {
+  if (pluginId === COMPLEX_PLUGIN_ID) {
+    return complexPluginConfigSchema
+  }
+
+  if (pluginId === SIMPLE_PLUGIN_ID) {
+    return simplePluginConfigSchema
+  }
+
+  throw new Error(`Unknown debug plugin schema: ${pluginId}`)
 }

@@ -50,6 +50,7 @@ export function usePluginConfigDebugViewModel() {
     savePluginConfigDraft,
   )
   const {
+    clearDraftState,
     draftValues,
     isDirty,
     issueLookup,
@@ -65,6 +66,17 @@ export function usePluginConfigDebugViewModel() {
       setSelectedPluginId(firstPluginId)
     }
   }, [firstPluginId, selectedPluginId])
+
+  useEffect(() => {
+    if (pluginsQuery.isLoading || firstPluginId) {
+      return
+    }
+
+    setSelectedPluginId('')
+    clearDraftState()
+    setSaveMessage(null)
+    setState('empty')
+  }, [clearDraftState, firstPluginId, pluginsQuery.isLoading])
 
   useEffect(() => {
     if (selectedPluginId) {

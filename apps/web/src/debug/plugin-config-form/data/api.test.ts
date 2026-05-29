@@ -139,10 +139,27 @@ describe('fetchPluginConfigSchema', () => {
         expect.objectContaining({
           path: 'dynamicRules',
           type: 'record',
-          recordValueShape: '{ endpoint, retry }',
+          recordValueShape: 'Record<string, object>',
         }),
       ]),
     )
+  })
+
+  it('throws for unknown plugin ids instead of silently falling back to the simple schema', async () => {
+    const loadRemoteSchema = vi.fn().mockResolvedValue({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      title: 'UnknownPluginConfig',
+      properties: {
+        enabled: {
+          type: 'boolean',
+        },
+      },
+    })
+
+    await expect(
+      fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.unknown'),
+    ).rejects.toThrow('Unknown debug plugin fixture: quantagent.debug.plugin-form.unknown')
   })
 
   it('returns field issues for required, length, count, and range errors', async () => {

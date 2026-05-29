@@ -212,19 +212,14 @@ function recordValueShapeFromJsonSchema(schema: PluginConfigJsonSchema): string 
 
   const valueSchema = schema.additionalProperties
 
-  if (valueSchema.type === 'object' && valueSchema.properties) {
-    const propertyNames = Object.keys(valueSchema.properties)
-    if (propertyNames.length > 0) {
-      return `{ ${propertyNames.join(', ')} }`
-    }
-    return '{ ... }'
-  }
-
   if (Array.isArray(valueSchema.oneOf) && valueSchema.oneOf.length > 0) {
     return 'Record<string, union>'
   }
 
   if (valueSchema.type) {
+    if (valueSchema.type === 'object') {
+      return 'Record<string, object>'
+    }
     return `Record<string, ${valueSchema.type}>`
   }
 

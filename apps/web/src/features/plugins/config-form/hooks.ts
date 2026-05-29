@@ -135,7 +135,13 @@ export function usePluginConfigDraftState(
     setIssues([])
   }, [schema])
 
+  const clearDraftState = useCallback(() => {
+    setDraftValues({})
+    setIssues([])
+  }, [])
+
   return {
+    clearDraftState,
     draftValues,
     initialDraftValues,
     isDirty,
