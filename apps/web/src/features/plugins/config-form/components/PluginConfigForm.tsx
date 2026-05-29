@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, Fieldset, Form, Tabs } from "@heroui/react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 import {
   parseConfigDraftPayload,
@@ -13,10 +12,7 @@ import type {
 import { PluginConfigField } from "./PluginConfigField";
 import { PluginConfigSupportMatrix } from "./PluginConfigSupportMatrix";
 
-const MOTION_EASE = [0.22, 1, 0.36, 1] as const;
-
 type PluginConfigFormProps = {
-  containerWidth?: number;
   issueLookup: Map<string, string>;
   onValueChange: (path: string, nextValue: string) => void;
   schema: PluginConfigSchemaSnapshot;
@@ -25,14 +21,13 @@ type PluginConfigFormProps = {
 };
 
 export function PluginConfigForm({
-  containerWidth,
   issueLookup,
   onValueChange,
   schema,
   showSupportMatrix = true,
   values,
 }: PluginConfigFormProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const formViewportRef = useRef<HTMLDivElement | null>(null);
   const fieldGroups = useMemo(
     () => groupFields(schema.fields),
     [schema.fields],
@@ -41,10 +36,7 @@ export function PluginConfigForm({
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(
     defaultSelectedGroupKey,
   );
-  const isCompactLayout = (containerWidth ?? Number.POSITIVE_INFINITY) < 860;
-  const panelTransition = prefersReducedMotion
-    ? { duration: 0 }
-    : { duration: 0.26, ease: MOTION_EASE };
+  const [isCompactLayout, setIsCompactLayout] = useState(false);
   const selectedGroup =
     fieldGroups.find((group) => group.key === selectedGroupKey) ??
     fieldGroups[0] ??
@@ -54,9 +46,36 @@ export function PluginConfigForm({
     setSelectedGroupKey(defaultSelectedGroupKey);
   }, [schema.pluginId, fieldGroups, defaultSelectedGroupKey]);
 
+  useEffect(() => {
+    const viewport = formViewportRef.current;
+
+    if (!viewport || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    // 只在跨过紧凑布局阈值时触发 React 更新，避免抽屉拖拽时整棵表单逐帧重渲染。
+    const updateLayoutMode = (width: number) => {
+      setIsCompactLayout((current) => {
+        const next = width < 860;
+        return current === next ? current : next;
+      });
+    };
+
+    updateLayoutMode(viewport.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => {
+      updateLayoutMode(entry.contentRect.width);
+    });
+
+    observer.observe(viewport);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   return (
-    <Form className="grid w-full gap-4">
-      <motion.div layout transition={panelTransition}>
+    <div ref={formViewportRef} className="w-full">
+      <Form className="grid w-full gap-4">
         <Card className="overflow-visible">
           <Card.Content className="overflow-visible">
             <Tabs
@@ -74,7 +93,13 @@ export function PluginConfigForm({
                     : "grid w-full items-start grid-cols-[180px_minmax(0,1fr)] gap-4"
                 }
               >
-                <div className={isCompactLayout ? "w-full overflow-x-auto" : "sticky top-4 self-start"}>
+                <div
+                  className={
+                    isCompactLayout
+                      ? "w-full overflow-x-auto"
+                      : "sticky top-4 self-start"
+                  }
+                >
                   <Tabs.ListContainer>
                     <Tabs.List
                       aria-label="配置分类"
@@ -103,49 +128,31 @@ export function PluginConfigForm({
                   </Tabs.ListContainer>
                 </div>
 
-                {/* Only mount the active group panel so large schemas don't re-render hidden fields. */}
+                {/* 只挂载当前分组，避免大 schema 的隐藏字段参与滚动期重渲染。 */}
                 {selectedGroup ? (
                   <Tabs.Panel
                     id={selectedGroup.key}
                     className={isCompactLayout ? "min-w-0 pt-0" : "min-w-0 pr-1"}
                   >
-                    <AnimatePresence initial={false} mode="wait">
-                      <motion.div
-                        key={`${selectedGroup.key}-${isCompactLayout ? "compact" : "wide"}`}
-                        animate={{ opacity: 1, x: 0, y: 0 }}
-                        exit={{
-                          opacity: 0,
-                          x: prefersReducedMotion ? 0 : -16,
-                          y: prefersReducedMotion ? 0 : 8,
-                        }}
-                        initial={{
-                          opacity: 0,
-                          x: prefersReducedMotion ? 0 : 18,
-                          y: prefersReducedMotion ? 0 : 8,
-                        }}
-                        transition={panelTransition}
-                      >
-                        <SelectedGroupPanel
-                          group={selectedGroup}
-                          isCompactLayout={isCompactLayout}
-                          issueLookup={issueLookup}
-                          onValueChange={onValueChange}
-                          values={values}
-                        />
-                      </motion.div>
-                    </AnimatePresence>
+                    <SelectedGroupPanel
+                      group={selectedGroup}
+                      isCompactLayout={isCompactLayout}
+                      issueLookup={issueLookup}
+                      onValueChange={onValueChange}
+                      values={values}
+                    />
                   </Tabs.Panel>
                 ) : null}
               </div>
             </Tabs>
           </Card.Content>
         </Card>
-      </motion.div>
 
-      {showSupportMatrix ? (
-        <PluginConfigSupportMatrix supportMatrix={schema.supportMatrix} />
-      ) : null}
-    </Form>
+        {showSupportMatrix ? (
+          <PluginConfigSupportMatrix supportMatrix={schema.supportMatrix} />
+        ) : null}
+      </Form>
+    </div>
   );
 }
 
@@ -167,10 +174,10 @@ function SelectedGroupPanel({
   return (
     <section
       id={`plugin-group-${group.key}`}
-      className="grid w-full gap-2.5 rounded-[20px] border border-white/60 bg-white/72 p-3 ring-1 ring-black/5 backdrop-blur"
+      className="grid w-full gap-2.5 rounded-[20px] border border-slate-200 bg-white p-3 shadow-sm"
     >
       <Fieldset>
-        <div className="grid gap-2 rounded-[20px] border border-white/50 bg-white/55 p-3 ring-1 ring-black/5 backdrop-blur">
+        <div className="grid gap-2 rounded-[20px] border border-slate-200 bg-slate-50/70 p-3">
           <Fieldset.Group className="grid gap-0 px-3">
             {group.fields.map((definition) => (
               <PluginConfigField

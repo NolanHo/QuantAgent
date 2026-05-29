@@ -1,7 +1,7 @@
 import { EditorState } from "@codemirror/state";
 import { json } from "@codemirror/lang-json";
 import { basicSetup, EditorView } from "codemirror";
-import { memo, useEffect, useRef, useState, type JSX } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import {
   Button,
   Chip,
@@ -43,14 +43,14 @@ type FieldOption = {
 };
 
 const arrayItemCardClassName =
-  "grid gap-3 rounded-[18px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)]";
+  "grid gap-3 rounded-[18px] border border-slate-200 bg-white p-3 shadow-sm";
 const arrayEmptyToolbarClassName = "flex items-center justify-end";
 const sliderWrapClassName =
   "grid gap-3 rounded-[18px] border border-slate-200/80 bg-slate-50/70 p-3";
 const switchWrapClassName =
   "rounded-[16px] border border-slate-200 bg-slate-50/80 px-3 py-3";
 const codeEditorWrapClassName =
-  "overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-[0_18px_40px_rgba(15,23,42,0.08)]";
+  "overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-sm";
 
 type NumericRangeConfig = {
   max: number;
@@ -72,6 +72,97 @@ type JsonCodeEditorProps = Pick<
   PluginConfigFieldProps,
   "definition" | "onChange" | "value"
 >;
+
+type NumericSliderFieldProps = {
+  definition: PluginConfigFieldDefinition;
+  numericRange: NumericRangeConfig;
+  onChange: (path: string, nextValue: string) => void;
+  value: string;
+};
+
+type SupportedArrayFieldProps = {
+  definition: PluginConfigFieldDefinition;
+  onChange: (path: string, nextValue: string) => void;
+  value: string;
+};
+
+function NumericSliderField({
+  definition,
+  numericRange,
+  onChange,
+  value,
+}: NumericSliderFieldProps) {
+  const [inputDraftValue, setInputDraftValue] = useState(value);
+  const [sliderInstanceKey, setSliderInstanceKey] = useState(() =>
+    `${definition.path}:${value}`,
+  );
+  const committedSliderValue = coerceSliderValue(value, numericRange);
+
+  useEffect(() => {
+    setInputDraftValue(value);
+    setSliderInstanceKey(`${definition.path}:${value}`);
+  }, [committedSliderValue, definition.path, value]);
+
+  return (
+    <div className={sliderWrapClassName}>
+      <Slider
+        aria-label={`${definition.label} 滑块`}
+        defaultValue={committedSliderValue}
+        key={sliderInstanceKey}
+        maxValue={numericRange.max}
+        minValue={numericRange.min}
+        onChange={(nextValue) => {
+          // 保持 Slider 非受控，让 HeroUI 内部状态处理拖拽，避免受控回流打断动画帧。
+          setInputDraftValue(
+            formatSliderValue(
+              definition,
+              Number(nextValue),
+              numericRange.step,
+            ),
+          );
+        }}
+        onChangeEnd={(nextValue) => {
+          const nextNumericValue = Number(nextValue);
+          const nextFormattedValue = formatSliderValue(
+            definition,
+            nextNumericValue,
+            numericRange.step,
+          );
+          setInputDraftValue(nextFormattedValue);
+          onChange(
+            definition.path,
+            nextFormattedValue,
+          );
+        }}
+        step={numericRange.step}
+      >
+        <Slider.Output />
+        <Slider.Track>
+          <Slider.Fill />
+          <Slider.Thumb />
+        </Slider.Track>
+      </Slider>
+      <Input
+        aria-label={definition.label}
+        className="w-full"
+        fullWidth
+        inputMode={definition.type === "integer" ? "numeric" : "decimal"}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setInputDraftValue(nextValue);
+          onChange(definition.path, nextValue);
+        }}
+        placeholder={
+          definition.placeholder ??
+          `${numericRange.min} - ${numericRange.max}`
+        }
+        type="text"
+        value={inputDraftValue}
+        variant="primary"
+      />
+    </div>
+  );
+}
 
 function JsonCodeEditor({
   definition,
@@ -288,6 +379,152 @@ function ArrayPreviewPopover({
   );
 }
 
+const MemoizedArrayPreviewPopover = memo(
+  ArrayPreviewPopover,
+  (previous, next) =>
+    previous.actionLabel === next.actionLabel &&
+    previous.addLabel === next.addLabel &&
+    previous.description === next.description &&
+    previous.emptyActionLabel === next.emptyActionLabel &&
+    previous.onAddEmpty === next.onAddEmpty &&
+    previous.onSelectOption === next.onSelectOption &&
+    previous.options === next.options,
+);
+
+function SupportedArrayField({
+  definition,
+  onChange,
+  value,
+}: SupportedArrayFieldProps) {
+  const items = useMemo(() => splitArrayDraftItems(value), [value]);
+  const selectedItems = useMemo(
+    () => items.filter((item: string) => item.trim().length > 0),
+    [items],
+  );
+  const availableChoices = definition.choiceOptions ?? [];
+  const previewChoices = useMemo(
+    () =>
+      availableChoices.filter((option) => !selectedItems.includes(option)),
+    [availableChoices, selectedItems],
+  );
+
+  return (
+    <div className="grid min-w-0 gap-2.5">
+      {items.map((itemValue: string, index: number) => (
+        <SupportedArrayItem
+          key={`${definition.path}-${index}`}
+          definition={definition}
+          index={index}
+          itemValue={itemValue}
+          items={items}
+          onChange={onChange}
+          previewChoices={previewChoices}
+        />
+      ))}
+      {items.length === 0 ? (
+        <div className={arrayEmptyToolbarClassName}>
+          <MemoizedArrayPreviewPopover
+            actionLabel={`添加 ${definition.label} 项`}
+            addLabel="添加推荐项"
+            description="选择推荐项后，直接作为第一项写入。"
+            emptyActionLabel={`添加 ${definition.label} 空白项`}
+            onAddEmpty={() => {
+              onChange(definition.path, joinArrayDraftValue([""]));
+            }}
+            onSelectOption={(option) => {
+              onChange(definition.path, joinArrayDraftValue([option]));
+            }}
+            options={previewChoices}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type SupportedArrayItemProps = {
+  definition: PluginConfigFieldDefinition;
+  index: number;
+  itemValue: string;
+  items: string[];
+  onChange: (path: string, nextValue: string) => void;
+  previewChoices: string[];
+};
+
+const SupportedArrayItem = memo(function SupportedArrayItem({
+  definition,
+  index,
+  itemValue,
+  items,
+  onChange,
+  previewChoices,
+}: SupportedArrayItemProps) {
+  return (
+    <div
+      className={arrayItemCardClassName}
+    >
+      <Input
+        aria-label={`${definition.label} 第 ${index + 1} 项`}
+        autoComplete={undefined}
+        className="w-full"
+        fullWidth
+        onChange={(event) => {
+          const nextItems = [...items];
+          nextItems[index] = event.target.value;
+          onChange(definition.path, joinArrayDraftValue(nextItems));
+        }}
+        placeholder={
+          definition.placeholder ??
+          definition.examples?.[0] ??
+          `请输入第 ${index + 1} 项`
+        }
+        type="text"
+        value={itemValue}
+        variant="primary"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+          第 {index + 1} 项
+        </span>
+        <div className="flex items-center gap-2">
+          <MemoizedArrayPreviewPopover
+            actionLabel={`在 ${definition.label} 第 ${index + 1} 项后添加`}
+            addLabel={`在 ${definition.label} 第 ${index + 1} 项后添加推荐项`}
+            description="选择推荐项后，直接插入到当前项后面。"
+            emptyActionLabel={`在 ${definition.label} 第 ${index + 1} 项后添加空白项`}
+            onAddEmpty={() => {
+              const nextItems = [...items];
+              nextItems.splice(index + 1, 0, "");
+              onChange(definition.path, joinArrayDraftValue(nextItems));
+            }}
+            onSelectOption={(option) => {
+              const nextItems = [...items];
+              nextItems.splice(index + 1, 0, option);
+              onChange(definition.path, joinArrayDraftValue(nextItems));
+            }}
+            options={previewChoices}
+          />
+          <Button
+            aria-label={`移除 ${definition.label} 第 ${index + 1} 项`}
+            isIconOnly
+            onPress={() => {
+              const nextItems = items.filter(
+                (_, itemIndex) => itemIndex !== index,
+              );
+              onChange(definition.path, joinArrayDraftValue(nextItems));
+            }}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <FiTrash2 aria-hidden="true" className="text-[14px]" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 function renderSelectInput({
   definition,
   onChange,
@@ -367,50 +604,13 @@ function renderFieldInput({
     (definition.type === "integer" || definition.type === "number") &&
     numericRange
   ) {
-    const sliderValue = coerceSliderValue(value, numericRange);
-
     return (
-      <div className={sliderWrapClassName}>
-        <Slider
-          aria-label={`${definition.label} 滑块`}
-          maxValue={numericRange.max}
-          minValue={numericRange.min}
-          onChange={(nextValue) => {
-            onChange(
-              definition.path,
-              formatSliderValue(
-                definition,
-                Number(nextValue),
-                numericRange.step,
-              ),
-            );
-          }}
-          step={numericRange.step}
-          value={sliderValue}
-        >
-          <Slider.Output />
-          <Slider.Track>
-            <Slider.Fill />
-            <Slider.Thumb />
-          </Slider.Track>
-        </Slider>
-        <Input
-          aria-label={definition.label}
-          className="w-full"
-          fullWidth
-          inputMode={definition.type === "integer" ? "numeric" : "decimal"}
-          onChange={(event) => {
-            onChange(definition.path, event.target.value);
-          }}
-          placeholder={
-            definition.placeholder ??
-            `${numericRange.min} - ${numericRange.max}`
-          }
-          type="text"
-          value={value}
-          variant="primary"
-        />
-      </div>
+      <NumericSliderField
+        definition={definition}
+        numericRange={numericRange}
+        onChange={onChange}
+        value={value}
+      />
     );
   }
 
@@ -427,98 +627,12 @@ function renderFieldInput({
   }
 
   if (definition.type === "array" && definition.support === "supported") {
-    const items = splitArrayDraftItems(value);
-    const selectedItems = items.filter((item) => item.trim().length > 0);
-    const availableChoices = definition.choiceOptions ?? [];
-    const previewChoices = availableChoices.filter(
-      (option) => !selectedItems.includes(option),
-    );
-
     return (
-      <div className="grid min-w-0 gap-2.5">
-        {items.map((itemValue, index) => (
-          <div
-            key={`${definition.path}-${index}`}
-            className={arrayItemCardClassName}
-          >
-            <Input
-              aria-label={`${definition.label} 第 ${index + 1} 项`}
-              autoComplete={undefined}
-              className="w-full"
-              fullWidth
-              onChange={(event) => {
-                const nextItems = [...items];
-                nextItems[index] = event.target.value;
-                onChange(definition.path, joinArrayDraftValue(nextItems));
-              }}
-              placeholder={
-                definition.placeholder ??
-                definition.examples?.[0] ??
-                `请输入第 ${index + 1} 项`
-              }
-              type="text"
-              value={itemValue}
-              variant="primary"
-            />
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                第 {index + 1} 项
-              </span>
-              <div className="flex items-center gap-2">
-                <ArrayPreviewPopover
-                  actionLabel={`在 ${definition.label} 第 ${index + 1} 项后添加`}
-                  addLabel={`在 ${definition.label} 第 ${index + 1} 项后添加推荐项`}
-                  description="选择推荐项后，直接插入到当前项后面。"
-                  emptyActionLabel={`在 ${definition.label} 第 ${index + 1} 项后添加空白项`}
-                  onAddEmpty={() => {
-                    const nextItems = [...items];
-                    nextItems.splice(index + 1, 0, "");
-                    onChange(definition.path, joinArrayDraftValue(nextItems));
-                  }}
-                  onSelectOption={(option) => {
-                    const nextItems = [...items];
-                    nextItems.splice(index + 1, 0, option);
-                    onChange(definition.path, joinArrayDraftValue(nextItems));
-                  }}
-                  options={previewChoices}
-                />
-                <Button
-                  aria-label={`移除 ${definition.label} 第 ${index + 1} 项`}
-                  isIconOnly
-                  onPress={() => {
-                    const nextItems = items.filter(
-                      (_, itemIndex) => itemIndex !== index,
-                    );
-                    onChange(definition.path, joinArrayDraftValue(nextItems));
-                  }}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  <FiTrash2 aria-hidden="true" className="text-[14px]" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        ))}
-        {items.length === 0 ? (
-          <div className={arrayEmptyToolbarClassName}>
-            <ArrayPreviewPopover
-              actionLabel={`添加 ${definition.label} 项`}
-              addLabel="添加推荐项"
-              description="选择推荐项后，直接作为第一项写入。"
-              emptyActionLabel={`添加 ${definition.label} 空白项`}
-              onAddEmpty={() => {
-                onChange(definition.path, joinArrayDraftValue([""]));
-              }}
-              onSelectOption={(option) => {
-                onChange(definition.path, joinArrayDraftValue([option]));
-              }}
-              options={previewChoices}
-            />
-          </div>
-        ) : null}
-      </div>
+      <SupportedArrayField
+        definition={definition}
+        onChange={onChange}
+        value={value}
+      />
     );
   }
 
@@ -619,7 +733,7 @@ function PluginConfigFieldComponent({
       ? prefersWideEditor || isCompactLayout
         ? "grid gap-3"
         : "grid gap-3 md:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] md:items-start md:gap-6"
-      : "grid gap-2 rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/90 p-3",
+      : "grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm",
   ].join(" ");
   const fieldControlWrapClassName = [
     "grid w-full min-w-0 gap-2.5 overflow-visible pt-0.5",

@@ -11,6 +11,7 @@ import {
   usePluginCurrentConfigQuery,
 } from '@/features/plugins/config-form'
 import type { PluginConfigDebugState } from '../model'
+import type { PluginConfigSnapshot } from '@/features/plugins/config-form'
 
 import {
   fetchPluginConfigSchema,
@@ -143,17 +144,28 @@ export function usePluginConfigDebugViewModel() {
     }
   }
 
-  function resetDraft() {
-    if (!configQuery.data) {
+  function resetDraft(nextConfig?: PluginConfigSnapshot) {
+    const resetTarget = nextConfig ?? configQuery.data
+    if (!resetTarget) {
       return
     }
 
-    resetDraftState(configQuery.data)
+    resetDraftState(resetTarget)
     setSaveMessage(null)
     setState(schemaQuery.data?.fields.length ? 'idle' : 'empty')
   }
 
+  const canReset =
+    Boolean(configQuery.data) &&
+    (
+      isDirty ||
+      state === 'save-success' ||
+      state === 'save-failure' ||
+      state === 'validation-error'
+    )
+
   return {
+    canReset,
     config: configQuery.data ?? null,
     currentStatus,
     draftValues,
@@ -165,7 +177,8 @@ export function usePluginConfigDebugViewModel() {
     plugins,
     resetDraft,
     saveDraft,
-    savePending: saveMutation.isPending,
+    // UI 只依赖本次保存状态机，避免被 mutation 对象的历史 pending 状态卡住按钮。
+    savePending: state === 'save-pending',
     saveMessage,
     schema: schemaQuery.data ?? null,
     selectedPluginId,

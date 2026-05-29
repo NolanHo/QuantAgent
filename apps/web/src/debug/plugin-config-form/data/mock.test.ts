@@ -50,6 +50,23 @@ describe('plugin config debug mock validation', () => {
     )
   })
 
+  it('treats cleared numeric fields as missing instead of silently falling back to defaults', async () => {
+    const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
+    expect(fixture).not.toBeNull()
+
+    const result = await validateDebugPluginConfig(fixture!.schema, {
+      ...fixture!.config.values,
+      'topology.maxRetryAttempts': '',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        { path: 'topology.maxRetryAttempts', message: '该字段为必填项。' },
+      ]),
+    )
+  })
+
   it('reports required errors when required array input is empty', async () => {
     const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
     expect(fixture).not.toBeNull()

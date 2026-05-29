@@ -37,7 +37,7 @@ export const debugPluginRecords: PluginRecord[] = [
 export const complexFieldMetadata = new Map([
   ['pluginId', { readOnly: true, supportNote: '系统生成的插件实例标识，不允许手动修改。' }],
   ['version', { readOnly: true, supportNote: '版本号来自插件发布产物，不在此处编辑。' }],
-  ['auth.type', { supportNote: '认证协议由插件实现固定为 oauth2，不在此处编辑。' }],
+  ['auth.type', { readOnly: true, supportNote: '认证协议由插件实现固定为 oauth2，不在此处编辑。' }],
   ['auth.clientSecret', { sensitive: true, placeholder: '保持掩码表示不修改' }],
   [
     'topology.routingRules',

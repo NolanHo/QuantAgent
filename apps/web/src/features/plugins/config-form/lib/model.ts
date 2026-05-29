@@ -205,8 +205,12 @@ function parseDraftFieldValue(
   }
 }
 
-function hasDefinitionFallbackValue(definition: PluginConfigFieldDefinition): boolean {
-  return definition.constValue !== undefined || definition.defaultValue !== undefined
+function shouldTreatEmptyAsMissing(definition: PluginConfigFieldDefinition): boolean {
+  if (definition.readOnly || definition.constValue !== undefined) {
+    return false
+  }
+
+  return definition.required
 }
 
 function defaultFormatIssueMessage(definition: PluginConfigFieldDefinition): string {
@@ -239,10 +243,12 @@ export function validateSchemaFields(
     const rawValue = values[definition.path] ?? ''
     const trimmedValue = rawValue.trim()
 
-    if (definition.required && trimmedValue.length === 0) {
-      if (hasDefinitionFallbackValue(definition)) {
-        continue
-      }
+    if (
+      definition.required &&
+      !definition.readOnly &&
+      definition.constValue === undefined &&
+      trimmedValue.length === 0
+    ) {
       issues.push({ path: definition.path, message: '该字段为必填项。' })
       continue
     }
@@ -367,6 +373,9 @@ export function parseConfigDraftPayload(
     const trimmedValue = rawValue.trim()
 
     if (trimmedValue.length === 0) {
+      if (shouldTreatEmptyAsMissing(definition)) {
+        throw new PluginConfigJsonFieldParseError(definition.path, 'Missing required field value.')
+      }
       if (definition.constValue !== undefined) {
         setNestedValue(payload, definition.path.split('.'), definition.constValue)
       } else if (definition.defaultValue !== undefined) {

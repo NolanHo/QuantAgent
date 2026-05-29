@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import type {
@@ -87,6 +94,7 @@ export function usePluginConfigDraftState(
   )
   const [draftValues, setDraftValues] = useState<PluginConfigValueMap>({})
   const [issues, setIssues] = useState<PluginConfigValidationIssue[]>([])
+  const deferredDraftValues = useDeferredValue(draftValues)
 
   useEffect(() => {
     if (!schema || !config) {
@@ -97,6 +105,17 @@ export function usePluginConfigDraftState(
     setIssues([])
   }, [config, initialDraftValues, schema])
 
+  useEffect(() => {
+    if (!schema) {
+      return
+    }
+
+    // 字段值优先更新，字段级校验退到低优先级，避免长表单输入被同步校验拖慢。
+    startTransition(() => {
+      setIssues(validateSchemaFields(schema, deferredDraftValues).issues)
+    })
+  }, [deferredDraftValues, schema])
+
   const issueLookup = useMemo(() => issueMap(issues), [issues])
   const isDirty = useMemo(
     () => !isSameValueMap(draftValues, initialDraftValues),
@@ -104,16 +123,8 @@ export function usePluginConfigDraftState(
   )
 
   const updateDraft = useCallback((path: string, nextValue: string) => {
-    setDraftValues((current) => {
-      const nextValues = updateValueMap(current, path, nextValue)
-
-      if (schema) {
-        setIssues(validateSchemaFields(schema, nextValues).issues)
-      }
-
-      return nextValues
-    })
-  }, [schema])
+    setDraftValues((current) => updateValueMap(current, path, nextValue))
+  }, [])
 
   const resetDraftState = useCallback((nextConfig: PluginConfigSnapshot) => {
     if (!schema) {

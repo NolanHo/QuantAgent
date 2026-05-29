@@ -157,18 +157,28 @@ test('shows a top-right save button after edits and saves all changes', async ({
 
   const tokenEndpointInput = component.getByRole('textbox', { name: 'Token 刷新地址' })
   const saveButton = component.getByRole('button', { name: '保存改动' })
+  const resetButton = component.getByRole('button', { name: '重置草稿' })
+  const originalValue = 'https://oauth.example.com/token'
 
   await expect(saveButton).toBeVisible()
   await expect(saveButton).toBeDisabled()
+  await expect(resetButton).toBeEnabled()
 
   await tokenEndpointInput.fill('https://changed.example/token')
   await expect(saveButton).toBeEnabled()
+  await expect(resetButton).toBeEnabled()
 
   await saveButton.click()
 
   await expect(saveButton).toBeVisible()
   await expect(saveButton).toBeDisabled()
+  await expect(resetButton).toBeEnabled()
   await expect(tokenEndpointInput).toHaveValue('https://changed.example/token')
+
+  await resetButton.click()
+
+  await expect(tokenEndpointInput).toHaveValue(originalValue)
+  await expect(saveButton).toBeEnabled()
 })
 
 test('keeps the form usable in compact mode', async ({ mount, page }) => {

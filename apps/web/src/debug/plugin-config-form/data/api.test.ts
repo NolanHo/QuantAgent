@@ -257,4 +257,30 @@ describe('fetchPluginConfigSchema', () => {
     expect(preview).toContain('"error": "字段 retryCount 无法解析"')
     expect(preview).not.toContain('null')
   })
+
+  it('surfaces cleared required numeric fields in preview payload instead of restoring defaults', async () => {
+    const loadRemoteSchema = vi.fn().mockResolvedValue({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      title: 'RemotePluginConfig',
+      properties: {
+        retryCount: {
+          default: 3,
+          description: '重试次数|title:重试次数;desc:用于测试清空后的必填数值处理',
+          maximum: 10,
+          minimum: 0,
+          type: 'integer',
+        },
+      },
+      required: ['retryCount'],
+    })
+
+    const schema = await fetchPluginConfigSchema(loadRemoteSchema, 'quantagent.debug.plugin-form.complex')
+    const preview = buildPluginConfigPreviewPayload(schema, {
+      retryCount: '',
+    })
+
+    expect(preview).toContain('"error": "字段 retryCount 无法解析"')
+    expect(preview).not.toContain('"retryCount": 3')
+  })
 })
