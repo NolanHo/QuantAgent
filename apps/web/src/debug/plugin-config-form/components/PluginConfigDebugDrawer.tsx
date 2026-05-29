@@ -3,38 +3,31 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type CSSProperties,
 } from "react";
 import { PageLoading } from "@/app/components/PageLoading";
 import {
   buildPluginConfigPreviewPayload,
-  PluginConfigForm,
   type PluginConfigSchemaSnapshot,
   type PluginConfigSnapshot,
   type PluginConfigValueMap,
 } from "@/features/plugins/config-form";
-import { renderHighlightedJson } from "@/features/plugins/config-form/lib/json-highlight";
 import {
   Button,
-  Card,
   CloseButton,
   Drawer,
-  Surface,
   Tabs,
 } from "@heroui/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { HiOutlineBars3BottomLeft, HiOutlineCheckBadge } from "react-icons/hi2";
-import { FiCopy, FiRotateCcw, FiSave } from "react-icons/fi";
+import { HiOutlineCheckBadge } from "react-icons/hi2";
+import { FiRotateCcw, FiSave } from "react-icons/fi";
 
 import type { PluginRecord } from "../model";
+import { PluginConfigDebugDrawerFormPanel } from "./PluginConfigDebugDrawerFormPanel";
+import { PluginConfigDebugDrawerPreviewPanel } from "./PluginConfigDebugDrawerPreviewPanel";
+import { usePluginConfigDrawerWidth } from "./usePluginConfigDrawerWidth";
 
-const DEFAULT_DRAWER_WIDTH = 960;
-const MIN_DRAWER_WIDTH = 560;
-const MAX_DRAWER_WIDTH = 1200;
-const VIEWPORT_GUTTER = 32;
-const DEFAULT_DRAWER_VIEWPORT_RATIO = 0.68;
 const MOTION_EASE = [0.22, 1, 0.36, 1] as const;
 
 type PluginConfigDebugDrawerProps = {
@@ -83,14 +76,6 @@ export function PluginConfigDebugDrawer({
   const [previewFormatVersion, setPreviewFormatVersion] = useState(0);
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [drawerTabKey, setDrawerTabKey] = useState<"form" | "preview">("form");
-  const [committedDrawerWidth, setCommittedDrawerWidth] = useState(
-    DEFAULT_DRAWER_WIDTH,
-  );
-  const [isResizingDrawer, setIsResizingDrawer] = useState(false);
-  const drawerShellRef = useRef<HTMLDivElement | null>(null);
-  const drawerWidthRef = useRef(DEFAULT_DRAWER_WIDTH);
-  const pendingDrawerWidthRef = useRef<number | null>(null);
-  const resizeFrameRef = useRef<number | null>(null);
   const fadeSlideTransition = prefersReducedMotion
     ? { duration: 0 }
     : { duration: 0.28, ease: MOTION_EASE };
@@ -112,124 +97,24 @@ export function PluginConfigDebugDrawer({
     [deferredDraftValues, schema, shouldRenderPreview],
   );
   const readySchema = isModalContentReady ? schema : null;
-
-  const applyDrawerWidth = useCallback((width: number) => {
-    const nextWidth = clampDrawerWidth(width);
-    drawerWidthRef.current = nextWidth;
-    drawerShellRef.current?.style.setProperty(
-      "--plugin-drawer-width",
-      `${nextWidth}px`,
-    );
-    return nextWidth;
-  }, []);
-
-  const flushPendingDrawerWidth = useCallback(() => {
-    resizeFrameRef.current = null;
-    if (pendingDrawerWidthRef.current === null) {
-      return;
-    }
-
-    applyDrawerWidth(pendingDrawerWidthRef.current);
-    pendingDrawerWidthRef.current = null;
-  }, [applyDrawerWidth]);
-
-  const scheduleDrawerWidth = useCallback(
-    (width: number) => {
-      pendingDrawerWidthRef.current = width;
-      if (resizeFrameRef.current !== null) {
-        return;
-      }
-
-      resizeFrameRef.current = window.requestAnimationFrame(
-        flushPendingDrawerWidth,
-      );
-    },
-    [flushPendingDrawerWidth],
-  );
+  const {
+    committedDrawerWidth,
+    drawerShellRef,
+    isResizingDrawer,
+    setIsResizingDrawer,
+  } = usePluginConfigDrawerWidth({
+    isOpen,
+    pluginId: plugin?.id ?? null,
+  });
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
-
-    const nextWidth = getDefaultDrawerWidth();
-    applyDrawerWidth(nextWidth);
-    setCommittedDrawerWidth(nextWidth);
     setDrawerTabKey("form");
     setPreviewFormatVersion(0);
     setPreviewMessage(null);
-  }, [applyDrawerWidth, isOpen, plugin?.id]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const handleWindowResize = () => {
-      const nextWidth = applyDrawerWidth(drawerWidthRef.current);
-      setCommittedDrawerWidth((current) =>
-        current === nextWidth ? current : nextWidth,
-      );
-    };
-
-    handleWindowResize();
-    window.addEventListener("resize", handleWindowResize);
-
-    return () => {
-      window.removeEventListener("resize", handleWindowResize);
-    };
-  }, [applyDrawerWidth, isOpen]);
-
-  useEffect(() => {
-    if (!isResizingDrawer) {
-      return;
-    }
-
-    const previousUserSelect = document.body.style.userSelect;
-    const previousCursor = document.body.style.cursor;
-
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-
-    // 拖拽时直接写 CSS 变量，避免每一帧都走 React render。
-    const handlePointerMove = (event: PointerEvent) => {
-      scheduleDrawerWidth(window.innerWidth - event.clientX);
-    };
-
-    const stopResizing = () => {
-      if (resizeFrameRef.current !== null) {
-        window.cancelAnimationFrame(resizeFrameRef.current);
-        resizeFrameRef.current = null;
-      }
-      if (pendingDrawerWidthRef.current !== null) {
-        applyDrawerWidth(pendingDrawerWidthRef.current);
-        pendingDrawerWidthRef.current = null;
-      }
-
-      setIsResizingDrawer(false);
-      setCommittedDrawerWidth(drawerWidthRef.current);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopResizing);
-    window.addEventListener("pointercancel", stopResizing);
-
-    return () => {
-      document.body.style.userSelect = previousUserSelect;
-      document.body.style.cursor = previousCursor;
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopResizing);
-      window.removeEventListener("pointercancel", stopResizing);
-    };
-  }, [applyDrawerWidth, isResizingDrawer, scheduleDrawerWidth]);
-
-  useEffect(() => {
-    return () => {
-      if (resizeFrameRef.current !== null) {
-        window.cancelAnimationFrame(resizeFrameRef.current);
-      }
-    };
-  }, []);
+  }, [isOpen, plugin?.id]);
 
   const copyPreviewPayload = useCallback(async () => {
     if (!previewPayload) {
@@ -402,157 +287,24 @@ export function PluginConfigDebugDrawer({
                           </div>
 
                           {drawerTabKey === "form" ? (
-                            <Tabs.Panel
-                              id="form"
-                              className="min-h-0 overflow-y-auto"
-                            >
-                              <div className="grid gap-3.5 px-3.5 py-4 pb-6">
-                                {saveMessage ? (
-                                  <Surface
-                                    className="rounded-[22px]"
-                                    variant="secondary"
-                                  >
-                                    <div className="p-4">
-                                      <p className="m-0 text-sm leading-6 text-slate-600">
-                                        {saveMessage}
-                                      </p>
-                                    </div>
-                                  </Surface>
-                                ) : null}
-
-                                {readySchema ? (
-                                  <PluginConfigForm
-                                    issueLookup={issueLookup}
-                                    onValueChange={updateDraft}
-                                    schema={readySchema}
-                                    showSupportMatrix={false}
-                                    values={draftValues}
-                                  />
-                                ) : null}
-                              </div>
-                            </Tabs.Panel>
+                            <PluginConfigDebugDrawerFormPanel
+                              issueLookup={issueLookup}
+                              saveMessage={saveMessage}
+                              schema={readySchema}
+                              updateDraft={updateDraft}
+                              values={draftValues}
+                            />
                           ) : (
-                            <Tabs.Panel
-                              id="preview"
-                              className="min-h-0 overflow-y-auto"
-                            >
-                              <div className="grid gap-3.5 px-4 py-4">
-                                <Card>
-                                  <Card.Header>
-                                    <Card.Title>错误处理</Card.Title>
-                                  </Card.Header>
-                                  <Card.Content>
-                                    <div className="grid gap-3">
-                                      {issues.length > 0 ? (
-                                        <div className="grid gap-2">
-                                          <p className="m-0 text-sm font-bold text-slate-900">
-                                            待修复问题
-                                          </p>
-                                          {issues.map(([path, message]) => (
-                                            <Surface key={path} variant="secondary">
-                                              <div className="grid gap-1 p-4">
-                                                <p className="m-0 text-xs font-bold uppercase tracking-[0.08em] text-red-700">
-                                                  {path}
-                                                </p>
-                                                <p className="m-0 text-sm leading-6 text-red-900">
-                                                  {message}
-                                                </p>
-                                              </div>
-                                            </Surface>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <p className="m-0 text-sm leading-6 text-slate-500">
-                                          当前没有字段级问题，结果区会随着配置草稿实时更新。
-                                        </p>
-                                      )}
-                                    </div>
-                                  </Card.Content>
-                                </Card>
-
-                                <div>
-                                  {previewMessage ? (
-                                    <Surface
-                                      className="mb-3 rounded-[22px]"
-                                      variant="secondary"
-                                    >
-                                      <div className="p-4">
-                                        <p className="m-0 text-sm leading-6 text-slate-600">
-                                          {previewMessage}
-                                        </p>
-                                      </div>
-                                    </Surface>
-                                  ) : null}
-                                  <Card>
-                                    <Card.Header>
-                                      <Card.Title>样例配置 JSON</Card.Title>
-                                    </Card.Header>
-                                    <Card.Content>
-                                      <div className="grid gap-3">
-                                        <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-[0_12px_28px_rgba(15,23,42,0.06)]">
-                                          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 py-2.5">
-                                            <div className="flex items-center gap-2">
-                                              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
-                                              <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
-                                              <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                              <Button
-                                                aria-label="复制内容"
-                                                isIconOnly
-                                                onPress={() =>
-                                                  void copyPreviewPayload()
-                                                }
-                                                size="sm"
-                                                type="button"
-                                                variant="ghost"
-                                              >
-                                                <FiCopy
-                                                  aria-hidden="true"
-                                                  className="text-[14px] text-slate-500"
-                                                />
-                                              </Button>
-                                              <Button
-                                                aria-label="格式化"
-                                                isIconOnly
-                                                onPress={() => {
-                                                  setPreviewFormatVersion(
-                                                    (current) => current + 1,
-                                                  );
-                                                }}
-                                                size="sm"
-                                                type="button"
-                                                variant="ghost"
-                                              >
-                                                <HiOutlineBars3BottomLeft
-                                                  aria-hidden="true"
-                                                  className="text-[15px] text-slate-500"
-                                                />
-                                              </Button>
-                                              <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                                JSON
-                                              </span>
-                                            </div>
-                                          </div>
-                                          <div className="overflow-x-auto p-4">
-                                            <pre
-                                              className="m-0 min-w-full whitespace-pre text-[12px] leading-6 text-slate-900"
-                                              data-format-version={previewFormatVersion}
-                                            >
-                                              <code className="block font-mono">
-                                                {renderHighlightedJson(
-                                                  previewPayload,
-                                                )}
-                                              </code>
-                                            </pre>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </Card.Content>
-                                  </Card>
-                                </div>
-                              </div>
-                            </Tabs.Panel>
+                            <PluginConfigDebugDrawerPreviewPanel
+                              issues={issues}
+                              onCopyPreview={copyPreviewPayload}
+                              onFormatPreview={() => {
+                                setPreviewFormatVersion((current) => current + 1);
+                              }}
+                              previewFormatVersion={previewFormatVersion}
+                              previewMessage={previewMessage}
+                              previewPayload={previewPayload}
+                            />
                           )}
                         </Tabs>
                       ) : (
@@ -569,27 +321,5 @@ export function PluginConfigDebugDrawer({
         </Drawer.Backdrop>
       ) : null}
     </AnimatePresence>
-  );
-}
-
-function clampDrawerWidth(width: number) {
-  const viewportMax =
-    typeof window === "undefined"
-      ? MAX_DRAWER_WIDTH
-      : Math.max(MIN_DRAWER_WIDTH, window.innerWidth - VIEWPORT_GUTTER);
-
-  return Math.min(
-    Math.max(width, MIN_DRAWER_WIDTH),
-    Math.min(MAX_DRAWER_WIDTH, viewportMax),
-  );
-}
-
-function getDefaultDrawerWidth() {
-  if (typeof window === "undefined") {
-    return DEFAULT_DRAWER_WIDTH;
-  }
-
-  return clampDrawerWidth(
-    Math.round(window.innerWidth * DEFAULT_DRAWER_VIEWPORT_RATIO),
   );
 }

@@ -1,4 +1,1 @@
-export * from './components'
-export * from './data'
-export * from './hooks'
-export * from './model'
+export { PluginConfigDebugPanel } from './components/PluginConfigDebugPanel'
