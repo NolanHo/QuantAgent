@@ -148,13 +148,17 @@ export function PluginConfigDebugDrawer({
   );
 
   useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
     const nextWidth = getDefaultDrawerWidth();
     applyDrawerWidth(nextWidth);
     setCommittedDrawerWidth(nextWidth);
     setDrawerTabKey("form");
     setPreviewFormatVersion(0);
     setPreviewMessage(null);
-  }, [applyDrawerWidth, plugin?.id]);
+  }, [applyDrawerWidth, isOpen, plugin?.id]);
 
   useEffect(() => {
     if (!isOpen) {

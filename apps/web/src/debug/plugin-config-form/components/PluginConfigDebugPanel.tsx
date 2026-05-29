@@ -67,23 +67,31 @@ export function PluginConfigDebugPanel() {
     if (
       !isModalOpen ||
       !editingPluginId ||
+      !schema ||
       !config ||
+      schema.pluginId !== editingPluginId ||
       selectedPluginId !== editingPluginId ||
       resetBaselineConfig !== null
     ) {
       return;
     }
 
-    setResetBaselineConfig({
+    const nextBaselineConfig = {
       maskedPaths: [...config.maskedPaths],
       values: { ...config.values },
       versionTag: config.versionTag,
-    });
+    };
+
+    // 每次打开抽屉都以当前快照重建编辑会话，避免同一插件 reopen 继承上次草稿。
+    resetDraft(nextBaselineConfig);
+    setResetBaselineConfig(nextBaselineConfig);
   }, [
     config,
     editingPluginId,
     isModalOpen,
+    resetDraft,
     resetBaselineConfig,
+    schema,
     selectedPluginId,
   ]);
   const handleResetToOpenSnapshot = useCallback(() => {

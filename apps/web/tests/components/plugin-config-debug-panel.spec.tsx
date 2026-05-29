@@ -149,6 +149,29 @@ test('closes the drawer from the top-right close button', async ({ mount }) => {
   await expect(component.getByRole('dialog', { name: '复杂 Zod 样例 配置' })).toHaveCount(0)
 })
 
+test('reopens the same plugin with a fresh drawer session', async ({ mount }) => {
+  const component = await renderWithProviders(mount, <PluginConfigDebugPanel />)
+
+  const openSettingsButton = component.getByRole('button', { name: /设置/ }).first()
+  await openSettingsButton.click()
+  await component.getByRole('tab', { name: '认证配置' }).click()
+
+  const tokenEndpointInput = component.getByRole('textbox', { name: 'Token 刷新地址' })
+  await tokenEndpointInput.fill('https://stale.example/token')
+  await component.getByRole('tab', { name: '样例配置 JSON' }).click()
+  await component.getByRole('button', { name: '关闭配置抽屉' }).click()
+
+  await expect(component.getByRole('dialog', { name: '复杂 Zod 样例 配置' })).toHaveCount(0)
+
+  await openSettingsButton.click()
+
+  await expect(component.getByRole('tab', { name: '配置表单' })).toHaveAttribute('aria-selected', 'true')
+  await component.getByRole('tab', { name: '认证配置' }).click()
+  await expect(component.getByRole('textbox', { name: 'Token 刷新地址' })).toHaveValue(
+    'https://oauth.example.com/token',
+  )
+})
+
 test('shows a top-right save button after edits and saves all changes', async ({ mount }) => {
   const component = await renderWithProviders(mount, <PluginConfigDebugPanel />)
 

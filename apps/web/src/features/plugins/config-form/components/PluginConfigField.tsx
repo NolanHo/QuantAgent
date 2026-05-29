@@ -1,7 +1,4 @@
-import { EditorState } from "@codemirror/state";
-import { json } from "@codemirror/lang-json";
-import { basicSetup, EditorView } from "codemirror";
-import { memo, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { memo, useState, type JSX } from "react";
 import {
   Button,
   Chip,
@@ -11,21 +8,21 @@ import {
   InputGroup,
   Label,
   ListBox,
-  Popover,
   Select,
   Slider,
   Surface,
   Switch,
   TextField,
 } from "@heroui/react";
-import { FiEye, FiEyeOff, FiPlus, FiTrash2 } from "react-icons/fi";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 import {
   fieldConstraintCopies,
-  joinArrayDraftValue,
-  splitArrayDraftItems,
   splitArrayPreview,
 } from "../lib/model";
 import type { PluginConfigFieldDefinition } from "../types";
+import { PluginConfigJsonCodeEditor } from "./field-controls/PluginConfigJsonCodeEditor";
+import { PluginConfigNumericSliderField } from "./field-controls/PluginConfigNumericSliderField";
+import { PluginConfigSupportedArrayField } from "./field-controls/PluginConfigSupportedArrayField";
 
 type PluginConfigFieldProps = {
   definition: PluginConfigFieldDefinition;
@@ -42,488 +39,16 @@ type FieldOption = {
   label: string;
 };
 
-const arrayItemCardClassName =
-  "grid gap-3 rounded-[18px] border border-slate-200 bg-white p-3 shadow-sm";
-const arrayEmptyToolbarClassName = "flex items-center justify-end";
 const sliderWrapClassName =
   "grid gap-3 rounded-[18px] border border-slate-200/80 bg-slate-50/70 p-3";
 const switchWrapClassName =
   "rounded-[16px] border border-slate-200 bg-slate-50/80 px-3 py-3";
-const codeEditorWrapClassName =
-  "overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-sm";
 
 type NumericRangeConfig = {
   max: number;
   min: number;
   step: number;
 };
-
-type ArrayPreviewPopoverProps = {
-  actionLabel: string;
-  addLabel: string;
-  description: string;
-  emptyActionLabel: string;
-  onAddEmpty: () => void;
-  onSelectOption: (option: string) => void;
-  options: string[];
-};
-
-type JsonCodeEditorProps = Pick<
-  PluginConfigFieldProps,
-  "definition" | "onChange" | "value"
->;
-
-type NumericSliderFieldProps = {
-  definition: PluginConfigFieldDefinition;
-  numericRange: NumericRangeConfig;
-  onChange: (path: string, nextValue: string) => void;
-  value: string;
-};
-
-type SupportedArrayFieldProps = {
-  definition: PluginConfigFieldDefinition;
-  onChange: (path: string, nextValue: string) => void;
-  value: string;
-};
-
-function NumericSliderField({
-  definition,
-  numericRange,
-  onChange,
-  value,
-}: NumericSliderFieldProps) {
-  const [inputDraftValue, setInputDraftValue] = useState(value);
-  const [sliderInstanceKey, setSliderInstanceKey] = useState(() =>
-    `${definition.path}:${value}`,
-  );
-  const committedSliderValue = coerceSliderValue(value, numericRange);
-
-  useEffect(() => {
-    setInputDraftValue(value);
-    setSliderInstanceKey(`${definition.path}:${value}`);
-  }, [committedSliderValue, definition.path, value]);
-
-  return (
-    <div className={sliderWrapClassName}>
-      <Slider
-        aria-label={`${definition.label} 滑块`}
-        defaultValue={committedSliderValue}
-        key={sliderInstanceKey}
-        maxValue={numericRange.max}
-        minValue={numericRange.min}
-        onChange={(nextValue) => {
-          // 保持 Slider 非受控，让 HeroUI 内部状态处理拖拽，避免受控回流打断动画帧。
-          setInputDraftValue(
-            formatSliderValue(
-              definition,
-              Number(nextValue),
-              numericRange.step,
-            ),
-          );
-        }}
-        onChangeEnd={(nextValue) => {
-          const nextNumericValue = Number(nextValue);
-          const nextFormattedValue = formatSliderValue(
-            definition,
-            nextNumericValue,
-            numericRange.step,
-          );
-          setInputDraftValue(nextFormattedValue);
-          onChange(
-            definition.path,
-            nextFormattedValue,
-          );
-        }}
-        step={numericRange.step}
-      >
-        <Slider.Output />
-        <Slider.Track>
-          <Slider.Fill />
-          <Slider.Thumb />
-        </Slider.Track>
-      </Slider>
-      <Input
-        aria-label={definition.label}
-        className="w-full"
-        fullWidth
-        inputMode={definition.type === "integer" ? "numeric" : "decimal"}
-        onChange={(event) => {
-          const nextValue = event.target.value;
-          setInputDraftValue(nextValue);
-          onChange(definition.path, nextValue);
-        }}
-        placeholder={
-          definition.placeholder ??
-          `${numericRange.min} - ${numericRange.max}`
-        }
-        type="text"
-        value={inputDraftValue}
-        variant="primary"
-      />
-    </div>
-  );
-}
-
-function JsonCodeEditor({
-  definition,
-  onChange,
-  value,
-}: JsonCodeEditorProps) {
-  const editorHostRef = useRef<HTMLDivElement | null>(null);
-  const viewRef = useRef<EditorView | null>(null);
-  const onChangeRef = useRef(onChange);
-  const isApplyingExternalUpdateRef = useRef(false);
-
-  useEffect(() => {
-    onChangeRef.current = onChange;
-  }, [onChange]);
-
-  useEffect(() => {
-    if (!editorHostRef.current) {
-      return;
-    }
-
-    const view = new EditorView({
-      parent: editorHostRef.current,
-      state: EditorState.create({
-        doc: value,
-        extensions: [
-          basicSetup,
-          json(),
-          EditorView.lineWrapping,
-          EditorView.contentAttributes.of({
-            "aria-label": definition.label,
-            spellcheck: "false",
-          }),
-          EditorView.theme({
-            "&": {
-              backgroundColor: "transparent",
-              fontSize: "12px",
-              minHeight: "168px",
-            },
-            ".cm-scroller": {
-              fontFamily:
-                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-              lineHeight: "1.5rem",
-              minHeight: "168px",
-              overflow: "auto",
-            },
-            ".cm-content": {
-              minHeight: "168px",
-              padding: "1rem",
-              caretColor: "#0f172a",
-              color: "#0f172a",
-            },
-            ".cm-focused": {
-              outline: "none",
-            },
-            ".cm-activeLine": {
-              backgroundColor: "rgba(148, 163, 184, 0.10)",
-            },
-            ".cm-selectionBackground, ::selection": {
-              backgroundColor: "rgba(59, 130, 246, 0.18)",
-            },
-            ".cm-gutters": {
-              display: "none",
-            },
-            ".cm-line": {
-              color: "#0f172a",
-            },
-          }),
-          EditorView.updateListener.of((update) => {
-            if (!update.docChanged || isApplyingExternalUpdateRef.current) {
-              return;
-            }
-
-            onChangeRef.current(
-              definition.path,
-              update.state.doc.toString(),
-            );
-          }),
-        ],
-      }),
-    });
-
-    viewRef.current = view;
-
-    return () => {
-      view.destroy();
-      viewRef.current = null;
-    };
-  }, [definition.label, definition.path]);
-
-  useEffect(() => {
-    const view = viewRef.current;
-
-    if (!view) {
-      return;
-    }
-
-    const currentValue = view.state.doc.toString();
-
-    if (currentValue === value) {
-      return;
-    }
-
-    isApplyingExternalUpdateRef.current = true;
-    view.dispatch({
-      changes: {
-        from: 0,
-        to: currentValue.length,
-        insert: value,
-      },
-    });
-    isApplyingExternalUpdateRef.current = false;
-  }, [value]);
-
-  return (
-    <div className={codeEditorWrapClassName}>
-      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
-        </div>
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-          JSON
-        </span>
-      </div>
-      <div ref={editorHostRef} className="min-h-[168px]" />
-    </div>
-  );
-}
-
-function ArrayPreviewPopover({
-  actionLabel,
-  addLabel,
-  description,
-  emptyActionLabel,
-  onAddEmpty,
-  onSelectOption,
-  options,
-}: ArrayPreviewPopoverProps) {
-  if (options.length === 0) {
-    return (
-      <Button
-        aria-label={actionLabel}
-        isIconOnly
-        onPress={onAddEmpty}
-        size="sm"
-        type="button"
-        variant="ghost"
-      >
-        <FiPlus aria-hidden="true" className="text-[14px]" />
-      </Button>
-    );
-  }
-
-  return (
-    <Popover.Root>
-      <Popover.Trigger>
-        <Button
-          aria-label={actionLabel}
-          isIconOnly
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          <FiPlus aria-hidden="true" className="text-[14px]" />
-        </Button>
-      </Popover.Trigger>
-      <Popover.Content className="w-[260px] p-0" placement="top end">
-        <Popover.Dialog className="grid gap-2 p-3">
-          <div className="grid gap-0.5 px-1">
-            <Popover.Heading className="m-0 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
-              快捷添加
-            </Popover.Heading>
-            <p className="m-0 text-xs leading-5 text-slate-500">
-              {description}
-            </p>
-          </div>
-          <div className="grid gap-1">
-            <Button
-              aria-label={emptyActionLabel}
-              fullWidth
-              onPress={onAddEmpty}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              <span className="flex w-full items-center justify-between">
-                <span>添加空白项</span>
-                <FiPlus aria-hidden="true" className="text-[13px] text-slate-400" />
-              </span>
-            </Button>
-            {options.map((option) => (
-              <Button
-                key={option}
-                aria-label={`${addLabel} ${option}`}
-                fullWidth
-                onPress={() => {
-                  onSelectOption(option);
-                }}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <span className="flex w-full items-center justify-between">
-                  <span>{option}</span>
-                  <FiPlus aria-hidden="true" className="text-[13px] text-sky-500" />
-                </span>
-              </Button>
-            ))}
-          </div>
-        </Popover.Dialog>
-      </Popover.Content>
-    </Popover.Root>
-  );
-}
-
-const MemoizedArrayPreviewPopover = memo(
-  ArrayPreviewPopover,
-  (previous, next) =>
-    previous.actionLabel === next.actionLabel &&
-    previous.addLabel === next.addLabel &&
-    previous.description === next.description &&
-    previous.emptyActionLabel === next.emptyActionLabel &&
-    previous.onAddEmpty === next.onAddEmpty &&
-    previous.onSelectOption === next.onSelectOption &&
-    previous.options === next.options,
-);
-
-function SupportedArrayField({
-  definition,
-  onChange,
-  value,
-}: SupportedArrayFieldProps) {
-  const items = useMemo(() => splitArrayDraftItems(value), [value]);
-  const selectedItems = useMemo(
-    () => items.filter((item: string) => item.trim().length > 0),
-    [items],
-  );
-  const availableChoices = definition.choiceOptions ?? [];
-  const previewChoices = useMemo(
-    () =>
-      availableChoices.filter((option) => !selectedItems.includes(option)),
-    [availableChoices, selectedItems],
-  );
-
-  return (
-    <div className="grid min-w-0 gap-2.5">
-      {items.map((itemValue: string, index: number) => (
-        <SupportedArrayItem
-          key={`${definition.path}-${index}`}
-          definition={definition}
-          index={index}
-          itemValue={itemValue}
-          items={items}
-          onChange={onChange}
-          previewChoices={previewChoices}
-        />
-      ))}
-      {items.length === 0 ? (
-        <div className={arrayEmptyToolbarClassName}>
-          <MemoizedArrayPreviewPopover
-            actionLabel={`添加 ${definition.label} 项`}
-            addLabel="添加推荐项"
-            description="选择推荐项后，直接作为第一项写入。"
-            emptyActionLabel={`添加 ${definition.label} 空白项`}
-            onAddEmpty={() => {
-              onChange(definition.path, joinArrayDraftValue([""]));
-            }}
-            onSelectOption={(option) => {
-              onChange(definition.path, joinArrayDraftValue([option]));
-            }}
-            options={previewChoices}
-          />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-type SupportedArrayItemProps = {
-  definition: PluginConfigFieldDefinition;
-  index: number;
-  itemValue: string;
-  items: string[];
-  onChange: (path: string, nextValue: string) => void;
-  previewChoices: string[];
-};
-
-const SupportedArrayItem = memo(function SupportedArrayItem({
-  definition,
-  index,
-  itemValue,
-  items,
-  onChange,
-  previewChoices,
-}: SupportedArrayItemProps) {
-  return (
-    <div
-      className={arrayItemCardClassName}
-    >
-      <Input
-        aria-label={`${definition.label} 第 ${index + 1} 项`}
-        autoComplete={undefined}
-        className="w-full"
-        fullWidth
-        onChange={(event) => {
-          const nextItems = [...items];
-          nextItems[index] = event.target.value;
-          onChange(definition.path, joinArrayDraftValue(nextItems));
-        }}
-        placeholder={
-          definition.placeholder ??
-          definition.examples?.[0] ??
-          `请输入第 ${index + 1} 项`
-        }
-        type="text"
-        value={itemValue}
-        variant="primary"
-      />
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-          第 {index + 1} 项
-        </span>
-        <div className="flex items-center gap-2">
-          <MemoizedArrayPreviewPopover
-            actionLabel={`在 ${definition.label} 第 ${index + 1} 项后添加`}
-            addLabel={`在 ${definition.label} 第 ${index + 1} 项后添加推荐项`}
-            description="选择推荐项后，直接插入到当前项后面。"
-            emptyActionLabel={`在 ${definition.label} 第 ${index + 1} 项后添加空白项`}
-            onAddEmpty={() => {
-              const nextItems = [...items];
-              nextItems.splice(index + 1, 0, "");
-              onChange(definition.path, joinArrayDraftValue(nextItems));
-            }}
-            onSelectOption={(option) => {
-              const nextItems = [...items];
-              nextItems.splice(index + 1, 0, option);
-              onChange(definition.path, joinArrayDraftValue(nextItems));
-            }}
-            options={previewChoices}
-          />
-          <Button
-            aria-label={`移除 ${definition.label} 第 ${index + 1} 项`}
-            isIconOnly
-            onPress={() => {
-              const nextItems = items.filter(
-                (_, itemIndex) => itemIndex !== index,
-              );
-              onChange(definition.path, joinArrayDraftValue(nextItems));
-            }}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            <FiTrash2 aria-hidden="true" className="text-[14px]" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 function renderSelectInput({
   definition,
@@ -577,7 +102,13 @@ function renderFieldInput({
     definition.type === "union" ||
     (definition.type === "array" && definition.support === "degraded")
   ) {
-    return <JsonCodeEditor definition={definition} onChange={onChange} value={value} />;
+    return (
+      <PluginConfigJsonCodeEditor
+        definition={definition}
+        onChange={onChange}
+        value={value}
+      />
+    );
   }
 
   if (definition.type === "boolean") {
@@ -605,7 +136,7 @@ function renderFieldInput({
     numericRange
   ) {
     return (
-      <NumericSliderField
+      <PluginConfigNumericSliderField
         definition={definition}
         numericRange={numericRange}
         onChange={onChange}
@@ -628,7 +159,7 @@ function renderFieldInput({
 
   if (definition.type === "array" && definition.support === "supported") {
     return (
-      <SupportedArrayField
+      <PluginConfigSupportedArrayField
         definition={definition}
         onChange={onChange}
         value={value}
@@ -1025,8 +556,6 @@ function countDecimals(value: number): number {
   const [, fraction = ""] = normalized.split(".");
   return fraction.length;
 }
-
-
 function coerceSliderValue(value: string, range: NumericRangeConfig): number {
   const numericValue = Number(value);
 
@@ -1043,17 +572,4 @@ function coerceSliderValue(value: string, range: NumericRangeConfig): number {
   }
 
   return numericValue;
-}
-
-function formatSliderValue(
-  definition: PluginConfigFieldDefinition,
-  value: number,
-  step: number,
-): string {
-  if (definition.type === "integer") {
-    return String(Math.round(value));
-  }
-
-  const decimals = countDecimals(step);
-  return value.toFixed(decimals);
 }
