@@ -205,6 +205,27 @@ function parseDraftFieldValue(
   }
 }
 
+function validateRecordKeys(
+  definition: PluginConfigFieldDefinition,
+  parsedValue: unknown,
+): string | null {
+  if (!definition.propertyKeyPattern || !parsedValue || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+    return null
+  }
+
+  try {
+    const pattern = new RegExp(definition.propertyKeyPattern)
+    const invalidKey = Object.keys(parsedValue).find((key) => !pattern.test(key))
+    if (!invalidKey) {
+      return null
+    }
+
+    return `存在不符合 key 规则的字段：${invalidKey}`
+  } catch {
+    return '字段 key 规则无效。'
+  }
+}
+
 function shouldTreatEmptyAsMissing(definition: PluginConfigFieldDefinition): boolean {
   if (definition.readOnly || definition.constValue !== undefined) {
     return false
@@ -337,6 +358,12 @@ export function validateSchemaFields(
     ) {
       try {
         const parsedValue = JSON.parse(trimmedValue)
+        if (definition.type === 'record') {
+          const recordKeyIssue = validateRecordKeys(definition, parsedValue)
+          if (recordKeyIssue) {
+            issues.push({ path: definition.path, message: recordKeyIssue })
+          }
+        }
         if (definition.type === 'array' && Array.isArray(parsedValue)) {
           if (constraints?.minItems !== undefined && parsedValue.length < constraints.minItems) {
             issues.push({ path: definition.path, message: `至少需要 ${constraints.minItems} 项。` })

@@ -47,6 +47,7 @@ export type PluginConfigFieldDefinition = {
   readOnly?: boolean
   sensitive?: boolean
   placeholder?: string
+  propertyKeyPattern?: string
   defaultValue?: unknown
   enumValues?: string[]
   choiceOptions?: string[]

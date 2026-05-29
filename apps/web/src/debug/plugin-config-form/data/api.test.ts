@@ -3,8 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { buildPluginConfigPreviewPayload } from '@/features/plugins/config-form'
 import {
   fetchPluginConfigSchema,
+  fetchPluginCurrentConfigWithFallback,
   savePluginConfigDraft,
+  savePluginConfigDraftWithFallback,
   validatePluginConfigDraft,
+  validatePluginConfigDraftWithFallback,
 } from './api'
 
 describe('fetchPluginConfigSchema', () => {
@@ -105,6 +108,90 @@ describe('fetchPluginConfigSchema', () => {
         versionTag: expect.any(String),
       }),
     )
+  })
+
+  it('prefers remote config snapshot and falls back to debug mock when remote config is unavailable', async () => {
+    const remoteAdapter = {
+      fetchConfig: vi.fn().mockResolvedValue({
+        masked_paths: ['auth.clientSecret'],
+        values: { pluginId: 'remote-plugin-id' },
+        version_tag: 'remote-v1',
+      }),
+      fetchConfigSchema: vi.fn(),
+      updateConfig: vi.fn(),
+      validateConfig: vi.fn(),
+    }
+
+    await expect(
+      fetchPluginCurrentConfigWithFallback(
+        remoteAdapter,
+        'quantagent.debug.plugin-form.complex',
+      ),
+    ).resolves.toEqual({
+      maskedPaths: ['auth.clientSecret'],
+      values: { pluginId: 'remote-plugin-id' },
+      versionTag: 'remote-v1',
+    })
+
+    remoteAdapter.fetchConfig.mockRejectedValueOnce(new Error('not ready'))
+    await expect(
+      fetchPluginCurrentConfigWithFallback(
+        remoteAdapter,
+        'quantagent.debug.plugin-form.complex',
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        maskedPaths: ['auth.clientSecret'],
+        versionTag: expect.any(String),
+      }),
+    )
+  })
+
+  it('prefers remote validate and save adapters when available', async () => {
+    const schema = await fetchPluginConfigSchema(
+      vi.fn().mockResolvedValue({
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        type: 'object',
+        title: 'RemotePluginConfig',
+        properties: {
+          pluginId: {
+            description: '插件唯一标识符|title:插件 ID;desc:系统自动生成的插件实例唯一 UUID',
+            type: 'string',
+          },
+        },
+        required: ['pluginId'],
+      }),
+      'quantagent.debug.plugin-form.complex',
+    )
+    const remoteAdapter = {
+      fetchConfig: vi.fn(),
+      fetchConfigSchema: vi.fn(),
+      updateConfig: vi.fn().mockResolvedValue({
+        updated_at: '2026-05-29T12:00:00Z',
+        version_tag: 'remote-saved-v1',
+      }),
+      validateConfig: vi.fn().mockResolvedValue({
+        ok: true,
+        issues: [],
+      }),
+    }
+
+    await expect(
+      validatePluginConfigDraftWithFallback(remoteAdapter, schema, {
+        pluginId: 'remote-plugin-id',
+      }),
+    ).resolves.toEqual({ ok: true, issues: [] })
+    expect(remoteAdapter.validateConfig).toHaveBeenCalledTimes(1)
+
+    await expect(
+      savePluginConfigDraftWithFallback(remoteAdapter, schema, {
+        pluginId: 'remote-plugin-id',
+      }),
+    ).resolves.toEqual({
+      updatedAt: '2026-05-29T12:00:00Z',
+      versionTag: 'remote-saved-v1',
+    })
+    expect(remoteAdapter.updateConfig).toHaveBeenCalledTimes(1)
   })
 
   it('derives a generic record shape for non-fixture record schemas', async () => {
@@ -248,6 +335,46 @@ describe('fetchPluginConfigSchema', () => {
     expect(missingRequired.issues).toEqual(
       expect.arrayContaining([
         { path: 'displayName', message: '该字段为必填项。' },
+      ]),
+    )
+  })
+
+  it('returns record key pattern issues for degraded record fields', async () => {
+    const loadRemoteSchema = vi.fn().mockResolvedValue({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      title: 'RemotePluginConfig',
+      properties: {
+        dynamicRules: {
+          description: '动态规则|title:动态规则;desc:用于测试 record key pattern',
+          type: 'object',
+          propertyNames: {
+            pattern: '^/[a-z]+$',
+            type: 'string',
+          },
+          additionalProperties: {
+            type: 'object',
+          },
+        },
+      },
+      required: ['dynamicRules'],
+    })
+
+    const schema = await fetchPluginConfigSchema(
+      loadRemoteSchema,
+      'quantagent.debug.plugin-form.complex',
+    )
+    const result = await validatePluginConfigDraft(schema, {
+      dynamicRules: '{"INVALID":{"enabled":true}}',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        {
+          path: 'dynamicRules',
+          message: '存在不符合 key 规则的字段：INVALID',
+        },
       ]),
     )
   })

@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
-import { useAppRuntime } from '@/app/runtime'
-import { fetchPluginConfigJsonSchema } from '@/shared/api'
+import { useApis } from '@/app/runtime'
 import {
   usePluginConfigDraftState,
   usePluginConfigSaveMutation,
@@ -15,16 +14,16 @@ import type { PluginConfigSnapshot } from '@/features/plugins/config-form'
 
 import {
   fetchPluginConfigSchema,
-  fetchPluginCurrentConfig,
-  savePluginConfigDraft,
-  validatePluginConfigDraft,
+  fetchPluginCurrentConfigWithFallback,
+  savePluginConfigDraftWithFallback,
+  validatePluginConfigDraftWithFallback,
 } from '../data/api'
 import { listDebugPluginFixtures } from '../data/debug-fixtures'
 import { toUiErrorMessage } from '../data/utils'
 import { statusCopy } from '../model'
 
 export function usePluginConfigDebugViewModel() {
-  const { apiClient } = useAppRuntime()
+  const { pluginConfig } = useApis()
   const pluginsQuery = useQuery({
     queryFn: async () => listDebugPluginFixtures(),
     queryKey: ['debug-plugin-records'],
@@ -36,18 +35,21 @@ export function usePluginConfigDebugViewModel() {
   const schemaQuery = usePluginConfigSchemaQuery(
     selectedPluginId,
     (pluginId) => fetchPluginConfigSchema(
-      (currentPluginId) => fetchPluginConfigJsonSchema(apiClient, currentPluginId),
+      (currentPluginId) => pluginConfig.fetchConfigSchema(currentPluginId),
       pluginId,
     ),
   )
-  const configQuery = usePluginCurrentConfigQuery(selectedPluginId, fetchPluginCurrentConfig)
+  const configQuery = usePluginCurrentConfigQuery(
+    selectedPluginId,
+    (pluginId) => fetchPluginCurrentConfigWithFallback(pluginConfig, pluginId),
+  )
   const validationMutation = usePluginConfigValidationMutation(
     schemaQuery.data ?? null,
-    validatePluginConfigDraft,
+    (schema, values) => validatePluginConfigDraftWithFallback(pluginConfig, schema, values),
   )
   const saveMutation = usePluginConfigSaveMutation(
     schemaQuery.data ?? null,
-    savePluginConfigDraft,
+    (schema, values) => savePluginConfigDraftWithFallback(pluginConfig, schema, values),
   )
   const {
     clearDraftState,
@@ -104,7 +106,7 @@ export function usePluginConfigDebugViewModel() {
       const result = await validationMutation.mutateAsync(draftValues)
       setIssues(result.issues)
       setState(result.ok ? 'idle' : 'validation-error')
-      setSaveMessage(result.ok ? '当前草稿通过 mock validate，可继续测试保存流程。' : null)
+      setSaveMessage(result.ok ? '当前草稿校验通过，可继续测试保存流程。' : null)
       return result.ok
     } catch (error) {
       setIssues([])
@@ -142,7 +144,7 @@ export function usePluginConfigDebugViewModel() {
     try {
       const result = await saveMutation.mutateAsync(draftValues)
       setState('save-success')
-      const nextSaveMessage = `已写入 debug mock snapshot，版本标签：${result.versionTag}`
+      const nextSaveMessage = `已完成受控保存，版本标签：${result.versionTag}`
       const nextConfig = await configQuery.refetch()
       if (nextConfig.data) {
         resetDraftState(nextConfig.data)

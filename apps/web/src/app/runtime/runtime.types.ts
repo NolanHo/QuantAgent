@@ -1,5 +1,6 @@
 import type { ApiClient, ApiClientConfig } from "@/shared/api";
 import type { AuthApi } from "@/shared/auth/api";
+import type { PluginConfigApi } from "@/features/plugins";
 
 export type RealtimeStatus = "connected" | "disabled" | "reconnecting";
 
@@ -10,6 +11,7 @@ export interface RealtimeRuntime {
 
 export interface RuntimeApis {
   auth: AuthApi;
+  pluginConfig: PluginConfigApi;
 }
 
 export interface AppRuntime {

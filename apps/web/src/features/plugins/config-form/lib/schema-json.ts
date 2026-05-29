@@ -205,6 +205,14 @@ function constraintsFromJsonSchema(
   return hasConstraints ? constraints : undefined
 }
 
+function propertyKeyPatternFromJsonSchema(schema: PluginConfigJsonSchema): string | undefined {
+  if (!schema.propertyNames || Array.isArray(schema.propertyNames.type)) {
+    return undefined
+  }
+
+  return schema.propertyNames.pattern
+}
+
 function recordValueShapeFromJsonSchema(schema: PluginConfigJsonSchema): string | undefined {
   if (!schema.additionalProperties || typeof schema.additionalProperties !== 'object') {
     return 'Record<string, any>'
@@ -270,6 +278,7 @@ export function flattenJsonSchema(
         readOnly,
         sensitive: metadata.sensitive,
         placeholder: metadata.placeholder,
+        propertyKeyPattern: fieldType === 'record' ? propertyKeyPatternFromJsonSchema(childSchema) : undefined,
         defaultValue: childSchema.default,
         enumValues: Array.isArray(childSchema.enum)
           ? childSchema.enum.filter((value): value is string => typeof value === 'string')
