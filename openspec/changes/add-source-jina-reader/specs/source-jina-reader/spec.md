@@ -10,6 +10,8 @@
 - **WHEN** 实现者按本 change 落地插件包
 - **THEN** 插件包 MUST 包含 `plugin.yaml`、`config.schema.json`、README、入口实现和最小测试
 - **AND** 插件 MUST 通过 `plugin.yaml` 注册为 `source` 类型官方插件
+- **AND** 插件 MUST 通过 Registry 被发现和接入系统
+- **AND** 插件 MUST NOT 依赖核心代码中的硬编码 class、import 列表或 if/else 注册逻辑
 - **AND** `plugin.yaml` MUST 声明插件 ID 为 `quantagent.official.source.jina`
 - **AND** `plugin.yaml` MUST 声明 `source.fetch` capability
 
@@ -27,16 +29,16 @@
 - **AND** 插件 MUST NOT 在公开 `config.schema.json` 中声明原始外部 reader token、私有账号或其他敏感鉴权字段
 - **AND** 插件 MUST NOT 自行承担配置保存、启停、调度、审计或生命周期管理
 
-### Requirement: Jina Reader Plugin Returns RawEventDraft-Compatible Output
+### Requirement: Jina Reader Plugin Returns Platform Source Output DTO
 
-`Jina Reader` 插件 MUST 返回现有 source 运行时可消费的 `RawEventDraft` 兼容 DTO，而不是引入新的 reader 专用 DTO。
+`Jina Reader` 插件 MUST 返回平台约定的 Source Plugin 输出结构 / source runtime 可消费输出 DTO，而不是引入新的 reader 专用 DTO 或提前绑定 core 内部 DTO 名称。
 
 #### Scenario: Plugin reads a page through external reader service
 
 - **GIVEN** 插件收到了一个允许读取的网页 URL
 - **WHEN** 插件通过外部 reader 服务完成内容读取和标准化
-- **THEN** 插件 MUST 返回 `RawEventDraft` 兼容结构
-- **AND** 返回结果 MUST 对齐当前 `packages/core/src/quantagent/core/events/dto.py` 中的 `RawEventDraft` 字段形状
+- **THEN** 插件 MUST 返回平台约定的 source 输出结构
+- **AND** 返回结果 MUST 满足当前 source runtime 可消费输出 DTO 的字段语义
 - **AND** 返回结果 SHOULD 至少包含 `source_plugin_id`、`source_type`、`title`、`url`、正文文本相关字段、`raw_payload` 和必要 `metadata`
 - **AND** 平台随后负责将该结果写入事件链路、持久化并通过 Event Bus 发布
 
@@ -51,16 +53,23 @@
 - **THEN** 插件 MUST 只负责通过外部 reader 服务读取内容、标准化和清晰失败返回
 - **AND** 插件 MUST NOT 负责 `RawEvent` 入库、去重、`SourceBinding`、Event Bus、权限检查或生命周期托管
 
-### Requirement: Sensitive Or Private URLs Are Not Sent To External Reader By Default
+### Requirement: External Reader Access Follows Platform Policy Result
 
-`Jina Reader` 插件 MUST 对私有链接、受限内容或默认不应外发的 URL 采用禁止请求外部 reader 的默认策略。
+`Jina Reader` 插件 MUST 遵循平台传入的允许/禁止外发策略结果、调用 DTO 或 `effective_config`，而不是自行判断私有 URL、secret、policy 或 allowlist 规则。
 
-#### Scenario: Plugin receives a URL that should not be sent to an external reader
+#### Scenario: Platform denies sending a URL to external reader
 
-- **GIVEN** 插件收到了一个私有链接、受限内容链接或默认不应外发的 URL
-- **WHEN** 插件评估是否调用外部 reader 服务
-- **THEN** 插件 MUST NOT 将该 URL 发送给外部 reader
+- **GIVEN** 平台向插件传入了一个禁止外发的策略结果、调用 DTO 或等价运行时上下文
+- **WHEN** 插件处理该次读取请求
+- **THEN** 插件 MUST NOT 调用外部 reader 服务
 - **AND** 插件 MUST 返回清晰拒绝或失败信息
+
+#### Scenario: Platform allows sending a URL to external reader
+
+- **GIVEN** 平台已经完成 secret / policy / allowlist 决策，并向插件传入允许外发的调用 DTO 或 `effective_config`
+- **WHEN** 插件处理该次读取请求
+- **THEN** 插件 MAY 调用外部 reader 服务
+- **AND** 插件 MUST 只消费平台提供的有效配置和策略结果
 
 ### Requirement: External Reader Failures Return Clear Errors Without Automatic Fallback
 
