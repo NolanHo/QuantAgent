@@ -173,6 +173,52 @@ describe('fetchPluginConfigSchema', () => {
     ).rejects.toBe(serverError)
   })
 
+  it('maps registry degraded JSON parse errors back to field issues before remote validate/save', async () => {
+    const schema = await fetchPluginConfigSchema(
+      vi.fn().mockResolvedValue({
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        properties: {
+          dynamicRules: {
+            description: '动态规则|title:动态规则;desc:用于测试非法 JSON',
+            type: 'object',
+            additionalProperties: { type: 'object' },
+          },
+        },
+        required: ['dynamicRules'],
+        title: 'RemotePluginConfig',
+        type: 'object',
+      }),
+      'quantagent.debug.plugin-form.complex',
+    )
+    const remoteAdapter = {
+      fetchConfig: vi.fn(),
+      fetchConfigSchema: vi.fn(),
+      updateConfig: vi.fn(),
+      validateConfig: vi.fn(),
+    }
+
+    await expect(
+      validatePluginConfigDraftWithFallback(remoteAdapter, schema, {
+        dynamicRules: '{bad-json',
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      issues: [{ path: 'dynamicRules', message: '需要提供合法的 JSON 文本。' }],
+    })
+    await expect(
+      savePluginConfigDraftWithFallback(remoteAdapter, schema, {
+        dynamicRules: '{bad-json',
+      }),
+    ).rejects.toMatchObject({
+      result: {
+        ok: false,
+        issues: [{ path: 'dynamicRules', message: '需要提供合法的 JSON 文本。' }],
+      },
+    })
+    expect(remoteAdapter.validateConfig).not.toHaveBeenCalled()
+    expect(remoteAdapter.updateConfig).not.toHaveBeenCalled()
+  })
+
   it('prefers remote config snapshot and falls back to debug mock when remote config is unavailable', async () => {
     const remoteAdapter = {
       fetchConfig: vi.fn().mockResolvedValue({

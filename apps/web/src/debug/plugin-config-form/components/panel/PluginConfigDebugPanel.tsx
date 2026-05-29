@@ -15,6 +15,7 @@ export function PluginConfigDebugPanel() {
     isDirty,
     isLoading,
     issueLookup,
+    loadErrorMessage,
     plugins,
     resetDraft,
     saveDraft,
@@ -119,6 +120,15 @@ export function PluginConfigDebugPanel() {
     );
   }
 
+  if (state === "load-failure") {
+    return (
+      <PageEmpty
+        title="插件配置加载失败"
+        description={loadErrorMessage ?? "插件配置接口返回错误，请稍后重试。"}
+      />
+    );
+  }
+
   return (
     <div ref={setModalPortalRef} className="relative">
       <PluginConfigDebugCards
@@ -138,6 +148,7 @@ export function PluginConfigDebugPanel() {
         isLoading={isLoading}
         isOpen={isModalOpen}
         issueLookup={issueLookup}
+        loadErrorMessage={loadErrorMessage}
         modalPortalContainer={modalPortalContainer}
         onClose={handleDrawerClose}
         plugin={editingPlugin}

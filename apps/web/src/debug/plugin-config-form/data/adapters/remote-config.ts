@@ -6,6 +6,10 @@ import type {
   PluginConfigValidationResult,
   PluginConfigValueMap,
 } from '@/features/plugins/config-form'
+import {
+  PluginConfigJsonFieldParseError,
+  validateSchemaFields,
+} from '@/features/plugins/config-form'
 import type {
   PluginConfigApiContract,
   PluginConfigSnapshotResponse,
@@ -108,6 +112,11 @@ export async function validatePluginConfigDraftWithFallback(
   schema: PluginConfigSchemaSnapshot,
   values: PluginConfigValueMap,
 ): Promise<PluginConfigValidationResult> {
+  const fieldValidation = validateSchemaFields(schema, values)
+  if (!fieldValidation.ok) {
+    return fieldValidation
+  }
+
   try {
     return toValidationResult(
       await remoteAdapter.validateConfig(schema.pluginId, {
@@ -115,6 +124,11 @@ export async function validatePluginConfigDraftWithFallback(
       }),
     )
   } catch (error) {
+    const parseIssue = toParseIssue(schema, error)
+    if (parseIssue) {
+      return parseIssue
+    }
+
     if (!canFallbackToDebugAdapter(error)) {
       throw error
     }
@@ -128,6 +142,11 @@ export async function savePluginConfigDraftWithFallback(
   schema: PluginConfigSchemaSnapshot,
   values: PluginConfigValueMap,
 ): Promise<PluginConfigSaveResult> {
+  const fieldValidation = validateSchemaFields(schema, values)
+  if (!fieldValidation.ok) {
+    throw new PluginConfigValidationError(fieldValidation)
+  }
+
   try {
     return toSaveResult(
       await remoteAdapter.updateConfig(schema.pluginId, {
@@ -135,10 +154,52 @@ export async function savePluginConfigDraftWithFallback(
       }),
     )
   } catch (error) {
+    const parseIssue = toParseIssue(schema, error)
+    if (parseIssue) {
+      throw new PluginConfigValidationError(parseIssue)
+    }
+
     if (!canFallbackToDebugAdapter(error)) {
       throw error
     }
 
     return savePluginConfigDraft(schema, values)
   }
+}
+
+export class PluginConfigValidationError extends Error {
+  readonly result: PluginConfigValidationResult
+
+  constructor(result: PluginConfigValidationResult) {
+    super(result.issues[0]?.message ?? '配置校验失败。')
+    this.name = 'PluginConfigValidationError'
+    this.result = result
+  }
+}
+
+function toParseIssue(
+  schema: PluginConfigSchemaSnapshot,
+  error: unknown,
+): PluginConfigValidationResult | null {
+  if (error instanceof PluginConfigJsonFieldParseError) {
+    return {
+      ok: false,
+      issues: [{ path: error.path, message: parseIssueMessage(error.path, schema) }],
+    }
+  }
+
+  return null
+}
+
+function parseIssueMessage(
+  path: string,
+  schema: PluginConfigSchemaSnapshot,
+): string {
+  const definition = schema.fields.find((field) => field.path === path)
+
+  if (definition?.type === 'integer' || definition?.type === 'number') {
+    return '该字段需要数字格式。'
+  }
+
+  return '需要提供合法的 JSON 文本。'
 }

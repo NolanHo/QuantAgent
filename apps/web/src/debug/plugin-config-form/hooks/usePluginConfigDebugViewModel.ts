@@ -15,6 +15,7 @@ import type { PluginConfigSnapshot } from '@/features/plugins/config-form'
 import {
   fetchPluginConfigSchema,
   fetchPluginCurrentConfigWithFallback,
+  PluginConfigValidationError,
   savePluginConfigDraftWithFallback,
   validatePluginConfigDraftWithFallback,
 } from '../data/adapters/remote-config'
@@ -62,6 +63,8 @@ export function usePluginConfigDebugViewModel() {
   } = usePluginConfigDraftState(schemaQuery.data ?? null, configQuery.data ?? null)
   const [state, setState] = useState<PluginConfigDebugState>('idle')
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const loadError = pluginsQuery.error ?? schemaQuery.error ?? configQuery.error ?? null
+  const loadErrorMessage = loadError ? toUiErrorMessage(loadError, '加载插件配置失败') : null
 
   useEffect(() => {
     if (!selectedPluginId && firstPluginId) {
@@ -87,13 +90,20 @@ export function usePluginConfigDebugViewModel() {
   }, [selectedPluginId])
 
   useEffect(() => {
+    if (loadError) {
+      clearDraftState()
+      setSaveMessage(loadErrorMessage)
+      setState('load-failure')
+      return
+    }
+
     if (!schemaQuery.data || !configQuery.data) {
       return
     }
 
     setSaveMessage(null)
     setState(schemaQuery.data.fields.length === 0 ? 'empty' : 'idle')
-  }, [configQuery.data, schemaQuery.data])
+  }, [clearDraftState, configQuery.data, loadError, loadErrorMessage, schemaQuery.data])
 
   const currentStatus = useMemo(() => statusCopy(state), [state])
 
@@ -114,6 +124,12 @@ export function usePluginConfigDebugViewModel() {
       setSaveMessage(toUiErrorMessage(error, '校验失败'))
       return false
     }
+  }
+
+  function applyValidationError(error: PluginConfigValidationError) {
+    setIssues(error.result.issues)
+    setState('validation-error')
+    setSaveMessage(null)
   }
 
   async function saveDraft() {
@@ -152,6 +168,11 @@ export function usePluginConfigDebugViewModel() {
       setSaveMessage(nextSaveMessage)
       return true
     } catch (error) {
+      if (error instanceof PluginConfigValidationError) {
+        applyValidationError(error)
+        return false
+      }
+
       setState('save-failure')
       setSaveMessage(toUiErrorMessage(error, '保存失败'))
       return false
@@ -188,6 +209,7 @@ export function usePluginConfigDebugViewModel() {
       pluginsQuery.isLoading ||
       (selectedPluginId.length > 0 && (schemaQuery.isLoading || configQuery.isLoading)),
     issueLookup,
+    loadErrorMessage,
     plugins,
     resetDraft,
     saveDraft,

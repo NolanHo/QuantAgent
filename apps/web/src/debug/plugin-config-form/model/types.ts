@@ -8,6 +8,7 @@ export type PluginConfigDebugState =
   | 'idle'
   | 'loading'
   | 'empty'
+  | 'load-failure'
   | 'validation-error'
   | 'save-pending'
   | 'save-success'

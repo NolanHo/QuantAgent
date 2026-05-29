@@ -38,6 +38,7 @@ type PluginConfigDebugDrawerProps = {
   isLoading: boolean;
   isOpen: boolean;
   issueLookup: Map<string, string>;
+  loadErrorMessage: string | null;
   modalPortalContainer: HTMLElement | null;
   onClose: () => void;
   plugin: PluginRecord | null;
@@ -59,6 +60,7 @@ export function PluginConfigDebugDrawer({
   isLoading,
   isOpen,
   issueLookup,
+  loadErrorMessage,
   modalPortalContainer,
   onClose,
   plugin,
@@ -261,7 +263,14 @@ export function PluginConfigDebugDrawer({
                     </Drawer.Header>
 
                     <Drawer.Body className="min-h-0 p-0">
-                      {isModalContentReady ? (
+                      {loadErrorMessage ? (
+                        <div className="grid h-full place-items-center px-6">
+                          <div className="max-w-lg rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm leading-6 text-rose-800">
+                            <p className="m-0 font-semibold">插件配置加载失败</p>
+                            <p className="m-0 mt-2">{loadErrorMessage}</p>
+                          </div>
+                        </div>
+                      ) : isModalContentReady ? (
                         <Tabs
                           className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]"
                           selectedKey={drawerTabKey}

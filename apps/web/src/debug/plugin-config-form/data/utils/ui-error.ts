@@ -7,7 +7,16 @@ export function delay(ms = 120): Promise<void> {
 }
 
 export function toUiErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError || error instanceof Error) {
+  if (error instanceof ApiError) {
+    const details = [
+      error.requestId ? `requestId: ${error.requestId}` : null,
+      error.traceId ? `traceId: ${error.traceId}` : null,
+    ].filter(Boolean)
+
+    return details.length > 0 ? `${error.message}（${details.join('，')}）` : error.message
+  }
+
+  if (error instanceof Error) {
     return error.message
   }
 

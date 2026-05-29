@@ -3,6 +3,31 @@ import { expect, test } from '@playwright/experimental-ct-react'
 import { PluginConfigDebugPanel } from '@/debug/plugin-config-form'
 import { renderWithProviders } from '@/test/render'
 
+test('shows remote schema load failures with request id instead of staying in loading', async ({ mount, page }) => {
+  await page.route('http://debug-api.test/api/v1/plugins/**/config-schema', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        code: 500,
+        data: null,
+        msg: 'registry unavailable',
+        request_id: 'req-schema-500',
+      }),
+      contentType: 'application/json',
+      status: 500,
+    })
+  })
+
+  const component = await renderWithProviders(mount, <PluginConfigDebugPanel />, {
+    runtimeConfig: {
+      apiBaseUrl: 'http://debug-api.test/api/v1',
+    },
+  })
+
+  await expect(component.getByText('插件配置加载失败')).toBeVisible()
+  await expect(component.getByText(/req-schema-500/)).toBeVisible()
+  await expect(component.getByText('正在加载插件配置弹窗...')).toHaveCount(0)
+})
+
 test('renders plugin config workbench layout and surfaces validation errors', async ({ mount }) => {
   const component = await renderWithProviders(mount, <PluginConfigDebugPanel />)
 
