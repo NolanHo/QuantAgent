@@ -1,4 +1,4 @@
-import type { PluginConfigJsonSchema, PluginConfigValueMap } from "../config-form/types";
+import type { PluginConfigJsonSchema, PluginConfigValueMap } from "../config-form/types/plugin-config.types";
 
 export type PluginConfigSnapshotResponse = {
   masked_paths?: string[];

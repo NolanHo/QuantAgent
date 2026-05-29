@@ -18,8 +18,8 @@ import { FiEye, FiEyeOff } from "react-icons/fi";
 import {
   fieldConstraintCopies,
   splitArrayPreview,
-} from "../lib/model";
-import type { PluginConfigFieldDefinition } from "../types";
+} from "../utils/plugin-config-draft";
+import type { PluginConfigFieldDefinition } from "../types/plugin-config.types";
 import { PluginConfigJsonCodeEditor } from "./field-controls/PluginConfigJsonCodeEditor";
 import { PluginConfigNumericSliderField } from "./field-controls/PluginConfigNumericSliderField";
 import { PluginConfigSupportedArrayField } from "./field-controls/PluginConfigSupportedArrayField";

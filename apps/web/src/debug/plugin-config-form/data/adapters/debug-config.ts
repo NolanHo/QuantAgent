@@ -1,23 +1,31 @@
-import { COMPLEX_PLUGIN_ID, MASK_TOKEN } from './debug-zod-schemas'
-import {
-  requireDebugPluginFixture,
-} from './debug-fixtures'
-import { validateDebugPayload } from './debug-zod-schemas'
 import {
   maskSensitiveValues,
   parseConfigDraftPayload,
   PluginConfigJsonFieldParseError,
   validateSchemaFields,
+  type PluginConfigSaveResult,
+  type PluginConfigSchemaSnapshot,
+  type PluginConfigSnapshot,
+  type PluginConfigValidationResult,
+  type PluginConfigValueMap,
 } from '@/features/plugins/config-form'
-import type {
-  PluginConfigSaveResult,
-  PluginConfigSchemaSnapshot,
-  PluginConfigValidationResult,
-  PluginConfigValueMap,
-} from '@/features/plugins/config-form'
-import { delay } from './utils'
 
-export async function validateDebugPluginConfig(
+import { delay } from '../utils/ui-error'
+import {
+  COMPLEX_PLUGIN_ID,
+  MASK_TOKEN,
+  validateDebugPayload,
+} from '../fixtures/debug-zod-schemas'
+import {
+  loadDebugPluginConfig,
+  requireDebugPluginFixture,
+} from '../fixtures/debug-fixtures'
+
+export function fetchPluginCurrentConfig(pluginId: string): Promise<PluginConfigSnapshot> {
+  return loadDebugPluginConfig(pluginId)
+}
+
+export async function validatePluginConfigDraft(
   schema: PluginConfigSchemaSnapshot,
   values: PluginConfigValueMap,
 ): Promise<PluginConfigValidationResult> {
@@ -50,13 +58,13 @@ export async function validateDebugPluginConfig(
   }
 }
 
-export async function saveDebugPluginConfig(
+export async function savePluginConfigDraft(
   schema: PluginConfigSchemaSnapshot,
   values: PluginConfigValueMap,
 ): Promise<PluginConfigSaveResult> {
   await delay(220)
 
-  const validation = await validateDebugPluginConfig(schema, values)
+  const validation = await validatePluginConfigDraft(schema, values)
   if (!validation.ok) {
     throw new Error(`配置校验失败：${validation.issues[0]?.message ?? '请先修正表单。'}`)
   }
@@ -82,3 +90,6 @@ export async function saveDebugPluginConfig(
     versionTag: fixture.config.versionTag,
   }
 }
+
+export const validateDebugPluginConfig = validatePluginConfigDraft
+export const saveDebugPluginConfig = savePluginConfigDraft

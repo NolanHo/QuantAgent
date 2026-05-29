@@ -3,7 +3,7 @@ import { Button, Card, Chip } from "@heroui/react";
 import { motion, useReducedMotion } from "framer-motion";
 import { FiCheckCircle, FiSettings } from "react-icons/fi";
 
-import type { PluginRecord } from "../model";
+import type { PluginRecord } from "../../model";
 
 const MOTION_EASE = [0.22, 1, 0.36, 1] as const;
 

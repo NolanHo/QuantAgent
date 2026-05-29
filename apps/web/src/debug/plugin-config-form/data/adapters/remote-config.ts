@@ -6,7 +6,6 @@ import type {
   PluginConfigValidationResult,
   PluginConfigValueMap,
 } from '@/features/plugins/config-form'
-import { parseConfigDraftPayload } from '@/features/plugins/config-form'
 import type {
   PluginConfigApiContract,
   PluginConfigSnapshotResponse,
@@ -17,13 +16,14 @@ import type {
 import {
   createSchemaSnapshotFromJsonSchema,
   getDebugPluginJsonSchema,
-  loadDebugPluginConfig,
   loadDebugPluginSchema,
-} from './debug-fixtures'
+} from '../fixtures/debug-fixtures'
 import {
-  saveDebugPluginConfig,
-  validateDebugPluginConfig,
-} from './mock'
+  fetchPluginCurrentConfig,
+  savePluginConfigDraft,
+  validatePluginConfigDraft,
+} from './debug-config'
+import { buildPreviewPayloadAsJson } from './preview-payload'
 
 export type PluginConfigSchemaLoader = (
   pluginId: string,
@@ -49,10 +49,6 @@ export async function fetchPluginConfigSchema(
 
     return loadDebugPluginSchema(pluginId)
   }
-}
-
-export function fetchPluginCurrentConfig(pluginId: string): Promise<PluginConfigSnapshot> {
-  return loadDebugPluginConfig(pluginId)
 }
 
 function toPluginConfigSnapshot(response: PluginConfigSnapshotResponse): PluginConfigSnapshot {
@@ -89,13 +85,6 @@ export async function fetchPluginCurrentConfigWithFallback(
   }
 }
 
-export function validatePluginConfigDraft(
-  schema: PluginConfigSchemaSnapshot,
-  values: PluginConfigValueMap,
-): Promise<PluginConfigValidationResult> {
-  return validateDebugPluginConfig(schema, values)
-}
-
 export async function validatePluginConfigDraftWithFallback(
   remoteAdapter: PluginConfigRemoteAdapter,
   schema: PluginConfigSchemaSnapshot,
@@ -112,13 +101,6 @@ export async function validatePluginConfigDraftWithFallback(
   }
 }
 
-export function savePluginConfigDraft(
-  schema: PluginConfigSchemaSnapshot,
-  values: PluginConfigValueMap,
-): Promise<PluginConfigSaveResult> {
-  return saveDebugPluginConfig(schema, values)
-}
-
 export async function savePluginConfigDraftWithFallback(
   remoteAdapter: PluginConfigRemoteAdapter,
   schema: PluginConfigSchemaSnapshot,
@@ -133,11 +115,4 @@ export async function savePluginConfigDraftWithFallback(
   } catch {
     return savePluginConfigDraft(schema, values)
   }
-}
-
-function buildPreviewPayloadAsJson(
-  schema: PluginConfigSchemaSnapshot,
-  values: PluginConfigValueMap,
-): string {
-  return JSON.stringify(parseConfigDraftPayload(schema, values))
 }

@@ -1,1 +1,1 @@
-export * from './PluginConfigDebugPanel'
+export * from './panel/PluginConfigDebugPanel'

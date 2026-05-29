@@ -23,10 +23,10 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { HiOutlineCheckBadge } from "react-icons/hi2";
 import { FiRotateCcw, FiSave } from "react-icons/fi";
 
-import type { PluginRecord } from "../model";
+import type { PluginRecord } from "../../model";
 import { PluginConfigDebugDrawerFormPanel } from "./PluginConfigDebugDrawerFormPanel";
 import { PluginConfigDebugDrawerPreviewPanel } from "./PluginConfigDebugDrawerPreviewPanel";
-import { usePluginConfigDrawerWidth } from "./usePluginConfigDrawerWidth";
+import { usePluginConfigDrawerWidth } from "../../hooks/usePluginConfigDrawerWidth";
 
 const MOTION_EASE = [0.22, 1, 0.36, 1] as const;
 

@@ -6,83 +6,19 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
 
 import type {
   PluginConfigSnapshot,
   PluginConfigSchemaSnapshot,
   PluginConfigValidationIssue,
-  PluginConfigValidationResult,
   PluginConfigValueMap,
-} from './types'
+} from '../types/plugin-config.types'
 import {
   issueMap,
   normalizeInitialValues,
   updateValueMap,
   validateSchemaFields,
-} from './lib/model'
-
-export function usePluginConfigSchemaQuery(
-  pluginId: string,
-  loadSchema: (pluginId: string) => Promise<PluginConfigSchemaSnapshot>,
-) {
-  return useQuery({
-    enabled: pluginId.length > 0,
-    queryFn: () => loadSchema(pluginId),
-    queryKey: ['plugin-config-schema', pluginId],
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
-  })
-}
-
-export function usePluginCurrentConfigQuery(
-  pluginId: string,
-  loadConfig: (pluginId: string) => Promise<PluginConfigSnapshot>,
-) {
-  return useQuery({
-    enabled: pluginId.length > 0,
-    queryFn: () => loadConfig(pluginId),
-    queryKey: ['plugin-current-config', pluginId],
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
-  })
-}
-
-export function usePluginConfigValidationMutation(
-  schema: PluginConfigSchemaSnapshot | null,
-  validateDraft: (
-    schema: PluginConfigSchemaSnapshot,
-    values: PluginConfigValueMap,
-  ) => Promise<PluginConfigValidationResult>,
-) {
-  return useMutation({
-    mutationFn: (values: PluginConfigValueMap) => {
-      if (!schema) {
-        throw new Error('Schema is required before validation.')
-      }
-
-      return validateDraft(schema, values)
-    },
-  })
-}
-
-export function usePluginConfigSaveMutation<TSaveResult>(
-  schema: PluginConfigSchemaSnapshot | null,
-  saveDraft: (
-    schema: PluginConfigSchemaSnapshot,
-    values: PluginConfigValueMap,
-  ) => Promise<TSaveResult>,
-) {
-  return useMutation({
-    mutationFn: (values: PluginConfigValueMap) => {
-      if (!schema) {
-        throw new Error('Schema is required before save.')
-      }
-
-      return saveDraft(schema, values)
-    },
-  })
-}
+} from '../utils/plugin-config-draft'
 
 export function usePluginConfigDraftState(
   schema: PluginConfigSchemaSnapshot | null,

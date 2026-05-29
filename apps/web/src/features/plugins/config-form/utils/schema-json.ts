@@ -1,4 +1,4 @@
-import type { PluginConfigFieldDefinition, PluginConfigJsonSchema } from '../types'
+import type { PluginConfigFieldDefinition, PluginConfigJsonSchema } from '../types/plugin-config.types'
 
 const descriptionPattern = /^(?<label>[^|]+?)(?:\|title:(?<title>[^;|]+))?(?:;desc:(?<desc>.+))?$/
 

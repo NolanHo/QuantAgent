@@ -1,1 +1,1 @@
-export { PluginConfigDebugPanel } from './components/PluginConfigDebugPanel'
+export { PluginConfigDebugPanel } from './components/panel/PluginConfigDebugPanel'

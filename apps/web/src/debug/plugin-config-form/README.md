@@ -15,10 +15,16 @@
 
 ## 目录说明
 
-- `components/`: 调试页卡片、抽屉和页面壳组件
-- `hooks/`: 调试页 view-model 和页面状态编排
-- `data/`: debug-only mock fixture、适配器和测试
-- `model/`: 调试页状态类型与文案
+- `components/`: 调试页展示组件总目录；不直接拼 API 或 mock 数据源。
+- `components/cards/`: 插件样例卡片列表。
+- `components/drawer/`: 配置抽屉、表单面板和预览面板。
+- `components/panel/`: 调试页页面组合入口。
+- `hooks/`: 调试页 view-model、抽屉宽度和页面状态编排。
+- `data/adapters/`: debug-only 的远端 fallback、mock 校验、mock 保存和 payload adapter。
+- `data/fixtures/`: Zod authoring fixture、`zod-to-json-schema` 产物和样例配置。
+- `data/utils/`: 调试数据层无副作用 helper。
+- `data/__tests__/`: debug 数据 adapter 和 fixture 单元测试。
+- `model/`: 调试页状态类型与文案。
 
 ## 边界
 

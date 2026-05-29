@@ -1,4 +1,4 @@
-import { renderHighlightedJson } from "@/features/plugins/config-form/lib/json-highlight";
+import { renderHighlightedJson } from "@/features/plugins/config-form/components/json-highlight/renderHighlightedJson";
 import { Button, Card, Surface, Tabs } from "@heroui/react";
 import { HiOutlineBars3BottomLeft } from "react-icons/hi2";
 import { FiCopy } from "react-icons/fi";

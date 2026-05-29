@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageEmpty } from "@/app/components/PageEmpty";
 import { PageLoading } from "@/app/components/PageLoading";
 import type { PluginConfigSnapshot } from "@/features/plugins/config-form";
-import { usePluginConfigDebugViewModel } from "../hooks";
-import { PluginConfigDebugCards } from "./PluginConfigDebugCards";
-import { PluginConfigDebugDrawer } from "./PluginConfigDebugDrawer";
+import { usePluginConfigDebugViewModel } from "../../hooks";
+import { PluginConfigDebugCards } from "../cards/PluginConfigDebugCards";
+import { PluginConfigDebugDrawer } from "../drawer/PluginConfigDebugDrawer";
 
 export function PluginConfigDebugPanel() {
   const {

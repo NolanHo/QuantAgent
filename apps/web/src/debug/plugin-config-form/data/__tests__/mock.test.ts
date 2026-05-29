@@ -3,18 +3,45 @@ import { describe, expect, it } from 'vitest'
 import {
   saveDebugPluginConfig,
   validateDebugPluginConfig,
-} from './mock'
+} from '../adapters/debug-config'
 import {
   createSchemaSnapshotFromJsonSchema,
   getDebugPluginFixture,
-} from './debug-fixtures'
+} from '../fixtures/debug-fixtures'
 import {
   COMPLEX_PLUGIN_ID,
   SIMPLE_PLUGIN_ID,
   validateDebugPayload,
-} from './debug-zod-schemas'
+} from '../fixtures/debug-zod-schemas'
 
 describe('plugin config debug mock validation', () => {
+  it('keeps the complex fixture backed by a non-empty zod-to-json-schema draft-07 schema', () => {
+    const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
+    expect(fixture).not.toBeNull()
+
+    expect(fixture!.jsonSchema.$schema).toBe('http://json-schema.org/draft-07/schema#')
+    expect(fixture!.jsonSchema.title).toBe('PluginConfig')
+    expect(fixture!.jsonSchema.properties?.topology?.properties?.nodes?.type).toBe('array')
+    expect(fixture!.schema.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'topology.routingRules',
+          support: 'degraded',
+          type: 'record',
+        }),
+        expect.objectContaining({
+          path: 'topology.nodes',
+          support: 'degraded',
+          type: 'array',
+        }),
+        expect.objectContaining({
+          path: 'auth.clientSecret',
+          sensitive: true,
+        }),
+      ]),
+    )
+  })
+
   it('flags invalid UUID and short secret for the complex fixture', async () => {
     const fixture = getDebugPluginFixture('quantagent.debug.plugin-form.complex')
     expect(fixture).not.toBeNull()

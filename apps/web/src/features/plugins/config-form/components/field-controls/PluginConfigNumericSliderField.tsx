@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Input, Slider } from "@heroui/react";
 
-import type { PluginConfigFieldDefinition } from "../../types";
+import type { PluginConfigFieldDefinition } from "../../types/plugin-config.types";
 
 const sliderWrapClassName =
   "grid gap-3 rounded-[18px] border border-slate-200/80 bg-slate-50/70 p-3";

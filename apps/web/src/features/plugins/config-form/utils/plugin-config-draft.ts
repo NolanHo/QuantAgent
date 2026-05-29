@@ -4,7 +4,7 @@ import type {
   PluginConfigValidationIssue,
   PluginConfigValidationResult,
   PluginConfigValueMap,
-} from '../types'
+} from '../types/plugin-config.types'
 
 export function normalizeInitialValues(
   schemaFields: PluginConfigFieldDefinition[],
@@ -231,7 +231,8 @@ function shouldTreatEmptyAsMissing(definition: PluginConfigFieldDefinition): boo
     return false
   }
 
-  return definition.required
+  // 中文注释：default 只用于初始展示；用户清空已渲染字段时不能在预览或保存阶段静默回退默认值。
+  return definition.required || definition.defaultValue !== undefined
 }
 
 function defaultFormatIssueMessage(definition: PluginConfigFieldDefinition): string {
@@ -264,12 +265,7 @@ export function validateSchemaFields(
     const rawValue = values[definition.path] ?? ''
     const trimmedValue = rawValue.trim()
 
-    if (
-      definition.required &&
-      !definition.readOnly &&
-      definition.constValue === undefined &&
-      trimmedValue.length === 0
-    ) {
+    if (shouldTreatEmptyAsMissing(definition) && trimmedValue.length === 0) {
       issues.push({ path: definition.path, message: '该字段为必填项。' })
       continue
     }

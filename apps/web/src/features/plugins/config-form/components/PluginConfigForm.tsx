@@ -4,11 +4,11 @@ import { Card, Fieldset, Form, Tabs } from "@heroui/react";
 import {
   parseConfigDraftPayload,
   PluginConfigJsonFieldParseError,
-} from "../lib/model";
+} from "../utils/plugin-config-draft";
 import type {
   PluginConfigFieldDefinition,
   PluginConfigSchemaSnapshot,
-} from "../types";
+} from "../types/plugin-config.types";
 import { PluginConfigField } from "./PluginConfigField";
 import { PluginConfigSupportMatrix } from "./PluginConfigSupportMatrix";
 

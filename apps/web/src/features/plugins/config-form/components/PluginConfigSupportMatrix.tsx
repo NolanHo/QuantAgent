@@ -3,7 +3,7 @@ import { Card, Chip, ListBox, Surface } from "@heroui/react";
 import type {
   PluginConfigSchemaSnapshot,
   PluginConfigSupportLevel,
-} from "../types";
+} from "../types/plugin-config.types";
 
 type PluginConfigSupportMatrixProps = {
   description?: string;

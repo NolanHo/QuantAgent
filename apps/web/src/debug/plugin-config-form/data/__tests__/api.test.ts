@@ -4,11 +4,13 @@ import { buildPluginConfigPreviewPayload } from '@/features/plugins/config-form'
 import {
   fetchPluginConfigSchema,
   fetchPluginCurrentConfigWithFallback,
-  savePluginConfigDraft,
   savePluginConfigDraftWithFallback,
-  validatePluginConfigDraft,
   validatePluginConfigDraftWithFallback,
-} from './api'
+} from '../adapters/remote-config'
+import {
+  savePluginConfigDraft,
+  validatePluginConfigDraft,
+} from '../adapters/debug-config'
 
 describe('fetchPluginConfigSchema', () => {
   it('converts remote json schema into internal field definitions', async () => {

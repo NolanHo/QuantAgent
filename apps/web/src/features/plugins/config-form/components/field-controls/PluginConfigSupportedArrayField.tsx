@@ -5,12 +5,13 @@ import { FiPlus, FiTrash2 } from "react-icons/fi";
 import {
   joinArrayDraftValue,
   splitArrayDraftItems,
-} from "../../lib/model";
-import type { PluginConfigFieldDefinition } from "../../types";
+} from "../../utils/plugin-config-draft";
+import type { PluginConfigFieldDefinition } from "../../types/plugin-config.types";
 
 const arrayItemCardClassName =
   "grid gap-3 rounded-[18px] border border-slate-200 bg-white p-3 shadow-sm";
 const arrayEmptyToolbarClassName = "flex items-center justify-end";
+const emptyChoiceOptions: string[] = [];
 
 type ArrayPreviewPopoverProps = {
   actionLabel: string;
@@ -142,7 +143,7 @@ export function PluginConfigSupportedArrayField({
     () => items.filter((item: string) => item.trim().length > 0),
     [items],
   );
-  const availableChoices = definition.choiceOptions ?? [];
+  const availableChoices = definition.choiceOptions ?? emptyChoiceOptions;
   const previewChoices = useMemo(
     () =>
       availableChoices.filter((option) => !selectedItems.includes(option)),

@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { zodToJsonSchema } from 'zod-to-json-schema'
 import {
   flattenJsonSchema,
   isPlainObject,
@@ -8,7 +8,7 @@ import type {
   PluginConfigSchemaSnapshot,
   PluginConfigSnapshot,
 } from '@/features/plugins/config-form'
-import type { PluginConfigDebugFixture, PluginRecord } from '../model'
+import type { PluginConfigDebugFixture, PluginRecord } from '../../model'
 
 import {
   COMPLEX_PLUGIN_ID,
@@ -17,7 +17,7 @@ import {
   complexPluginConfigSchema,
   simplePluginConfigSchema,
 } from './debug-zod-schemas'
-import { delay } from './utils'
+import { delay } from '../utils/ui-error'
 
 export const debugPluginRecords: PluginRecord[] = [
   {
@@ -182,12 +182,17 @@ export function simpleConfigSourceAtPath(path: string): unknown {
     .reduce<unknown>((current, segment) => (isPlainObject(current) ? current[segment] : undefined), source)
 }
 
-const complexPluginJsonSchema = z.toJSONSchema(complexPluginConfigSchema, {
-  target: 'draft-7',
+// 中文注释：issue #119 要求验证 zod-to-json-schema 链路；Zod v4 项目需通过 zod/v3 schema 生成非空 draft-07 schema。
+const complexPluginJsonSchema = zodToJsonSchema(complexPluginConfigSchema, {
+  name: 'PluginConfig',
+  nameStrategy: 'title',
+  target: 'jsonSchema7',
 }) as PluginConfigJsonSchema
 
-const simplePluginJsonSchema = z.toJSONSchema(simplePluginConfigSchema, {
-  target: 'draft-7',
+const simplePluginJsonSchema = zodToJsonSchema(simplePluginConfigSchema, {
+  name: 'PlaceholderSourcePluginConfig',
+  nameStrategy: 'title',
+  target: 'jsonSchema7',
 }) as PluginConfigJsonSchema
 
 const complexSchema: PluginConfigSchemaSnapshot = {

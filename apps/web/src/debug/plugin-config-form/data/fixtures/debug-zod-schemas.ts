@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod/v3'
 import type {
   PluginConfigSchemaSnapshot,
   PluginConfigValidationIssue,
@@ -105,7 +105,10 @@ export const complexPluginConfigSchema = z.object({
               .discriminatedUnion('protocol', [
                 z.object({
                   protocol: z.literal('grpc').describe('协议|title:传输协议'),
-                  host: z.ipv4().describe('主机地址|title:IPv4 地址;desc:后端服务私网弹性 IP'),
+                  host: z
+                    .string()
+                    .ip({ version: 'v4' })
+                    .describe('主机地址|title:IPv4 地址;desc:后端服务私网弹性 IP'),
                   port: z
                     .number()
                     .int()
@@ -189,34 +192,34 @@ function normalizeZodIssueMessage(path: string, message: string): string {
   return message
 }
 
-function messageFromZodIssue(issue: z.core.$ZodIssue): string | null {
-  if (issue.code === 'too_small') {
-    const minimum = 'minimum' in issue ? issue.minimum : undefined
-    if (issue.origin === 'string') {
+function messageFromZodIssue(issue: z.ZodIssue): string | null {
+  if (issue.code === z.ZodIssueCode.too_small) {
+    const minimum = issue.minimum
+    if (issue.type === 'string') {
       return `至少需要 ${minimum} 个字符。`
     }
-    if (issue.origin === 'array') {
+    if (issue.type === 'array') {
       return `至少需要 ${minimum} 项。`
     }
-    if (issue.origin === 'number') {
+    if (issue.type === 'number') {
       return issue.inclusive ? `数值不能小于 ${minimum}。` : `数值必须大于 ${minimum}。`
     }
   }
 
-  if (issue.code === 'too_big') {
-    const maximum = 'maximum' in issue ? issue.maximum : undefined
-    if (issue.origin === 'string') {
+  if (issue.code === z.ZodIssueCode.too_big) {
+    const maximum = issue.maximum
+    if (issue.type === 'string') {
       return `最多允许 ${maximum} 个字符。`
     }
-    if (issue.origin === 'array') {
+    if (issue.type === 'array') {
       return `最多允许 ${maximum} 项。`
     }
-    if (issue.origin === 'number') {
+    if (issue.type === 'number') {
       return issue.inclusive ? `数值不能大于 ${maximum}。` : `数值必须小于 ${maximum}。`
     }
   }
 
-  if (issue.code === 'invalid_type') {
+  if (issue.code === z.ZodIssueCode.invalid_type) {
     return '输入类型不符合要求。'
   }
 
@@ -235,10 +238,10 @@ function formatIssuePath(path: ReadonlyArray<PropertyKey>): string {
 function mapZodIssues(error: z.ZodError): PluginConfigValidationIssue[] {
   return error.issues.map((issue) => {
     const path = formatIssuePath(issue.path)
-    if (issue.code === 'invalid_value' && Array.isArray(issue.values) && issue.values.length > 0) {
+    if (issue.code === z.ZodIssueCode.invalid_enum_value && issue.options.length > 0) {
       return {
         path,
-        message: `可选值为：${issue.values.join(' / ')}`,
+        message: `可选值为：${issue.options.join(' / ')}`,
       }
     }
 

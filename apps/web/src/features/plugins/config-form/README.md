@@ -29,13 +29,13 @@
 ### 组件
 
 - `PluginConfigForm`
-  - 表单主壳，负责插件切换按钮、字段区、主次操作按钮、保存消息和支持矩阵布局
+  - 表单主壳，负责字段分组、字段区和支持矩阵布局
 - `PluginConfigField`
   - 单字段渲染
 - `PluginConfigSupportMatrix`
   - 支持矩阵卡片展示
 
-### Hooks
+### Queries / Mutations / Hooks
 
 - `usePluginConfigSchemaQuery`
   - 受控 schema 查询壳
@@ -129,11 +129,20 @@ function Example({ pluginId }: { pluginId: string }) {
 - 页面级状态机、空态、权限提示和业务消息，留在调用方页面或 feature 内
 - `config-form` 只承接共享表单能力，不承接页面专属数据源语义或页面业务状态
 - 如果新增逻辑只对某个页面成立，不要直接塞回 `config-form`
-- 如果新增逻辑会被两个以上页面复用，再考虑放进 `hooks.ts` 或 `lib/`
+- 如果新增逻辑会被两个以上页面复用，再按职责放进 `queries/`、`mutations/`、`hooks/`、`utils/` 或 `components/`
 
 ## 给 AI / 维护者的建议
 
-- 优先复用 `types.ts`、`hooks.ts`、`lib/model.ts`、`lib/schema-json.ts`
+- 优先复用 `types/plugin-config.types.ts`、`queries/`、`mutations/`、`hooks/`、`utils/plugin-config-draft.ts`、`utils/schema-json.ts`
 - 不要在页面里重写 `draftValues -> payload`、字段约束校验或敏感字段掩码逻辑
 - 不要把页面专属状态机或数据源规则下沉回 `config-form`
 - 如果需要新增共享逻辑，先判断它是否脱离具体页面也成立；只有成立时才进入本模块
+
+## 目录说明
+
+- `components/`: schema-driven form 的展示组件和字段控件；不放 query、mutation 或数据源 adapter。
+- `queries/`: TanStack Query 查询壳和 query key；只负责读取 schema/config 的服务端状态。
+- `mutations/`: 表单校验和保存 mutation 壳；不承接页面状态机或 toast。
+- `hooks/`: 页面可复用的表单草稿状态 hook；只组合本地草稿、issue 映射和 reset。
+- `types/`: 插件配置表单局部类型；不放运行时代码。
+- `utils/`: JSON Schema 展平、草稿解析、字段校验、敏感字段掩码等无 UI 副作用工具。

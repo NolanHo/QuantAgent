@@ -17,9 +17,9 @@ import {
   fetchPluginCurrentConfigWithFallback,
   savePluginConfigDraftWithFallback,
   validatePluginConfigDraftWithFallback,
-} from '../data/api'
-import { listDebugPluginFixtures } from '../data/debug-fixtures'
-import { toUiErrorMessage } from '../data/utils'
+} from '../data/adapters/remote-config'
+import { listDebugPluginFixtures } from '../data/fixtures/debug-fixtures'
+import { toUiErrorMessage } from '../data/utils/ui-error'
 import { statusCopy } from '../model'
 
 export function usePluginConfigDebugViewModel() {

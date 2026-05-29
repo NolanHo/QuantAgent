@@ -3,7 +3,7 @@ import { json } from "@codemirror/lang-json";
 import { basicSetup, EditorView } from "codemirror";
 import { useEffect, useRef } from "react";
 
-import type { PluginConfigFieldDefinition } from "../../types";
+import type { PluginConfigFieldDefinition } from "../../types/plugin-config.types";
 
 const codeEditorWrapClassName =
   "overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-sm";
@@ -20,6 +20,7 @@ export function PluginConfigJsonCodeEditor({
   value,
 }: PluginConfigJsonCodeEditorProps) {
   const editorHostRef = useRef<HTMLDivElement | null>(null);
+  const initialValueRef = useRef(value);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const isApplyingExternalUpdateRef = useRef(false);
@@ -36,7 +37,7 @@ export function PluginConfigJsonCodeEditor({
     const view = new EditorView({
       parent: editorHostRef.current,
       state: EditorState.create({
-        doc: value,
+        doc: initialValueRef.current,
         extensions: [
           basicSetup,
           json(),
