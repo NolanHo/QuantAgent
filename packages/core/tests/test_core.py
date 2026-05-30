@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import os
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 
 from sqlalchemy.engine import Engine
 
-from quantagent.core.config.settings import Settings
+from quantagent.core.config.settings import Settings, settings
 from quantagent.core.db.base import Base
 from quantagent.core.db import wallet_models
 from quantagent.core.db.session import create_session_factory, create_sync_engine, require_database_url, settings as db_settings
@@ -35,6 +36,8 @@ class CorePackageTestCase(unittest.TestCase):
         self.assertIsNotNone(Base.metadata)
         self.assertIn("trading_accounts", Base.metadata.tables)
         self.assertIn("wallet_ledger_entries", Base.metadata.tables)
+        self.assertIn("model_provider_configs", Base.metadata.tables)
+        self.assertIn("model_invocations", Base.metadata.tables)
 
     def test_database_url_is_required_for_default_engine(self) -> None:
         with patch.object(db_settings, "DATABASE_URL", None):
