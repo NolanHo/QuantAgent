@@ -32,6 +32,16 @@ class StaticScanner:
         return list(self._records)
 
 
+class _RecordingHandler:
+    """订阅事件总线后收集收到的 envelope，供测试断言。"""
+
+    def __init__(self) -> None:
+        self.envelopes: list[object] = []
+
+    async def handle(self, envelope) -> None:
+        self.envelopes.append(envelope)
+
+
 class PluginSchedulingServiceTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self._module_names: list[str] = []
@@ -417,6 +427,8 @@ class PluginSchedulingServiceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.plugin_id, "invalid-plugin-id")
         self.assertEqual(run.error_summary["code"], "PLUGIN_SCHEDULING_FAILED")
 
+    # ── 事件发布桥接测试 ──
+
     def _service_with_publisher(self, record: PluginRecord, bus: InMemoryEventBus) -> PluginSchedulingService:
         registry = PluginRegistry(StaticScanner([record]))
         return PluginSchedulingService(
@@ -430,15 +442,8 @@ class PluginSchedulingServiceTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_trigger_publishes_source_event_when_publisher_provided(self) -> None:
         """有 publisher 时 source.fetch 成功 → InMemoryEventBus 上出现 source.event.captured"""
 
-        class RecordingHandler:
-            def __init__(self) -> None:
-                self.envelopes: list[object] = []
-
-            async def handle(self, envelope) -> None:
-                self.envelopes.append(envelope)
-
         bus = InMemoryEventBus()
-        handler = RecordingHandler()
+        handler = _RecordingHandler()
         await bus.subscribe(topics=["source.event.captured"], group_id="test-group", handler=handler)
 
         class SourcePlugin(BasePlugin):
@@ -478,15 +483,8 @@ class PluginSchedulingServiceTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_trigger_does_not_publish_for_non_source_capability(self) -> None:
         """非 source.fetch capability 不发布事件"""
 
-        class RecordingHandler:
-            def __init__(self) -> None:
-                self.envelopes: list[object] = []
-
-            async def handle(self, envelope) -> None:
-                self.envelopes.append(envelope)
-
         bus = InMemoryEventBus()
-        handler = RecordingHandler()
+        handler = _RecordingHandler()
         await bus.subscribe(topics=["source.event.captured"], group_id="test-group", handler=handler)
 
         class NotifyPlugin(BasePlugin):
@@ -550,19 +548,33 @@ class PluginSchedulingServiceTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(run.status, PluginRunStatus.SUCCEEDED)
 
+    async def test_trigger_publish_failure_on_invalid_output_does_not_affect_run_record(self) -> None:
+        """插件返回非法 SourceFetchResult 结构时 from_mapping 抛异常，但不影响调度记录"""
+
+        bus = InMemoryEventBus()
+        handler = _RecordingHandler()
+        await bus.subscribe(topics=["source.event.captured"], group_id="test-group", handler=handler)
+
+        class BadOutputPlugin(BasePlugin):
+            async def invoke(self, request):
+                return PluginInvokeResult(output={"items": "not_a_list"})
+
+        self._install_module("test_bad_output_publish", BadOutputPlugin)
+        service = self._service_with_publisher(self._record(entrypoint="test_bad_output_publish:plugin"), bus)
+        request = self._request(request_id="req-bad-output-1")
+
+        run = await service.trigger(request)
+
+        self.assertEqual(run.status, PluginRunStatus.SUCCEEDED)
+        # from_mapping 对 items="not_a_list" 会抛异常，被 catch 吞掉，不发布任何事件
+        self.assertEqual(len(handler.envelopes), 0)
+
     async def test_concurrent_triggers_with_publisher_publish_independently(self) -> None:
         """并发 trigger 带 publisher 时，各自独立发布事件且不交叉"""
         release = asyncio.Event()
 
-        class RecordingHandler:
-            def __init__(self) -> None:
-                self.envelopes: list[object] = []
-
-            async def handle(self, envelope) -> None:
-                self.envelopes.append(envelope)
-
         bus = InMemoryEventBus()
-        handler = RecordingHandler()
+        handler = _RecordingHandler()
         await bus.subscribe(topics=["source.event.captured"], group_id="test-group", handler=handler)
 
         class SlowSourcePlugin(BasePlugin):

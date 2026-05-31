@@ -37,7 +37,8 @@ class PluginSchedulingService:
         self._runtime = runtime
         self._repository = repository
         self._clock = clock or SystemSchedulingClock()
-        self._publisher = publisher
+        # publisher 为 None 时 _source_publisher 也为 None，保持零回归
+        self._source_publisher = SourceEventPublisher(publisher) if publisher is not None else None
 
     async def trigger(self, request: PluginTriggerRequest) -> PluginRunRecord:
         run: PluginRunRecord | None = None
@@ -70,6 +71,7 @@ class PluginSchedulingService:
                 output_summary=output_summary,
                 started_monotonic=started_monotonic,
             )
+            # 发布在 _finish_run 之后：调度记录已持久化为 SUCCEEDED，发布失败由内层 catch 隔离
             await self._maybe_publish_source_event(invocation, finished_run, validated_request)
             return finished_run
         except asyncio.TimeoutError:
@@ -178,15 +180,22 @@ class PluginSchedulingService:
         run: PluginRunRecord,
         request: PluginTriggerRequest,
     ) -> None:
-        if self._publisher is None:
+        """调度成功后按条件发布 source.event.captured 事件。
+
+        仅当 publisher 已注入、capability 为 source.fetch、且插件返回非空结果时才发布。
+        发布失败不改变 PluginRunRecord 状态（catch + warning），保证调度链路不被发布故障拖垮。
+        """
+        if self._source_publisher is None:
             return
+        # 仅 source.fetch 发布事件：V1 先验证桥接模式可行，后续按需扩展其他 capability
         if request.capability != "source.fetch":
             return
         if invocation.result is None or not invocation.result.output:
             return
         try:
+            # stage="publish"：DTO 校验失败时错误归属 publish 阶段，不误导排查者以为问题出在插件调用
             source_result = SourceFetchResult.from_mapping(invocation.result.output, stage="publish")
-            await SourceEventPublisher(self._publisher).publish_source_fetch_result(
+            await self._source_publisher.publish_source_fetch_result(
                 source_result,
                 producer="plugin-scheduling",
                 request_id=request.request_id,
@@ -196,7 +205,12 @@ class PluginSchedulingService:
         except Exception as exc:
             logger.warning(
                 "Event publish failed after successful scheduling.",
-                extra={"plugin_id": run.plugin_id, "run_id": run.run_id, "error_type": type(exc).__name__},
+                extra={
+                    "plugin_id": run.plugin_id,
+                    "run_id": run.run_id,
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
             )
 
     def _finish_run(
