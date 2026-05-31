@@ -17,9 +17,30 @@ APP_ENV=development uv run api
 
 API dotenv 文件按从低到高读取：仓库根目录 `.env`、当前工作目录 `.env`、`apps/api/.env`、`apps/api/.env.local`、`apps/api/.env.<APP_ENV>`、`apps/api/.env.<APP_ENV>.local`。重复变量允许存在，API 目录下的文件会覆盖根 `.env`；真实进程环境变量仍是最高优先级，适合 CI/CD secret、部署 secret 和临时强制覆盖。
 
-`APP_ENV` 先从真实环境变量读取；如果没有，再由根 `.env`、`apps/api/.env`、`apps/api/.env.local` 这几个基础层决定，用于选择对应的 `apps/api/.env.<APP_ENV>` 和 `.local` 文件。协作模板使用 `.example` 后缀，真实 `.env*` 文件不要提交。
+`APP_ENV` 先从真实环境变量读取；如果没有，再由根 `.env`、`apps/api/.env`、`apps/api/.env.local` 这几个基础层决定，用于选择对应的 `apps/api/.env.<APP_ENV>` 和 `.local` 文件。无论是从仓库根目录启动，还是在 `apps/api` 目录内直接执行 `uv run api`，都会优先读取仓库根 `.env` 再叠加 API 专属层。协作模板使用 `.example` 后缀，真实 `.env*` 文件不要提交。
 
 API 默认监听 `127.0.0.1:8000`。`APP_ENV=development` 或 `APP_ENV=local` 下，`uv run api` 会默认启用热更新；`staging`/`production` 等非本地环境保持单进程启动。鉴权默认开启（`AUTH_ENABLED=true`）；development、test、local 环境下口令可使用代码中的弱默认值，也可显式设置 `AUTH_ENABLED=false` 完全关闭鉴权；staging 和 production 必须提供安全口令和 session secret。
+
+如果要启用真实 Discord interaction webhook ingress，还需要额外配置：
+
+```bash
+DISCORD_INTERACTIONS_ENABLED=true
+DISCORD_INTERACTIONS_PLUGIN_ID=quantagent.official.notification.discord
+DISCORD_INTERACTIONS_PUBLIC_KEY=<discord application public key>
+DISCORD_INTERACTIONS_RESPONSE_TEXT=QuantAgent received your Discord interaction.
+DISCORD_INTERACTIONS_TIMESTAMP_TOLERANCE_SECONDS=300
+DISCORD_INTERACTIONS_GUILD_ALLOWLIST=guild-1,guild-2
+DISCORD_INTERACTIONS_CHANNEL_ALLOWLIST=channel-1,channel-2
+```
+
+启用后会开放公开 endpoint：
+
+```text
+POST /api/v1/integrations/discord/interactions
+```
+
+这个 endpoint 直接返回 Discord 原生 interaction response，不走项目统一 `code/data/msg/error` envelope。
+其中 `DISCORD_INTERACTIONS_*ALLOWLIST` 是 API ingress 当前可用的最小运行时边界；插件 `config.schema.json` 里的对应字段主要用于 standalone 场景和后续平台配置接入，不会由当前 API 自动读取。
 
 ### 测试
 
