@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from nacl.encoding import HexEncoder
+from nacl.signing import SigningKey
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -36,7 +40,11 @@ from quantagent.api.routers.v1.register import (
     build_api_v1_public_route_allowlist,
     register_api_v1_protected_router,
 )
-from quantagent.core.registry import PluginRegistry, RegistryScanner
+from quantagent.core.db.base import Base
+from quantagent.core.model_config import FixedModelCallClient, ModelConfigCrypto, ModelTokenUsage
+from quantagent.core.model_config.service import ModelCallResult
+from quantagent.core.registry import PluginRegistry, PluginStatus, RegistryScanner
+from quantagent.core.registry.models import PluginManifest, PluginRecord, PluginSource, PluginType
 from quantagent.core.wallet import (
     AccountMode,
     CashBalanceSnapshot,
@@ -52,6 +60,29 @@ from quantagent.core.wallet import (
     WalletLedgerEntryType,
     WalletLedgerSourceType,
 )
+
+
+class FakeModelClient(FixedModelCallClient):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str | None]] = []
+
+    def run_fixed_smoke(
+        self,
+        *,
+        base_url: str | None,
+        model: str,
+        api_key: str,
+        request_id: str | None,
+    ) -> ModelCallResult:
+        self.calls.append(
+            {
+                "base_url": base_url,
+                "model": model,
+                "api_key": api_key,
+                "request_id": request_id,
+            }
+        )
+        return ModelCallResult(token_usage=ModelTokenUsage(prompt_tokens=2, completion_tokens=1, total_tokens=3))
 
 
 class FakeSession:
@@ -495,6 +526,45 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertNotIn("postgresql+psycopg://", str(body))
         self.assertNotIn("traceback", str(body).lower())
 
+    def test_app_lifespan_closes_event_bus_runtime_on_shutdown(self) -> None:
+        closed = {"value": False}
+
+        class FakeRuntime:
+            async def close(self) -> None:
+                closed["value"] = True
+
+        with patch("quantagent.api.main.build_event_bus_runtime", return_value=FakeRuntime()):
+            app = create_app(self._settings())
+            with TestClient(app):
+                self.assertFalse(closed["value"])
+
+        self.assertTrue(closed["value"])
+
+    def test_app_lifespan_still_cleans_up_when_event_bus_close_fails(self) -> None:
+        close_attempted = {"value": False}
+        shutdown_called = {"value": False}
+
+        class FakeRuntime:
+            async def close(self) -> None:
+                close_attempted["value"] = True
+                raise RuntimeError("close failed")
+
+        def fake_shutdown_database(app) -> None:
+            shutdown_called["value"] = True
+
+        with (
+            patch("quantagent.api.main.build_event_bus_runtime", return_value=FakeRuntime()),
+            patch("quantagent.api.main.shutdown_database", side_effect=fake_shutdown_database),
+        ):
+            app = create_app(self._settings())
+            with self.assertRaisesRegex(RuntimeError, "close failed"):
+                with TestClient(app):
+                    self.assertIsNotNone(app.state.event_bus_runtime)
+
+        self.assertTrue(close_attempted["value"])
+        self.assertTrue(shutdown_called["value"])
+        self.assertIsNone(app.state.event_bus_runtime)
+
     def test_invalid_database_url_fails_app_startup(self) -> None:
         app = create_app(self._settings(DATABASE_URL="not-a-valid-database-url"))
 
@@ -840,6 +910,27 @@ class ApiAppTestCase(unittest.TestCase):
 
         self.assertEqual(env_files, (workspace / ".env",))
 
+    def test_env_file_paths_from_apps_api_cwd_include_repo_root_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+
+            env_files = _build_env_file_paths(
+                cwd=api_dir,
+                source_repo_root=workspace,
+                source_api_app_dir=api_dir,
+            )
+
+        self.assertEqual(
+            env_files,
+            (
+                workspace / ".env",
+                api_dir / ".env",
+                api_dir / ".env.local",
+            ),
+        )
+
     def test_same_site_none_requires_secure_cookie(self) -> None:
         with self.assertRaisesRegex(ValueError, "AUTH_COOKIE_SAME_SITE=none requires AUTH_COOKIE_SECURE=true"):
             Settings(
@@ -883,6 +974,7 @@ class ApiAppTestCase(unittest.TestCase):
                     ("GET", "/health"),
                     ("GET", "/ready"),
                     ("GET", "/version"),
+                    ("POST", "/integrations/discord/interactions"),
                     ("POST", "/auth/login"),
                 }
             ),
@@ -905,6 +997,7 @@ class ApiAppTestCase(unittest.TestCase):
                     ("GET", "/health"),
                     ("GET", "/ready"),
                     ("GET", "/version"),
+                    ("POST", "/integrations/discord/interactions"),
                     ("POST", "/auth/login"),
                 }
             ),
@@ -919,6 +1012,7 @@ class ApiAppTestCase(unittest.TestCase):
                     ("GET", f"{custom_prefix}/health"),
                     ("GET", f"{custom_prefix}/ready"),
                     ("GET", f"{custom_prefix}/version"),
+                    ("POST", f"{custom_prefix}/integrations/discord/interactions"),
                     ("POST", f"{custom_prefix}/auth/login"),
                 }
             ),
@@ -1310,7 +1404,32 @@ class ApiAppTestCase(unittest.TestCase):
         schema_response = self.client.get("/api/v1/plugins/quantagent.official.source.placeholder/config-schema")
         schema_body = schema_response.json()
         self.assertEqual(schema_response.status_code, 200)
-        self.assertEqual(schema_body["data"]["title"], "Placeholder Source Plugin Config")
+        self.assertEqual(schema_body["data"]["title"], "Demo Placeholder Source Plugin Config")
+
+    def test_plugin_list_uses_repo_root_even_when_api_runtime_directory_exists(self) -> None:
+        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+
+        from quantagent.api.services import plugin_registry as plugin_registry_service
+
+        repo_root = next(
+            parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
+        )
+        api_runtime_dir = repo_root / "apps" / "api" / "runtime"
+        api_runtime_dir.mkdir(parents=True, exist_ok=True)
+
+        plugin_registry_service.find_repo_root.cache_clear()
+        self.addCleanup(plugin_registry_service.find_repo_root.cache_clear)
+
+        with patch("pathlib.Path.cwd", return_value=api_runtime_dir):
+            response = self.client.get("/api/v1/plugins")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["code"], 0)
+        self.assertIn(
+            "quantagent.official.source.placeholder",
+            {plugin["id"] for plugin in body["data"]},
+        )
 
     def test_plugin_detail_unknown_id_uses_not_found_envelope(self) -> None:
         self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
@@ -1379,6 +1498,697 @@ class ApiAppTestCase(unittest.TestCase):
             "PLUGIN_CONFIG_SCHEMA_NOT_FOUND",
         )
 
+    def test_model_providers_require_session(self) -> None:
+        response = self.client.get("/api/v1/models/providers")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(body["error"]["code"], "UNAUTHORIZED")
+
+    def test_model_provider_create_masks_key_and_test_connection_records_usage(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        fake_client = FakeModelClient()
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            MODEL_CONFIG_ENCRYPTION_KEY=ModelConfigCrypto.generate_key(),
+        )
+        app = create_app(settings)
+        app.state.model_call_client = fake_client
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+
+            save_response = client.post(
+                "/api/v1/models/providers",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "provider_type": "openai_compatible",
+                    "name": "Local Gateway",
+                    "base_url": "http://127.0.0.1:11434/v1",
+                    "api_key": "sk-api-secret",
+                    "enabled": True,
+                    "is_default": True,
+                },
+            )
+            provider_id = save_response.json()["data"]["id"]
+            create_model_response = client.post(
+                f"/api/v1/models/providers/{provider_id}/models",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "model_name": "qwen-test",
+                    "enabled": True,
+                    "supports_vision": False,
+                    "is_global_default": True,
+                },
+            )
+            providers_response = client.get("/api/v1/models/providers")
+            detail_response = client.get(f"/api/v1/models/providers/{provider_id}")
+            presets_response = client.get("/api/v1/models/presets")
+            test_response = client.post(
+                f"/api/v1/models/providers/{provider_id}/actions/test-connection",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token, "X-Request-ID": "req-model"},
+            )
+            invocations_response = client.get(
+                f"/api/v1/models/invocations?provider_id={provider_id}&preset_key=global_default"
+            )
+
+            encrypted_value = client.app.state.db_session_factory().execute(
+                Base.metadata.tables["model_providers"].select()
+            ).mappings().one()["encrypted_api_key"]
+
+        save_body = save_response.json()
+        self.assertEqual(save_response.status_code, 200)
+        self.assertEqual(save_body["data"]["masked_key"], "********")
+        self.assertTrue(save_body["data"]["is_default"])
+        self.assertNotIn("sk-api-secret", str(save_body))
+        self.assertNotEqual(encrypted_value, "sk-api-secret")
+        self.assertEqual(save_body["data"]["model_count"], 0)
+
+        create_model_body = create_model_response.json()
+        self.assertEqual(create_model_response.status_code, 200)
+        self.assertEqual(create_model_body["data"]["model_name"], "qwen-test")
+        self.assertTrue(create_model_body["data"]["is_global_default"])
+
+        providers_body = providers_response.json()
+        self.assertEqual(providers_response.status_code, 200)
+        self.assertEqual(providers_body["data"]["default_provider_id"], provider_id)
+        self.assertEqual(len(providers_body["data"]["providers"]), 1)
+        self.assertEqual(providers_body["data"]["providers"][0]["model_count"], 1)
+
+        detail_body = detail_response.json()
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_body["data"]["status"], "configured")
+        self.assertEqual(detail_body["data"]["key_status"], "configured")
+        self.assertNotIn("sk-api-secret", str(detail_body))
+        self.assertEqual(len(detail_body["data"]["models"]), 1)
+        self.assertEqual(detail_body["data"]["models"][0]["model_name"], "qwen-test")
+
+        presets_body = presets_response.json()
+        self.assertEqual(presets_response.status_code, 200)
+        self.assertEqual(len(presets_body["data"]), 5)
+        self.assertEqual(
+            {item["preset_key"] for item in presets_body["data"]},
+            {"global_default", "economy_text", "general_text", "reasoning_text", "multimodal"},
+        )
+
+        test_body = test_response.json()
+        self.assertEqual(test_response.status_code, 200)
+        self.assertTrue(test_body["data"]["success"])
+        self.assertEqual(test_body["data"]["invocation"]["provider_id"], provider_id)
+        self.assertEqual(test_body["data"]["invocation"]["preset_key"], "global_default")
+        self.assertEqual(test_body["data"]["invocation"]["token_usage"]["total_tokens"], 3)
+        self.assertEqual(fake_client.calls[0]["api_key"], "sk-api-secret")
+        self.assertEqual(fake_client.calls[0]["model"], "qwen-test")
+        self.assertNotIn("sk-api-secret", str(test_body))
+
+        invocations_body = invocations_response.json()
+        self.assertEqual(invocations_response.status_code, 200)
+        self.assertEqual(invocations_body["data"][0]["provider_id"], provider_id)
+        self.assertEqual(invocations_body["data"][0]["preset_key"], "global_default")
+        self.assertEqual(invocations_body["data"][0]["request_id"], "req-model")
+        self.assertEqual(invocations_body["data"][0]["token_usage"]["prompt_tokens"], 2)
+
+    def test_model_provider_save_requires_csrf_and_encryption_key(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            forbidden_response = client.post(
+                "/api/v1/models/providers",
+                json={
+                    "name": "OpenAI",
+                    "api_key": "sk-should-not-leak",
+                    "is_default": True,
+                },
+            )
+            csrf_token = login_response.json()["data"]["csrf_token"]
+            missing_key_response = client.post(
+                "/api/v1/models/providers",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "name": "OpenAI",
+                    "api_key": "sk-should-not-leak",
+                    "is_default": True,
+                },
+            )
+
+        self.assertEqual(forbidden_response.status_code, 403)
+        body = missing_key_response.json()
+        self.assertEqual(missing_key_response.status_code, 503)
+        self.assertEqual(body["error"]["code"], "SERVICE_UNAVAILABLE")
+        self.assertEqual(body["error"]["details"]["code"], "MODEL_CONFIG_ENCRYPTION_UNAVAILABLE")
+        self.assertNotIn("sk-should-not-leak", str(body))
+
+    def test_model_provider_test_connection_missing_key_records_safe_failure(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            MODEL_CONFIG_ENCRYPTION_KEY=ModelConfigCrypto.generate_key(),
+        )
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+            create_response = client.post(
+                "/api/v1/models/providers",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "name": "Missing Key Provider",
+                    "enabled": True,
+                    "is_default": True,
+                },
+            )
+            provider_id = create_response.json()["data"]["id"]
+            client.post(
+                f"/api/v1/models/providers/{provider_id}/models",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "model_name": "gpt-test",
+                    "enabled": True,
+                    "supports_vision": False,
+                    "is_global_default": True,
+                },
+            )
+            response = client.post(
+                f"/api/v1/models/providers/{provider_id}/actions/test-connection",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+            )
+            invocations_response = client.get(f"/api/v1/models/invocations?provider_id={provider_id}")
+
+        body = response.json()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(body["error"]["details"]["code"], "MODEL_PROVIDER_KEY_MISSING")
+        self.assertNotIn("api_key", str(body).lower())
+        invocation = invocations_response.json()["data"][0]
+        self.assertEqual(invocation["status"], "failed")
+        self.assertEqual(invocation["error_summary"], "MODEL_PROVIDER_KEY_MISSING")
+
+    def test_model_provider_models_and_presets_support_binding_and_validation(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            MODEL_CONFIG_ENCRYPTION_KEY=ModelConfigCrypto.generate_key(),
+        )
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+            create_provider_response = client.post(
+                "/api/v1/models/providers",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "name": "Preset Provider",
+                    "base_url": "https://api.example.com/v1",
+                    "api_key": "sk-preset",
+                    "enabled": True,
+                    "is_default": True,
+                },
+            )
+            provider_id = create_provider_response.json()["data"]["id"]
+            text_model_response = client.post(
+                f"/api/v1/models/providers/{provider_id}/models",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "model_name": "text-model",
+                    "enabled": True,
+                    "supports_vision": False,
+                    "is_global_default": True,
+                },
+            )
+            vision_model_response = client.post(
+                f"/api/v1/models/providers/{provider_id}/models",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "model_name": "vision-model",
+                    "enabled": True,
+                    "supports_vision": True,
+                    "is_global_default": False,
+                },
+            )
+            text_model_id = text_model_response.json()["data"]["id"]
+            vision_model_id = vision_model_response.json()["data"]["id"]
+
+            invalid_multimodal_response = client.put(
+                "/api/v1/models/presets/multimodal",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={"primary_model_id": text_model_id, "fallback_model_id": None},
+            )
+            valid_multimodal_response = client.put(
+                "/api/v1/models/presets/multimodal",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={"primary_model_id": vision_model_id, "fallback_model_id": None},
+            )
+            economy_response = client.put(
+                "/api/v1/models/presets/economy_text",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={"primary_model_id": text_model_id, "fallback_model_id": vision_model_id},
+            )
+            presets_response = client.get("/api/v1/models/presets")
+
+        invalid_body = invalid_multimodal_response.json()
+        self.assertEqual(invalid_multimodal_response.status_code, 400)
+        self.assertEqual(invalid_body["error"]["details"]["code"], "MODEL_PRESET_PRIMARY_INVALID")
+
+        valid_multimodal_body = valid_multimodal_response.json()
+        self.assertEqual(valid_multimodal_response.status_code, 200)
+        self.assertEqual(valid_multimodal_body["data"]["preset_key"], "multimodal")
+        self.assertEqual(valid_multimodal_body["data"]["primary_model"]["id"], vision_model_id)
+
+        economy_body = economy_response.json()
+        self.assertEqual(economy_response.status_code, 200)
+        self.assertEqual(economy_body["data"]["preset_key"], "economy_text")
+        self.assertEqual(economy_body["data"]["primary_model"]["id"], text_model_id)
+        self.assertEqual(economy_body["data"]["fallback_model"]["id"], vision_model_id)
+
+        presets_body = presets_response.json()
+        self.assertEqual(presets_response.status_code, 200)
+        by_key = {item["preset_key"]: item for item in presets_body["data"]}
+        self.assertEqual(by_key["multimodal"]["primary_model"]["id"], vision_model_id)
+        self.assertEqual(by_key["economy_text"]["primary_model"]["id"], text_model_id)
+        self.assertEqual(by_key["economy_text"]["fallback_model"]["id"], vision_model_id)
+
+    def test_discord_interactions_endpoint_returns_not_found_when_disabled(self) -> None:
+        response = self.client.post("/api/v1/integrations/discord/interactions", content=b"{}")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(body["error"]["code"], "NOT_FOUND")
+
+    def test_discord_interactions_endpoint_rejects_invalid_signature(self) -> None:
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY="a" * 64,
+            )
+        )
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/discord/interactions",
+                content=b'{"type":1}',
+                headers={
+                    "X-Signature-Timestamp": str(int(time.time())),
+                    "X-Signature-Ed25519": "00",
+                },
+            )
+
+        body = response.json()
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(body["error"]["code"], "UNAUTHORIZED")
+
+    def test_discord_interactions_endpoint_returns_pong_for_valid_ping(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY=public_key,
+            )
+        )
+        body = b'{"type":1}'
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/discord/interactions",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                    "X-Request-ID": "req-discord-ping",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["X-Request-ID"], "req-discord-ping")
+        self.assertEqual(response.json(), {"type": 1})
+
+    def test_discord_interactions_endpoint_returns_response_for_valid_command(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY=public_key,
+                DISCORD_INTERACTIONS_RESPONSE_TEXT="API route received interaction.",
+            )
+        )
+        body = json.dumps(
+            {
+                "id": "1234567890",
+                "application_id": "app-1",
+                "type": 2,
+                "guild_id": "guild-1",
+                "channel_id": "channel-1",
+                "member": {"user": {"id": "user-1"}},
+                "data": {
+                    "name": "notify",
+                    "options": [{"name": "text", "type": 3, "value": "hello from discord"}],
+                },
+            }
+        ).encode("utf-8")
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/discord/interactions",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": 4,
+                "data": {
+                    "content": "API route received interaction.",
+                    "flags": 64,
+                },
+            },
+        )
+
+    def test_discord_interactions_endpoint_enforces_api_allowlists(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY=public_key,
+                DISCORD_INTERACTIONS_GUILD_ALLOWLIST=("guild-allowed",),
+            )
+        )
+        body = json.dumps(
+            {
+                "id": "1234567890",
+                "application_id": "app-1",
+                "type": 2,
+                "guild_id": "guild-blocked",
+                "channel_id": "channel-1",
+                "member": {"user": {"id": "user-1"}},
+                "data": {
+                    "name": "notify",
+                    "options": [{"name": "text", "type": 3, "value": "hello from discord"}],
+                },
+            }
+        ).encode("utf-8")
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/discord/interactions",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "BAD_REQUEST")
+        self.assertEqual(response.json()["error"]["details"]["code"], "GUILD_NOT_ALLOWED")
+
+    def test_discord_interactions_endpoint_returns_bad_request_for_unsupported_type(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY=public_key,
+            )
+        )
+        body = b'{"type":3}'
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/discord/interactions",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "UNSUPPORTED_EVENT_TYPE")
+
+    def test_discord_interactions_endpoint_rejects_stale_timestamp(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY=public_key,
+            )
+        )
+        body = b'{"type":1}'
+        timestamp = "1"
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/discord/interactions",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"]["code"], "UNAUTHORIZED")
+
+    def test_discord_interactions_endpoint_rejects_plugin_without_receive_handler(self) -> None:
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY="a" * 64,
+            )
+        )
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(
+                get_plugin=lambda _plugin_id: SimpleNamespace(
+                    status=PluginStatus.VALID,
+                    manifest=SimpleNamespace(capabilities=("notification.receive",)),
+                )
+            )
+            with patch("quantagent.api.services.discord_interactions.PluginRuntimeService.invoke") as invoke:
+                invoke.return_value = SimpleNamespace(error=SimpleNamespace(code="boom"), result=None)
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/v1/integrations/discord/interactions",
+                        content=b'{"type":1}',
+                        headers={
+                            "X-Signature-Timestamp": str(int(time.time())),
+                            "X-Signature-Ed25519": "00",
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
+    def test_discord_interactions_endpoint_rejects_plugin_without_receive_capability(self) -> None:
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY="a" * 64,
+            )
+        )
+        invalid_record = PluginRecord(
+            id="quantagent.official.notification.discord",
+            source=PluginSource.OFFICIAL,
+            path=Path("/tmp/fake-plugin"),
+            status=PluginStatus.VALID,
+            manifest=PluginManifest(
+                id="quantagent.official.notification.discord",
+                name="Discord Notification",
+                type=PluginType.NOTIFICATION,
+                version="0.1.0",
+                entrypoint="discord_plugin:plugin",
+                capabilities=("notification.send",),
+                config_schema="config.schema.json",
+            ),
+        )
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(get_plugin=lambda _plugin_id: invalid_record)
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/v1/integrations/discord/interactions",
+                    content=b'{"type":1}',
+                    headers={
+                        "X-Signature-Timestamp": str(int(time.time())),
+                        "X-Signature-Ed25519": "00",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
+    def test_discord_interactions_endpoint_rejects_plugin_with_invalid_result_shape(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY=public_key,
+            )
+        )
+
+        body = b'{"type":1}'
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(
+                get_plugin=lambda _plugin_id: SimpleNamespace(
+                    status=PluginStatus.VALID,
+                    manifest=SimpleNamespace(capabilities=("notification.receive",)),
+                )
+            )
+            with patch("quantagent.api.services.discord_interactions.PluginRuntimeService.invoke") as invoke:
+                invoke.return_value = SimpleNamespace(
+                    error=None,
+                    result=SimpleNamespace(output={"accepted": True, "code": "RECEIVED", "message": "ok", "response": "not-a-mapping", "item": {"interaction_id": "1", "source_id": "s", "text": "t"}, "retryable": False}),
+                )
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/v1/integrations/discord/interactions",
+                        content=body,
+                        headers={
+                            "X-Signature-Timestamp": timestamp,
+                            "X-Signature-Ed25519": signature,
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
+    def test_discord_interactions_endpoint_rejects_success_result_without_response_payload(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY=public_key,
+            )
+        )
+
+        body = b'{"type":1}'
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(
+                get_plugin=lambda _plugin_id: SimpleNamespace(
+                    status=PluginStatus.VALID,
+                    manifest=SimpleNamespace(capabilities=("notification.receive",)),
+                )
+            )
+            with patch("quantagent.api.services.discord_interactions.PluginRuntimeService.invoke") as invoke:
+                invoke.return_value = SimpleNamespace(
+                    error=None,
+                    result=SimpleNamespace(output={"accepted": True, "code": "RECEIVED", "message": "ok", "response": None, "item": {"interaction_id": "1", "source_id": "s", "text": "t"}, "retryable": False}),
+                )
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/v1/integrations/discord/interactions",
+                        content=body,
+                        headers={
+                            "X-Signature-Timestamp": timestamp,
+                            "X-Signature-Ed25519": signature,
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
+    def test_discord_interactions_endpoint_rejects_command_result_without_item(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                DISCORD_INTERACTIONS_ENABLED=True,
+                DISCORD_INTERACTIONS_PUBLIC_KEY=public_key,
+            )
+        )
+
+        body = json.dumps(
+            {
+                "id": "1234567890",
+                "application_id": "app-1",
+                "type": 2,
+                "guild_id": "guild-1",
+                "channel_id": "channel-1",
+                "member": {"user": {"id": "user-1"}},
+                "data": {
+                    "name": "notify",
+                    "options": [{"name": "text", "type": 3, "value": "hello from discord"}],
+                },
+            }
+        ).encode("utf-8")
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(
+                get_plugin=lambda _plugin_id: SimpleNamespace(
+                    status=PluginStatus.VALID,
+                    manifest=SimpleNamespace(capabilities=("notification.receive",)),
+                )
+            )
+            with patch("quantagent.api.services.discord_interactions.PluginRuntimeService.invoke") as invoke:
+                invoke.return_value = SimpleNamespace(
+                    error=None,
+                    result=SimpleNamespace(
+                        output={
+                            "accepted": True,
+                            "code": "RECEIVED",
+                            "message": "ok",
+                            "response": {"type": 4, "data": {"content": "ok", "flags": 64}},
+                            "item": None,
+                            "retryable": False,
+                        }
+                    ),
+                )
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/v1/integrations/discord/interactions",
+                        content=body,
+                        headers={
+                            "X-Signature-Timestamp": timestamp,
+                            "X-Signature-Ed25519": signature,
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
     def test_missing_capability_is_forbidden(self) -> None:
         reduced_capabilities = frozenset({"plugin.configure"})
         issued_session = issue_session("local_admin", self.settings, capabilities=reduced_capabilities)
@@ -1426,6 +2236,7 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertTrue({"code", "data", "msg", "error"}.issubset(ready_schema["properties"].keys()))
 
         self.assertIn("auth", schema["paths"]["/api/v1/auth/login"]["post"]["tags"])
+        self.assertIn("integrations", schema["paths"]["/api/v1/integrations/discord/interactions"]["post"]["tags"])
         self.assertIn("auth", schema["paths"]["/api/v1/auth/logout"]["post"]["tags"])
         self.assertIn("auth", schema["paths"]["/api/v1/auth/refresh"]["post"]["tags"])
         self.assertIn("auth", schema["paths"]["/api/v1/me"]["get"]["tags"])
@@ -1452,6 +2263,18 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertIn("wallet", schema["paths"]["/api/v1/wallet/accounts/{account_id}/cash-balances"]["get"]["tags"])
         self.assertNotIn("/api/v1/wallet/accounts", schema["paths"])
         self.assertNotIn("/api/v1/wallet/accounts/{account_id}/wallet-facts", schema["paths"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers"]["get"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers"]["post"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}"]["get"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}"]["put"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/actions/set-default"]["post"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/actions/test-connection"]["post"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/models"]["post"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/models/{model_id}"]["put"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/models/{model_id}"]["delete"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/presets"]["get"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/presets/{preset_key}"]["put"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/invocations"]["get"]["tags"])
         self.assertNotIn("/api/v1/auth/test-actions/runtime-inspect", schema["paths"])
 
         login_schema = self._resolve_response_schema(schema, "/api/v1/auth/login", method="post")
@@ -1498,6 +2321,9 @@ class ApiAppTestCase(unittest.TestCase):
                 "updated_at",
             }.issubset(wallet_cash_items_schema["properties"])
         )
+
+        models_schema = self._resolve_response_schema(schema, "/api/v1/models/providers")
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(models_schema["properties"].keys()))
 
     def test_production_openapi_excludes_debug_routes(self) -> None:
         production_app = create_app(self._settings(APP_ENV="production"))
@@ -1661,6 +2487,13 @@ class ApiAppTestCase(unittest.TestCase):
             "AUTH_ENABLED": True,
             "AUTH_ADMIN_PASSWORD": "test-admin-password",
             "AUTH_SESSION_SECRET": "test-session-secret-0123456789abcdef",
+            "DISCORD_INTERACTIONS_ENABLED": False,
+            "DISCORD_INTERACTIONS_PLUGIN_ID": "quantagent.official.notification.discord",
+            "DISCORD_INTERACTIONS_PUBLIC_KEY": None,
+            "DISCORD_INTERACTIONS_RESPONSE_TEXT": "QuantAgent received your Discord interaction.",
+            "DISCORD_INTERACTIONS_TIMESTAMP_TOLERANCE_SECONDS": 300,
+            "DISCORD_INTERACTIONS_GUILD_ALLOWLIST": (),
+            "DISCORD_INTERACTIONS_CHANNEL_ALLOWLIST": (),
         }
         baseline.update(overrides)
         return Settings(**baseline)

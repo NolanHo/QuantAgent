@@ -5,6 +5,7 @@ description = "Shared QuantAgent core infrastructure"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.17.2",
+    "cryptography>=46.0.3",
     "pydantic-settings>=2.14.1",
     "psycopg[binary]>=3.3.2",
     "quantagent-plugin-sdk",
@@ -12,8 +13,14 @@ dependencies = [
     "sqlalchemy>=2.0.44",
 ]
 
+[project.optional-dependencies]
+kafka = [
+    "aiokafka>=0.12.0",
+]
+
 [project.scripts]
 quantagent-db = "quantagent.core.db.cli:main"
+quantagent-demo = "quantagent.core.demo:main"
 
 [tool.uv.sources]
 quantagent-plugin-sdk = { workspace = true }

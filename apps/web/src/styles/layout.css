@@ -102,6 +102,26 @@
   white-space: nowrap;
 }
 
+.app-breadcrumb-link {
+  color: var(--qa-color-muted);
+  text-decoration: none;
+  transition:
+    color 0.16s ease,
+    text-decoration-color 0.16s ease;
+}
+
+.app-breadcrumb-link:hover {
+  color: var(--qa-color-primary);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.app-breadcrumb-link:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--qa-color-primary);
+  outline-offset: 3px;
+}
+
 .app-breadcrumb-separator {
   margin: 0 var(--qa-spacing-xs);
   color: var(--qa-color-muted);
