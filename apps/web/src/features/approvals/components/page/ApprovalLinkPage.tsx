@@ -29,6 +29,8 @@ export function ApprovalLinkPage({ token }: { token: string }) {
     return <PageLoading message="正在加载授权上下文..." />
   }
 
+  const canOpenContext = context.approvalId !== 'unknown' && context.eventId !== 'unknown'
+
   return (
     <div className="grid gap-5">
       <ApprovalPageHeader
@@ -75,12 +77,20 @@ export function ApprovalLinkPage({ token }: { token: string }) {
             <Button isDisabled={context.actionDisabled} size="sm" variant="danger-soft">
               受限拒绝
             </Button>
-            <ApprovalLinkButton to="/approvals/$approvalId" params={{ approvalId: context.approvalId }} variant="outline">
-              打开后台审批详情
-            </ApprovalLinkButton>
-            <ApprovalLinkButton to="/events/$eventId" params={{ eventId: context.eventId }} variant="outline">
-              查看关联事件
-            </ApprovalLinkButton>
+            {canOpenContext ? (
+              <>
+                <ApprovalLinkButton to="/approvals/$approvalId" params={{ approvalId: context.approvalId }} variant="outline">
+                  打开后台审批详情
+                </ApprovalLinkButton>
+                <ApprovalLinkButton to="/events/$eventId" params={{ eventId: context.eventId }} variant="outline">
+                  查看关联事件
+                </ApprovalLinkButton>
+              </>
+            ) : (
+              <ApprovalLinkButton to="/login" variant="outline">
+                返回登录
+              </ApprovalLinkButton>
+            )}
             <ApprovalLinkButton to="/approvals" variant="outline">
               返回审批工作台
             </ApprovalLinkButton>
