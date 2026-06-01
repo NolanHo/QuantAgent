@@ -99,7 +99,6 @@ export interface ApprovalActionResult {
 }
 
 export interface ApprovalLinkContext {
-  token: string
   status: ApprovalLinkStatus
   approvalId: string
   eventId: string

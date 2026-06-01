@@ -117,7 +117,6 @@ let mockItems = cloneItems(initialItems)
 
 const approvalLinkContexts: Record<string, ApprovalLinkContext> = {
   'preview-token': {
-    token: 'preview-token',
     status: 'valid',
     approvalId: 'apr-foundry-03',
     eventId: 'evt-semiconductor-foundry',
@@ -133,7 +132,6 @@ const approvalLinkContexts: Record<string, ApprovalLinkContext> = {
     actionDisabled: false,
   },
   'manual-only-token': {
-    token: 'manual-only-token',
     status: 'permission_mismatch',
     approvalId: 'apr-memory-02',
     eventId: 'evt-semiconductor-memory',
@@ -150,7 +148,6 @@ const approvalLinkContexts: Record<string, ApprovalLinkContext> = {
     disabledReason: '当前审批要求 manual_only，只能回到后台详情完成强确认。',
   },
   'strong-confirm-token': {
-    token: 'strong-confirm-token',
     status: 'permission_mismatch',
     approvalId: 'apr-semiconductor-01',
     eventId: 'evt-semiconductor-export',
@@ -167,7 +164,6 @@ const approvalLinkContexts: Record<string, ApprovalLinkContext> = {
     disabledReason: '当前审批要求 strong_confirm，一次性链接不能替代后台强确认入口。',
   },
   'expired-token': {
-    token: 'expired-token',
     status: 'expired',
     approvalId: 'apr-network-04',
     eventId: 'evt-network-latency',
@@ -197,7 +193,6 @@ export function getApprovalWorkbenchItem(approvalId: string) {
 export function getApprovalLinkContext(token: string): ApprovalLinkContext {
   return (
     approvalLinkContexts[token] ?? {
-      token,
       status: 'invalid',
       approvalId: 'unknown',
       eventId: 'unknown',
