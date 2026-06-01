@@ -23,14 +23,14 @@ export function EventCard({
               {event.priority}
             </Chip>
             <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
-              参考强度 {event.referenceStrength}
+              可信度 {event.credibility}
             </Chip>
             <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
               状态 {event.status}
             </Chip>
           </div>
           <Chip className="bg-[rgb(220_38_38_/_0.1)] text-[10px] font-bold text-[rgb(153_27_27)]" size="sm" variant="soft">
-            {event.industryImpact}
+            影响强度 {event.impactStrength}
           </Chip>
         </div>
         <div className="grid gap-1.5">
@@ -39,6 +39,9 @@ export function EventCard({
           </h3>
           <p className="m-0 text-[11px] font-bold text-muted">
             {formatRelativeMinutes(event.publishedMinutesAgo)} · {event.source}
+          </p>
+          <p className="m-0 text-[12px] text-muted">
+            优先级 {event.priority} · 事件可信度 {event.credibility} · 行业影响强度 {event.impactStrength} · 时效性 {event.timeliness}
           </p>
         </div>
       </div>
@@ -61,7 +64,10 @@ export function EventCard({
             ))}
           </div>
           <p className="m-0 text-[11px] leading-[1.5] text-muted-strong">
-            {event.actionHint}
+            入选原因：{event.reason}
+          </p>
+          <p className="m-0 text-[11px] leading-[1.5] text-muted-strong">
+            最佳动作提示：{event.actionHint}
           </p>
         </div>
       </div>
