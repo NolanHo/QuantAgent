@@ -21,15 +21,17 @@
 当前实现只有最小入口：
 
 ```python
-from quantagent.worker.main import create_worker_runtime, run
+from quantagent.worker.main import create_worker_app, create_worker_runtime, run
 ```
 
 语义：
 
 - `create_worker_runtime()`
   组装并返回 `EventBusRuntime`
+- `create_worker_app()`
+  组装 worker 的 session、captured-event handler 和 event bus runtime
 - `run()`
-  固定 worker 的 composition root；当前不启动完整消费 loop
+  执行当前 V1 的一次 `source.event.captured` 订阅/消费流程；长期 loop 后续只扩展生命周期，不改变入口薄层职责
 
 ## 推荐扩展方式
 
@@ -39,7 +41,7 @@ from quantagent.worker.main import create_worker_runtime, run
 worker main
   -> load settings
   -> build_event_bus_runtime(...)
-  -> create domain handler(s)
+  -> create routing service / audit sink / domain handler(s)
   -> subscribe to topic(s)
   -> keep lifecycle / shutdown at worker boundary
 ```
@@ -82,4 +84,4 @@ uv sync --extra kafka --package quantagent-worker --package quantagent-core
 uv run --package quantagent-worker python -m unittest discover -s apps/worker/src/tests
 ```
 
-当前测试只验证 composition root 默认走 `memory` backend，不验证完整消费 loop。
+当前测试验证 composition root 默认走 `memory` backend，以及 `run()` 会执行一次 `consume_once()` 并关闭 runtime。

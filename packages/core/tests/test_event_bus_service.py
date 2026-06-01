@@ -40,14 +40,37 @@ class SourceEventPublisherTestCase(unittest.IsolatedAsyncioTestCase):
             producer="plugin-scheduling",
             request_id="req-1",
             plugin_id="quantagent.official.source.placeholder",
+            binding_id="binding-evt-1",
         )
 
         self.assertEqual(envelope.id, "evt-fixed")
         self.assertEqual(envelope.topic, "source.event.captured")
         self.assertEqual(envelope.headers["request_id"], "req-1")
+        self.assertEqual(envelope.headers["binding_id"], "binding-evt-1")
         self.assertEqual(envelope.payload["plugin_id"], "quantagent.official.source.placeholder")
+        self.assertEqual(envelope.payload["binding_id"], "binding-evt-1")
         self.assertEqual(envelope.payload["items"][0]["external_id"], "news-1")
         self.assertEqual(len(handler.payloads), 1)
+
+    async def test_publish_source_fetch_result_requires_binding_id(self) -> None:
+        publisher = SourceEventPublisher(InMemoryEventBus(), id_factory=lambda: "evt-fixed")
+        result = SourceFetchResult(
+            items=(
+                SourceItemDraft(
+                    external_id="news-1",
+                    title="Oil update",
+                ),
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "binding_id must be a non-empty string"):
+            await publisher.publish_source_fetch_result(
+                result,
+                producer="plugin-scheduling",
+                request_id="req-1",
+                plugin_id="quantagent.official.source.placeholder",
+                binding_id=" ",
+            )
 
 
 if __name__ == "__main__":
