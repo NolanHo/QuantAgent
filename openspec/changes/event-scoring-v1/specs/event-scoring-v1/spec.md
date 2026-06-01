@@ -67,6 +67,18 @@
 - **AND** 用户能够分清事件事实、评分解释和建议动作
 - **AND** 页面不展示完整模型推理链
 
+#### Scenario: Event Detail can ship on adapted mock scoring data before real contracts
+- **WHEN** issue #130 在真实详情 DTO / `packages/contracts` 尚未最终收口前实现 `/events/:eventId`
+- **THEN** 页面可以先通过 feature 内部 adapter / page model 消费现有 mock scoring contract
+- **AND** route、业务 hook 和展示组件不直接依赖原始 mock DTO shape
+- **AND** 后续替换真实 contract 时不需要改写页面职责和评分语义
+
+#### Scenario: Event Detail keeps score semantics grouped with action and gate context
+- **WHEN** `/events/:eventId` 展示 `impact_strength`、`analysis_confidence`、`recommendation_score` 等评分摘要
+- **THEN** 这些摘要与最佳动作、风险方向、确认链路或阻断原因成组出现
+- **AND** 页面仍显式展示审批入口、运行 / 审计线索或 Policy Gate 摘要
+- **AND** 不把高分表达成已可执行、已放行或已下单信号
+
 #### Scenario: Approvals focus on confirmation context
 - **WHEN** `/approvals` 或审批详情展示评分相关信息
 - **THEN** 页面展示建议推荐度、事件可信度摘要、分析置信度摘要、风险方向、风险等级、确认等级和到期策略

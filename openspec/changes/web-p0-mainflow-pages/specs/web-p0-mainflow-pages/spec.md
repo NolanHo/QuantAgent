@@ -56,11 +56,23 @@
 - **AND** 不取代事件事实、行业影响分析和最佳动作建议的首屏判断位置
 - **AND** 不展示完整模型推理链作为页面必备内容
 
+#### Scenario: Event detail shows lightweight runtime and audit summaries before jump-out
+- **WHEN** `/events/:eventId` 需要承接运行摘要、审计入口或审批链路线索
+- **THEN** 页面展示最近一次相关摘要并提供进入 Runtime、审计页或审批详情的稳定入口
+- **AND** 这些摘要只用于帮助用户判断是否需要继续追踪
+- **AND** 页面不因此退化成完整运行时排障页或审计工作台
+
 #### Scenario: Event detail routes high-risk confirmation to approvals
 - **WHEN** 页面展示最佳动作建议
 - **THEN** 页面提供进入审批工作台或审批详情的入口
 - **AND** 不在详情页直接完成批准或真实执行
 - **AND** 支持观点、反方观点和关键不确定性保留在详情页语义中
+
+#### Scenario: Event detail implementation leaves event-center skeleton separate
+- **WHEN** 团队实现 issue #130 的事件详情 / 决策页
+- **THEN** `/events/:eventId` 与 `/events/:eventId/audit` 保持为薄 route 入口
+- **AND** 详情页与审计页的页面主体迁入独立事件详情 feature 边界
+- **AND** `/events` 事件中心不因为本轮详情页实现被迫与详情页一起做一次性目录大重构
 
 #### Scenario: Event detail excludes related-history from the P0 contract
 - **WHEN** 实现者为 V1 主链路定义 `/events/:eventId` 的必备内容

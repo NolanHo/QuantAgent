@@ -186,6 +186,30 @@ route eventId
 - 审计页只读，不提供编辑历史、补写 audit、批准、执行或策略绕过入口。
 - 后端 `audit_logs` contract、持久化查询、generated client 和跨语言 schema 需要后续独立 change 收口。
 
+### 8. issue #130 先收口事件详情 feature，而不是顺手重写整个事件中心
+
+`issue #130` 的目标是把 `/events/:eventId` 收口为可进入真实 API 接入前的事件详情 / 决策页 V1，而不是把 `/events` 事件中心、Dashboard 和评分实现一次性重写。当前 `apps/web` 已有 `features/mainflow/pages/EventPages.tsx` 骨架，但它不应继续承载事件详情页的长期职责。
+
+因此本轮实现输入需要固定为：
+
+- `/events` 继续承担事件中心骨架，不要求与详情页迁移绑成一次性目录大重构。
+- `/events/:eventId` 与 `/events/:eventId/audit` 迁出到独立事件详情 feature 边界，避免在 `mainflow` 骨架里继续追加真实页面状态和复杂 JSX。
+- route 文件保持薄层，只负责参数读取和页面装配；事件事实、行业影响分析、最佳动作、支持 / 反方观点、运行摘要和审计入口进入 feature 内部职责目录。
+- 详情页首屏阅读顺序固定为“左栏事实、右栏分析与最佳动作、下方辅助摘要”，不因为实现 convenience 把运行摘要或审计入口抬到首屏主判断位。
+
+这里不在 `web-p0-mainflow-pages` 中发明最终 API contract、query key 或 DTO 字段；这些属于 `event-scoring-v1` 与后续真实 API/contracts change 的职责。但页面级目录职责、主阅读顺序和 `mainflow` 迁移边界必须在这里先固定，否则实现者仍需要自行决定应该拆到哪里、哪些页面一起迁。
+
+### 9. 事件详情实现先以 mock 适配层为边界，而不是在 route 或视图里硬编码临时字段
+
+`issue #130` 当前没有要求同时交付真实事件详情 API DTO、`packages/contracts` 或 generated client。现有 `event-scoring-v1` 也把“真实 DTO 来源”保留为后续 gate。因此事件详情首版实现应允许先基于现有 mock contract 收口页面结构，但不能把这些临时结构直接扩散成 route 或 view 的长期依赖。
+
+实现蓝图应固定为：
+
+- 事件详情 feature 至少包含 `README.md`、`components/`、`hooks/`、`types/`、`utils/`；如果未来真实 API ready，再在同一边界补 `api/`、`queries/`。
+- feature 内通过 page model / adapter 把当前 mock 数据映射成页面消费模型；展示组件不直接依赖原始 mock DTO 结构。
+- `features/mainflow` 保留静态骨架入口，不继续承担事件详情的数据适配、评分解释或审计摘要拼装。
+- 中文注释需要落在“评分不是执行放行”“运行摘要只做辅助复核”“审计入口不替代审计页”这类非显然边界上，避免后续实现误把高分当作可执行结论。
+
 ## Risks / Trade-offs
 
 - [Risk] 只修改 OpenSpec 而不立刻改路由代码，短期内仓库实现仍然保持 `/ -> /events`。
