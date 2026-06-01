@@ -4,7 +4,7 @@ import {
 } from '@heroui/react'
 
 import type { HealthAlert } from '../mock-data'
-import { LinkButton } from './LinkButton'
+import { LinkButton } from '@/shared/ui'
 
 export function HealthCard({ alert }: { alert: HealthAlert }) {
   return (
