@@ -135,14 +135,22 @@
 - **WHEN** 后续实现开始为 Web、API 或 `packages/contracts` 增加正式评分字段
 - **THEN** 命名必须回链 `source_authority`、`event_reliability`、`impact_strength`、`freshness`、`event_priority`、`analysis_confidence`、`recommendation_score`、`verification_status` 和 `uncertainty_summary` 这类正式语义
 - **AND** 不继续把 `priority`、`referenceStrength`、`industryImpact` 或同类临时字段扩散成正式 contract
+- **AND** 实现 PR 必须说明这些字段的真源、API DTO 或 `packages/contracts` 所有权、生成 / 校验入口以及 mock 替换策略
 
 #### Scenario: Mock data follows contract semantics
 - **WHEN** 前端 mock data 需要支持评分展示、排序或筛选
 - **THEN** mock 字段语义与正式评分 contract 保持一致
 - **AND** 页面组件不额外维护另一套平行评分解释
+- **AND** mock-only adapter / page model 边界必须与 route、business hook 和 view component 解耦
 
 #### Scenario: Web implementation uses feature boundaries for formal scoring
 - **WHEN** 后续 Web 实现正式接入评分 API、query、筛选、排序或评分解释
 - **THEN** route 只负责入口、search params 和页面组合
 - **AND** API、contract 类型、query hooks、业务 hooks、组件、格式化工具和 README 必须按 feature 职责拆分
 - **AND** 不把正式评分数据流继续堆进首页骨架 mock 或单个厚页面文件
+
+#### Scenario: Temporary event detail adapter does not become the formal contract
+- **WHEN** `/events/:eventId` 在真实详情 API DTO 或 `packages/contracts` 尚未 ready 前使用 mock scoring data
+- **THEN** feature 内部 adapter / page model 可以映射临时数据为页面消费模型
+- **AND** route、query hook、business hook 和展示组件不得直接 import 或透传原始 mock scoring shape
+- **AND** 后续真实 contract ready 后应替换 adapter / API 边界，而不是重写评分分层、页面职责或首屏阅读顺序

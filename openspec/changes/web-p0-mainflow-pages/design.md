@@ -210,6 +210,54 @@ route eventId
 - `features/mainflow` 保留静态骨架入口，不继续承担事件详情的数据适配、评分解释或审计摘要拼装。
 - 中文注释需要落在“评分不是执行放行”“运行摘要只做辅助复核”“审计入口不替代审计页”这类非显然边界上，避免后续实现误把高分当作可执行结论。
 
+## Responsibility Blueprint
+
+本 change 的实现前职责边界如下：
+
+| 页面 / 边界 | 主对象 | 负责什么 | 不负责什么 |
+| --- | --- | --- | --- |
+| Dashboard | 高价值事件聚合视图 | 登录后的第一判断、重点事件、待审批摘要、关键健康提醒、主工作入口 | 完整事件列表、审批执行、插件治理、完整运行时排障 |
+| `/events` | Event collection | 浏览、筛选、排序、扩展重点事件视野、进入事件详情 | 系统总首页、审批动作、插件 / Skill / Tool / Runtime 治理 |
+| `/events/:eventId` | 单条 Event | 事件事实、验证状态、行业影响分析、最佳动作、支持 / 反方观点、审批入口、轻量运行 / 审计摘要 | 直接批准、真实执行、完整运行时排障、完整审计工作台、相关历史事件 P0 必备能力 |
+| `/events/:eventId/audit` | 单条事件的审计入口 | 提供事件级审计线索或跳转承接位 | 替代正式审计页、改变事件详情首屏主判断位 |
+| `/approvals` | ApprovalRequest collection | 待处理审批、风险 / 到期 / 确认等级摘要、人工确认动作入口 | 真实执行结果页、事件列表、运行态调试 |
+| `router-layout` delta | 路由默认入口 | 根路径 `/` 进入独立 Dashboard 首页流 | 登录、会话、CSRF、403、capability guard 语义 |
+
+后续 Web 实现必须按 Web gate 拆分：
+
+- `routes/_app/(workspace)/events/$eventId` 与 `$eventId/audit` 只保留参数读取、loader / beforeLoad 和页面装配。
+- 事件详情页面主体迁入独立 feature，例如 `features/events/detail/` 或等价职责目录。
+- 事件详情 feature 至少包含 `README.md`、`components/`、`hooks/`、`types/`、`utils/`；真实 API ready 后再补 `api/`、`queries/`、`mutations/`。
+- page model / adapter 负责把当前 mock 输入映射为页面消费模型；展示组件只接收稳定 props。
+- `features/mainflow` 不继续承载事件详情的数据适配、评分解释、最佳动作、运行摘要或审计入口拼装。
+
+## Event Detail Reading Order
+
+`issue #130` 的事件详情首版必须保持以下阅读顺序：
+
+```text
+事件事实与验证状态
+  -> 行业影响分析与最佳动作
+  -> 支持观点 / 反方观点 / 不确定性
+  -> 运行摘要 / 审计入口 / 审批入口
+```
+
+运行摘要、审计入口和 trace / request 线索只用于辅助复核，不得抬升为首屏主对象。最佳动作可以高亮，但 CTA 文案必须保持“进入审批 / 查看审批详情 / 请求重分析”等人工确认语义，不得表达为“执行 / 下单 / 已放行”。
+
+## Validation Strategy
+
+本 OpenSpec change 的最小验证：
+
+- `openspec validate web-p0-mainflow-pages --type change --strict --json`
+- 人工核对 `router-layout` delta 只修改 `/` 默认入口，不复制认证、登录恢复或 403 capability 语义。
+- 人工核对页面职责与 `docs/prd/pages/00-dashboard.md`、`02-events-home.md`、`03-event-detail.md`、`04-approvals-index.md`、`05-approval-detail.md` 一致。
+
+后续 Web 实现 PR 的最小验证：
+
+- `git diff --check`
+- `bun run --cwd apps/web build`
+- 按实现范围补充 unit / component / e2e 测试，至少覆盖根路径进入 Dashboard、事件详情薄 route、事件详情 feature page model、审批入口不表达真实执行。
+
 ## Risks / Trade-offs
 
 - [Risk] 只修改 OpenSpec 而不立刻改路由代码，短期内仓库实现仍然保持 `/ -> /events`。
