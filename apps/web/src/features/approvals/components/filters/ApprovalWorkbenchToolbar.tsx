@@ -51,7 +51,7 @@ export function ApprovalWorkbenchToolbar({
     <section className="rounded-xl border border-hairline bg-canvas p-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="grid gap-2">
-          <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-[rgb(3,105,161)]">
+          <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-info">
             筛选与排序
           </p>
           <h2 className="m-0 text-title-sm font-bold text-ink">

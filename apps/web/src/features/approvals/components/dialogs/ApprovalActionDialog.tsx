@@ -53,6 +53,7 @@ export function ApprovalActionDialog({
                 {needsReason ? (
                   <TextField value={reason} onChange={setReason}>
                     <Input
+                      aria-label="重分析原因"
                       className="w-full"
                       placeholder="填写为什么需要重新分析，例如信源不足、时效变化或风险判断冲突"
                       variant="secondary"

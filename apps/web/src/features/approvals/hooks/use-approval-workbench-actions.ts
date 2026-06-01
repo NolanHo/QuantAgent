@@ -5,18 +5,15 @@ import { useApprovalWorkbenchActionMutation } from '../mutations/use-approval-wo
 import type {
   ApprovalActionType,
   ApprovalWorkbenchItem,
-  ApprovalWorkbenchSearch,
 } from '../types/approval-workbench.types'
 
 export function useApprovalWorkbenchActions({
   onAfterSuccess,
-  search,
 }: {
   onAfterSuccess: (appliedIds: readonly string[]) => void
-  search: ApprovalWorkbenchSearch
 }) {
   const actionState = useOverlayState()
-  const actionMutation = useApprovalWorkbenchActionMutation(search)
+  const actionMutation = useApprovalWorkbenchActionMutation()
   const [activeAction, setActiveAction] = useState<{
     action: ApprovalActionType
     items: ApprovalWorkbenchItem[]

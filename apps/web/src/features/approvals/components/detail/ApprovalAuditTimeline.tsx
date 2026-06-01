@@ -13,7 +13,7 @@ export function ApprovalAuditTimeline({ approval }: { approval: ApprovalWorkbenc
     <Card className="border border-hairline bg-canvas">
       <div className="grid gap-3 p-4">
         <div className="grid gap-1">
-          <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-[rgb(3,105,161)]">
+          <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-info">
             处理历史
           </p>
           <h2 className="m-0 text-title-sm font-bold text-ink">

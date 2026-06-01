@@ -1,6 +1,10 @@
-import { Button, Card } from '@heroui/react'
+import { Button, Card, Checkbox } from '@heroui/react'
 
 import type { ApprovalWorkbenchItem } from '../../types/approval-workbench.types'
+import {
+  maskApprovalTraceIdentifier,
+  toSafeApprovalErrorMessage,
+} from '../../utils/approval-error-display'
 import { formatExpirationActionLabel } from '../../utils/approval-formatters'
 import {
   ApprovalConfirmationBadge,
@@ -25,6 +29,7 @@ export function ApprovalListCard({
   onToggleSelected: (approvalId: string) => void
 }) {
   const actionDisabled = approval.status !== 'pending'
+  const actionError = approval.actionError
 
   return (
     <Card className="border border-hairline bg-surface-soft/80">
@@ -44,15 +49,14 @@ export function ApprovalListCard({
             </div>
           </div>
 
-          <label className="inline-flex items-center gap-2 rounded-lg border border-hairline bg-canvas px-3 py-2 text-[13px] text-muted">
-            <input
-              checked={isSelected}
-              disabled={actionDisabled}
-              type="checkbox"
-              onChange={() => onToggleSelected(approval.id)}
-            />
+          <Checkbox
+            className="inline-flex items-center gap-2 rounded-lg border border-hairline bg-canvas px-3 py-2 text-[13px] text-muted"
+            isDisabled={actionDisabled}
+            isSelected={isSelected}
+            onChange={() => onToggleSelected(approval.id)}
+          >
             加入批量处理
-          </label>
+          </Checkbox>
         </div>
 
         <div className="grid gap-2 text-body-sm text-muted lg:grid-cols-2">
@@ -70,9 +74,11 @@ export function ApprovalListCard({
           </div>
         ) : null}
 
-        {approval.actionError ? (
+        {actionError ? (
           <div className="rounded-lg border border-trading-down/25 bg-trading-down/5 px-3 py-2 text-[12px] text-trading-down">
-            {approval.actionError.message} · request_id：{approval.actionError.requestId} · trace_id：{approval.actionError.traceId}
+            {toSafeApprovalErrorMessage(actionError.message)} · request_id：
+            {maskApprovalTraceIdentifier(actionError.requestId)} · trace_id：
+            {maskApprovalTraceIdentifier(actionError.traceId)}
           </div>
         ) : null}
 

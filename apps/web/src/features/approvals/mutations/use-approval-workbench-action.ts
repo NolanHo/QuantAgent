@@ -4,11 +4,10 @@ import { runApprovalAction } from '../mock/approval-workbench.mock'
 import type {
   ApprovalActionResult,
   ApprovalActionType,
-  ApprovalWorkbenchSearch,
 } from '../types/approval-workbench.types'
 import { approvalWorkbenchKeys } from '../queries/approval-workbench.keys'
 
-export function useApprovalWorkbenchActionMutation(search: ApprovalWorkbenchSearch) {
+export function useApprovalWorkbenchActionMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -23,7 +22,7 @@ export function useApprovalWorkbenchActionMutation(search: ApprovalWorkbenchSear
     }): Promise<ApprovalActionResult> => runApprovalAction({ action, approvalIds, reason }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.overview() })
-      void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.list(search) })
+      void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.lists() })
       for (const approvalId of variables.approvalIds) {
         void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.detail(approvalId) })
       }

@@ -15,7 +15,7 @@ export function ApprovalQueueOverview({ overview }: { overview: ApprovalWorkbenc
       {metrics.map((metric) => (
         <Card key={metric.label} className="border border-hairline bg-surface-soft/80">
           <div className="grid gap-1 p-4">
-            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-[rgb(3,105,161)]">
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-info">
               {metric.label}
             </p>
             <p className="m-0 text-[24px] font-bold text-ink">{metric.value}</p>

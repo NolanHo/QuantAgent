@@ -107,6 +107,7 @@ const initialItems: ApprovalWorkbenchItem[] = [
 ]
 
 function cloneItems(items: readonly ApprovalWorkbenchItem[]) {
+  // 中文注释：cloneItems 目前只深拷贝 actionError；ApprovalWorkbenchItem 若新增对象/数组字段必须在这里同步处理。
   return items.map((item) => ({
     ...item,
     actionError: item.actionError ? { ...item.actionError } : null,
@@ -235,7 +236,7 @@ export function runApprovalAction(params: {
 
     if (item.status !== 'pending') {
       item.actionError = {
-        message: '当前审批已不处于待处理状态，无法再次提交动作。',
+        message: 'approval_not_pending',
         requestId: `req-${approvalId}`,
         traceId: `trace-${approvalId}`,
       }
@@ -245,7 +246,7 @@ export function runApprovalAction(params: {
 
     if (action === 'request_reanalysis' && !reason?.trim()) {
       item.actionError = {
-        message: 'request_reanalysis 需要填写简短原因。',
+        message: 'reanalysis_reason_required',
         requestId: `req-${approvalId}`,
         traceId: `trace-${approvalId}`,
       }

@@ -5,21 +5,58 @@ import { useApprovalWorkbenchActions } from './use-approval-workbench-actions'
 import { useApprovalWorkbenchListQuery } from '../queries/use-approval-workbench-list'
 import { useApprovalWorkbenchOverviewQuery } from '../queries/use-approval-workbench-overview'
 import type {
+  ApprovalConfirmationLevel,
+  ApprovalRiskDirection,
   ApprovalSortMode,
+  ApprovalStatus,
   ApprovalWorkbenchSearch,
 } from '../types/approval-workbench.types'
 import { computeBatchEligibility } from '../utils/approval-rules'
 
+const confirmationValues: Array<ApprovalConfirmationLevel | 'all'> = [
+  'all',
+  'strong_confirm',
+  'link_confirm',
+  'manual_only',
+]
+const riskDirectionValues: Array<ApprovalRiskDirection | 'all'> = [
+  'all',
+  'increase_risk',
+  'reduce_risk',
+  'neutral',
+]
+const sortValues: ApprovalSortMode[] = [
+  'recommendation',
+  'expires_soon',
+  'highest_risk',
+  'latest',
+]
+const statusValues: Array<ApprovalStatus | 'all'> = [
+  'all',
+  'pending',
+  'approved',
+  'rejected',
+  'expired',
+  'reanalysis_requested',
+]
+
+function pickAllowedValue<T extends string>(
+  value: unknown,
+  allowedValues: readonly T[],
+  fallback: T,
+): T {
+  return typeof value === 'string' && allowedValues.includes(value as T) ? (value as T) : fallback
+}
+
 export function normalizeApprovalWorkbenchSearch(
   search: Record<string, unknown>,
 ): ApprovalWorkbenchSearch {
+  // 中文注释：URL search 是外部输入，必须先白名单化，避免无效字符串进入筛选和排序规则。
   return {
-    confirmation:
-      typeof search.confirmation === 'string' ? (search.confirmation as ApprovalWorkbenchSearch['confirmation']) : 'all',
-    riskDirection:
-      typeof search.riskDirection === 'string' ? (search.riskDirection as ApprovalWorkbenchSearch['riskDirection']) : 'all',
-    sort: typeof search.sort === 'string' ? (search.sort as ApprovalSortMode) : 'recommendation',
-    status: typeof search.status === 'string' ? (search.status as ApprovalWorkbenchSearch['status']) : 'pending',
+    confirmation: pickAllowedValue(search.confirmation, confirmationValues, 'all'),
+    riskDirection: pickAllowedValue(search.riskDirection, riskDirectionValues, 'all'),
+    sort: pickAllowedValue(search.sort, sortValues, 'recommendation'),
+    status: pickAllowedValue(search.status, statusValues, 'pending'),
   }
 }
 
@@ -53,7 +90,6 @@ export function useApprovalWorkbenchPage(search: ApprovalWorkbenchSearch) {
 
   const actions = useApprovalWorkbenchActions({
     onAfterSuccess: clearSelectionForAppliedIds,
-    search,
   })
 
   function getApprovalById(approvalId: string) {

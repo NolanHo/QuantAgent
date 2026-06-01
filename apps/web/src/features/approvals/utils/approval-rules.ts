@@ -96,6 +96,7 @@ export function computeBatchEligibility(
   const baselineItem = selectedItems.find(
     (item) => item.status === 'pending' && item.confirmationLevel !== 'manual_only' && !item.expiresSoon,
   )
+  // 中文注释：基准项由 selectedItems 顺序决定；若要按用户指定基准，必须显式传入或调整选择排序。
   const eligibleIds: string[] = []
   const issues: ApprovalBatchEligibility['issues'] = []
 

@@ -25,8 +25,40 @@ export function ApprovalLinkPage({ token }: { token: string }) {
     permission_mismatch: '需要更强确认',
   } as const
 
-  if (contextQuery.isLoading || !context) {
+  if (contextQuery.isError) {
+    return (
+      <section className="rounded-xl border border-trading-down/25 bg-trading-down/5 p-4">
+        <div className="grid gap-2">
+          <h1 className="m-0 text-title-sm font-bold text-ink">授权上下文加载失败</h1>
+          <p className="m-0 text-body-sm text-muted">
+            请稍后重试，或返回登录后从审批工作台打开对应审批。
+          </p>
+          <ApprovalLinkButton to="/login" variant="outline">
+            返回登录
+          </ApprovalLinkButton>
+        </div>
+      </section>
+    )
+  }
+
+  if (contextQuery.isLoading) {
     return <PageLoading message="正在加载授权上下文..." />
+  }
+
+  if (!context) {
+    return (
+      <section className="rounded-xl border border-hairline bg-canvas p-4">
+        <div className="grid gap-2">
+          <h1 className="m-0 text-title-sm font-bold text-ink">授权链接不可用</h1>
+          <p className="m-0 text-body-sm text-muted">
+            未找到可展示的最小授权上下文，请登录后从审批工作台继续处理。
+          </p>
+          <ApprovalLinkButton to="/login" variant="outline">
+            返回登录
+          </ApprovalLinkButton>
+        </div>
+      </section>
+    )
   }
 
   const canOpenContext = context.approvalId !== 'unknown' && context.eventId !== 'unknown'
@@ -42,7 +74,7 @@ export function ApprovalLinkPage({ token }: { token: string }) {
       <Card className="border border-hairline bg-canvas">
         <div className="grid gap-4 p-4">
           <div className="grid gap-1">
-            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-[rgb(3,105,161)]">
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-info">
               Link Confirm
             </p>
             <h2 className="m-0 text-title-sm font-bold text-ink">

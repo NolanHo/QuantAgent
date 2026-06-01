@@ -46,7 +46,7 @@ export function ApprovalWorkbenchPage({
 
       {page.actions.actionMutation.isError ? (
         <ApprovalErrorState
-          message="审批动作提交失败，请重试或查看 request_id / trace_id。"
+          message="approval_action_failed"
           requestId="req-approval-mutation"
           traceId="trace-approval-mutation"
         />
