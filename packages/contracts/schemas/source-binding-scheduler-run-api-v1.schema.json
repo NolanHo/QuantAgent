@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantagent.dev/contracts/source-binding-scheduler-run-api-v1.schema.json",
+  "title": "SourceBinding API V1 With Runtime Inspect SchedulerRun Relation",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "SourceBindingSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_plugin_id",
+        "owner_type",
+        "owner_id",
+        "status",
+        "schedule_summary",
+        "health_summary",
+        "allowed_actions"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "source_plugin_id": { "type": "string", "minLength": 1 },
+        "owner_type": { "type": "string", "minLength": 1 },
+        "owner_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["active", "paused", "disabled"] },
+        "blocked_reason": { "type": ["string", "null"] },
+        "schedule_summary": { "type": "object" },
+        "last_run_ref": { "type": ["object", "null"] },
+        "next_run_at": { "type": ["string", "null"], "format": "date-time" },
+        "health_summary": { "type": "object" },
+        "allowed_actions": {
+          "type": "array",
+          "items": { "enum": ["pause", "resume", "run-now"] }
+        }
+      }
+    },
+    "BindingActionAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding_id", "accepted_at", "audit_ref"],
+      "properties": {
+        "binding_id": { "type": "string", "minLength": 1 },
+        "target_state": { "enum": ["active", "paused", "disabled"] },
+        "already_in_target_state": { "type": "boolean" },
+        "accepted_at": { "type": "string", "format": "date-time" },
+        "request_id": { "type": "string" },
+        "requested_run_ref": { "type": "string" },
+        "audit_ref": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "properties": {
+    "sourceBindingSummary": { "$ref": "#/$defs/SourceBindingSummary" },
+    "bindingActionAccepted": { "$ref": "#/$defs/BindingActionAccepted" }
+  }
+}
