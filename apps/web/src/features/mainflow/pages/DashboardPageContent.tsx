@@ -4,19 +4,24 @@ import {
 } from '@heroui/react'
 
 import {
-  approvalsQueue,
   dashboardMetrics,
-  featuredEvents,
   healthAlerts,
   walletMetrics,
 } from '../mock-data'
-import { ApprovalCard } from '../components/ApprovalCard'
-import { EventCard } from '../components/EventCard'
 import { HealthCard } from '../components/HealthCard'
-import { LinkButton } from '../components/LinkButton'
 import { WalletPnlChart } from '../components/WalletPnlChart'
+import { ApprovalScoreCard } from '@/features/event-scoring/components/ApprovalScoreCard'
+import { DashboardEventSummaryCard } from '@/features/event-scoring/components/DashboardEventSummaryCard'
+import {
+  scoredApprovals,
+  scoredEvents,
+} from '@/features/event-scoring/mocks/event-scoring.mock'
+import { selectDashboardHighlightedEvents } from '@/features/event-scoring/utils/event-scoring-selectors'
+import { LinkButton } from '@/shared/ui'
 
 export function DashboardPageContent() {
+  const dashboardHighlightedEvents = selectDashboardHighlightedEvents(scoredEvents)
+
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1.05fr)] xl:[grid-template-areas:'hero_wallet''metrics_wallet''feed_approvals''feed_health']">
       <Card
@@ -77,9 +82,9 @@ export function DashboardPageContent() {
           </div>
 
           <div className="grid gap-2.5 lg:grid-cols-2">
-            {featuredEvents.map((event, index) => (
-              <div key={event.id} className={index === featuredEvents.length - 1 && featuredEvents.length % 2 === 1 ? 'lg:col-span-2' : ''}>
-                <EventCard event={event} />
+            {dashboardHighlightedEvents.map((event, index) => (
+              <div key={event.id} className={index === dashboardHighlightedEvents.length - 1 && dashboardHighlightedEvents.length % 2 === 1 ? 'lg:col-span-2' : ''}>
+                <DashboardEventSummaryCard event={event} />
               </div>
             ))}
           </div>
@@ -137,8 +142,8 @@ export function DashboardPageContent() {
           </div>
 
           <div className="grid gap-2">
-            {approvalsQueue.map((approval) => (
-              <ApprovalCard key={approval.id} approval={approval} />
+            {scoredApprovals.map((approval) => (
+              <ApprovalScoreCard key={approval.id} approval={approval} />
             ))}
           </div>
         </div>

@@ -1,8 +1,13 @@
-import { featuredEvents, healthAlerts, approvalsQueue } from '../mock-data'
-import { EventCard } from '../components/EventCard'
-import { LinkButton } from '../components/LinkButton'
+import { healthAlerts } from '../mock-data'
 import { PageSectionCard } from '../components/PageSectionCard'
 import { SectionHeader } from '../components/SectionHeader'
+import { EventScoreCard } from '@/features/event-scoring/components/EventScoreCard'
+import {
+  scoredApprovals,
+  scoredEvents,
+} from '@/features/event-scoring/mocks/event-scoring.mock'
+import { createHealthAlertEventCardModel } from '@/features/event-scoring/utils/event-scoring-adapters'
+import { LinkButton } from '@/shared/ui'
 import { DetailFacts, InfoTag, PageHeader } from './shared'
 
 export function EventsIndexPageContent() {
@@ -35,20 +40,8 @@ export function EventsIndexPageContent() {
             description="只做浏览过程中的轻提示，不把运行态排障台塞回事件中心。"
           />
           <div className="grid gap-2">
-            <EventCard
-              event={{
-                ...featuredEvents[0]!,
-                id: healthAlerts[0]!.id,
-                title: healthAlerts[0]!.title,
-                summary: healthAlerts[0]!.summary,
-                actionHint: healthAlerts[0]!.traceHint,
-                industryImpact: '运行风险提示',
-                industries: ['Runtime'],
-                priority: healthAlerts[0]!.severity,
-                source: '系统健康',
-                status: 'warning',
-                referenceStrength: '内部',
-              }}
+            <EventScoreCard
+              event={createHealthAlertEventCardModel(healthAlerts[0]!, scoredEvents[0]!)}
               toDetail={false}
             />
           </div>
@@ -62,8 +55,8 @@ export function EventsIndexPageContent() {
           description="重点区解释为什么值得先看，列表承担稳定跳转到事件详情。"
         />
         <div className="grid gap-3">
-          {featuredEvents.map((event) => (
-            <EventCard key={event.id} event={event} />
+          {scoredEvents.map((event) => (
+            <EventScoreCard key={event.id} event={event} />
           ))}
         </div>
       </PageSectionCard>
@@ -72,8 +65,9 @@ export function EventsIndexPageContent() {
 }
 
 export function EventDetailPageContent({ eventId }: { eventId: string }) {
-  const event = featuredEvents.find((item) => item.id === eventId) ?? featuredEvents[0]!
-  const relatedApproval = approvalsQueue.find((item) => item.eventTitle === event.title) ?? null
+  const event = scoredEvents.find((item) => item.id === eventId) ?? scoredEvents[0]!
+  const relatedApproval = scoredApprovals.find((item) => item.eventId === event.id) ?? null
+  const highlights = event.analysisHighlights
 
   return (
     <div className="grid gap-5">
@@ -93,9 +87,11 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <DetailFacts
             rows={[
               `来源：${event.source}`,
+              `来源权威度：${event.score.sourceAuthority}`,
               `发布时间：${event.publishedAt}`,
               `当前状态：${event.status}`,
-              `参考强度：${event.referenceStrength}`,
+              `事件可信度：${event.score.eventReliability} / 100`,
+              `验证状态：${event.score.verificationStatus}`,
               `事件概括：${event.summary}`,
             ]}
           />
@@ -116,9 +112,12 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <DetailFacts
             rows={[
               `影响行业：${event.industries.join(' / ')}`,
-              `影响方向：${event.industryImpact}`,
+              `影响方向：${event.impactDirection}`,
+              `行业影响强度：${event.score.impactStrength} / 100`,
+              `分析置信度：${event.score.analysisConfidence} / 100`,
+              `建议推荐度：${event.score.recommendationScore} / 100`,
               `建议动作：${event.actionHint}，等待审批确认后进入受控链路。`,
-              '风险摘要：需要 strong_confirm，且当前建议不等于真实执行完成。',
+              `不确定性摘要：${event.score.uncertaintySummary}`,
             ]}
           />
           <div className="flex flex-wrap gap-2">
@@ -143,9 +142,11 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           />
           <ul className="m-0 grid list-none gap-3 p-0">
             {[
-              ['支持观点', '出口限制升级直接压缩设备与上游材料板块未来两周风险偏好。'],
-              ['反方观点', '若后续出现政策缓释或国产替代加速，板块回撤可能快于预期。'],
-              ['数据缺口', '还缺少二级供应链价格与跨行业对冲信号。'],
+              ['支持观点', highlights?.support ?? '当前事件暂无额外支持观点摘要。'],
+              ['反方观点', highlights?.opposition ?? '当前事件暂无额外反方观点摘要。'],
+              ['验证状态', highlights?.verificationNote ?? `当前为 ${event.score.verificationStatus}，需要继续补齐交叉信源。`],
+              ['数据缺口', event.score.uncertaintySummary],
+              ['降级摘要', event.degradationNotices.map((item) => item.title).join(' / ') || '当前无降级提示'],
             ].map(([label, text]) => (
               <li key={label} className="grid gap-1.5 border-l-2 border-hairline-strong pl-3.5">
                 <p className="m-0 text-[12px] font-bold text-muted">{label}</p>

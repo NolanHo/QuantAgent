@@ -1,12 +1,16 @@
 import { Button } from '@heroui/react'
 import { useState } from 'react'
 
-import { approvalsQueue, featuredEvents } from '../mock-data'
-import { ApprovalCard } from '../components/ApprovalCard'
-import { LinkButton } from '../components/LinkButton'
 import { PageSectionCard } from '../components/PageSectionCard'
 import { SectionHeader } from '../components/SectionHeader'
 import { maskToken } from '../utils/format'
+import { ApprovalScoreCard } from '@/features/event-scoring/components/ApprovalScoreCard'
+import {
+  scoredApprovals,
+  scoredEvents,
+} from '@/features/event-scoring/mocks/event-scoring.mock'
+import { formatRecommendationPriority } from '@/features/event-scoring/utils/event-scoring-labels'
+import { LinkButton } from '@/shared/ui'
 import { DetailFacts, InfoTag, PageHeader } from './shared'
 
 export function ApprovalsIndexPageContent() {
@@ -52,8 +56,8 @@ export function ApprovalsIndexPageContent() {
           description="详情页负责完整上下文，列表页负责优先级、风险方向和入口。"
         />
         <div className="grid gap-3">
-          {approvalsQueue.map((approval) => (
-            <ApprovalCard key={approval.id} approval={approval} />
+          {scoredApprovals.map((approval) => (
+            <ApprovalScoreCard key={approval.id} approval={approval} />
           ))}
         </div>
       </PageSectionCard>
@@ -62,8 +66,8 @@ export function ApprovalsIndexPageContent() {
 }
 
 export function ApprovalDetailPageContent({ approvalId }: { approvalId: string }) {
-  const approval = approvalsQueue.find((item) => item.id === approvalId) ?? approvalsQueue[0]!
-  const relatedEvent = featuredEvents.find((item) => item.title === approval.eventTitle) ?? null
+  const approval = scoredApprovals.find((item) => item.id === approvalId) ?? scoredApprovals[0]!
+  const relatedEvent = scoredEvents.find((item) => item.id === approval.eventId) ?? null
 
   return (
     <div className="grid gap-5">
@@ -83,11 +87,16 @@ export function ApprovalDetailPageContent({ approvalId }: { approvalId: string }
           <DetailFacts
             rows={[
               `关联事件：${approval.eventTitle}`,
-              `推荐度：${approval.recommendation}`,
-              `风险方向：${approval.riskDirection}`,
-              `风险等级：${approval.riskLevel}`,
-              `确认等级：${approval.confirmationLevel}`,
-              `剩余时间：${approval.expiresIn}`,
+              `推荐优先级：${formatRecommendationPriority(approval.scoreContext.recommendationPriority)}`,
+              `建议推荐度：${approval.scoreContext.recommendationScore} / 100`,
+              `事件可信度摘要：${approval.scoreContext.eventReliabilitySummary} / 100`,
+              `分析置信度摘要：${approval.scoreContext.analysisConfidenceSummary} / 100`,
+              `风险方向：${approval.scoreContext.riskDirection}`,
+              `风险等级：${approval.scoreContext.riskLevel}`,
+              `确认等级：${approval.scoreContext.confirmationLevel}`,
+              `剩余时间：${approval.scoreContext.expiresIn}`,
+              `到期策略：${approval.scoreContext.expirationAction}`,
+              `阻断 / 降级：${approval.degradationNotices.map((item) => item.title).join(' / ') || '当前无阻断或降级提示'}`,
             ]}
           />
         </PageSectionCard>
