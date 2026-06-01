@@ -1,5 +1,7 @@
 import type { ApiClient, ApiClientConfig } from "@/shared/api";
 import type { PluginConfigApi } from "@/features/plugins";
+import type { PluginDetailApi } from "@/features/plugins/detail/api/plugin-detail.api";
+import type { SourceBindingsApi } from "@/features/plugins/source-bindings/api/source-bindings.api";
 import type { AuthApi } from "@/shared/auth/api";
 import type { ModelProviderApi } from "@/features/models/api";
 
@@ -13,6 +15,8 @@ export interface RealtimeRuntime {
 export interface RuntimeApis {
   auth: AuthApi;
   plugins: PluginConfigApi;
+  pluginDetail: PluginDetailApi;
+  sourceBindings: SourceBindingsApi;
   models: ModelProviderApi;
   modelProviders: ModelProviderApi;
 }

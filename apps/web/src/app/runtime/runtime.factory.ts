@@ -1,5 +1,7 @@
 import { createApiClient } from "@/shared/api";
 import { PluginConfigApi } from "@/features/plugins";
+import { PluginDetailApi } from "@/features/plugins/detail/api/plugin-detail.api";
+import { SourceBindingsApi } from "@/features/plugins/source-bindings/api/source-bindings.api";
 import { AuthApi } from "@/shared/auth/api";
 import type { RuntimeConfig } from "@/shared/config";
 import { createModelProviderApi } from "@/features/models/api";
@@ -11,10 +13,7 @@ export interface CreateAppRuntimeOptions {
   config: RuntimeConfig;
 }
 
-export function createAppRuntime({
-  auth,
-  config,
-}: CreateAppRuntimeOptions): AppRuntime {
+export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): AppRuntime {
   const apiClient = createApiClient({
     baseURL: config.apiBaseUrl || undefined,
     getCsrfToken: auth.getCsrfToken,
@@ -29,6 +28,8 @@ export function createAppRuntime({
     apis: {
       auth: new AuthApi(apiClient),
       plugins: new PluginConfigApi(apiClient),
+      pluginDetail: new PluginDetailApi(apiClient),
+      sourceBindings: new SourceBindingsApi(apiClient),
       models: modelProviderApi,
       // 中文注释：兼容当前 PR 分支里仍在使用 `modelProviders` 的调用点，避免一次重构同时打断旧引用。
       modelProviders: modelProviderApi,

@@ -1,13 +1,13 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-import { PluginDetailPageContent } from '../../../../features/mainflow/MainflowSections'
+import { PluginDetailPage as PluginDetailFeaturePage } from "../../../../features/plugins/detail";
 
-export const Route = createFileRoute('/_app/(workspace)/plugins/$pluginId')({
-  component: PluginDetailPage,
-})
+export const Route = createFileRoute("/_app/(workspace)/plugins/$pluginId")({
+  component: PluginDetailRoutePage,
+});
 
-function PluginDetailPage() {
-  const { pluginId } = Route.useParams()
+function PluginDetailRoutePage() {
+  const { pluginId } = Route.useParams();
 
-  return <PluginDetailPageContent pluginId={pluginId} />
+  return <PluginDetailFeaturePage pluginId={pluginId} />;
 }
