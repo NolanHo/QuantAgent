@@ -21,6 +21,9 @@ import { LinkButton } from '@/shared/ui'
 
 export function DashboardPageContent() {
   const dashboardHighlightedEvents = selectDashboardHighlightedEvents(scoredEvents)
+  const highlightedTitle = dashboardHighlightedEvents.length === 0
+    ? '当前暂无符合条件的重点事件'
+    : `今天最值得先看的 ${dashboardHighlightedEvents.length} 条`
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1.05fr)] xl:[grid-template-areas:'hero_wallet''metrics_wallet''feed_approvals''feed_health']">
@@ -75,19 +78,27 @@ export function DashboardPageContent() {
                 重点快讯
               </p>
               <h2 className="m-0 text-title-md font-bold text-ink">
-                今天最值得先看的三条
+                {highlightedTitle}
               </h2>
             </div>
             <LinkButton to="/events" variant="ghost">查看全部</LinkButton>
           </div>
 
-          <div className="grid gap-2.5 lg:grid-cols-2">
-            {dashboardHighlightedEvents.map((event, index) => (
-              <div key={event.id} className={index === dashboardHighlightedEvents.length - 1 && dashboardHighlightedEvents.length % 2 === 1 ? 'lg:col-span-2' : ''}>
-                <DashboardEventSummaryCard event={event} />
-              </div>
-            ))}
-          </div>
+          {dashboardHighlightedEvents.length > 0 ? (
+            <div className="grid gap-2.5 lg:grid-cols-2">
+              {dashboardHighlightedEvents.map((event, index) => (
+                <div key={event.id} className={index === dashboardHighlightedEvents.length - 1 && dashboardHighlightedEvents.length % 2 === 1 ? 'lg:col-span-2' : ''}>
+                  <DashboardEventSummaryCard event={event} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-hairline-strong bg-surface p-4">
+              <p className="m-0 text-body-sm text-muted">
+                当前没有通过重点事件筛选的卡片，请前往事件中心查看完整列表。
+              </p>
+            </div>
+          )}
         </div>
       </Card>
 

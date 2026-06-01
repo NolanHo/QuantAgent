@@ -2,6 +2,7 @@ import {
   Card,
   Chip,
 } from '@heroui/react'
+import { twMerge } from 'tailwind-merge'
 
 import { LinkButton } from '@/shared/ui'
 import { formatRelativeMinutes } from '@/shared/utils'
@@ -17,6 +18,11 @@ import {
   formatVerificationStatus,
 } from '../utils/event-scoring-labels'
 
+const eventCardClass = 'h-full border border-hairline bg-surface'
+const primaryChipClass = 'bg-surface-soft text-body-sm font-bold text-ink'
+const subtleChipClass = 'bg-surface-soft text-body-sm font-bold text-muted-strong'
+const dangerChipClass = 'bg-danger/10 text-body-sm font-bold text-danger'
+
 export function EventScoreCard({
   event,
   toDetail = true,
@@ -25,29 +31,29 @@ export function EventScoreCard({
   toDetail?: boolean
 }) {
   return (
-    <Card className="h-full border border-hairline bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))]">
+    <Card className={eventCardClass}>
       <div className="flex flex-col items-start gap-3 p-4 pb-0">
         <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <Chip className="bg-[rgb(59_130_246_/_0.12)] text-[10px] font-bold text-[rgb(29_78_216)]" size="sm" variant="soft">
+            <Chip className={twMerge(primaryChipClass)} size="sm" variant="soft">
               {formatPriorityLabel(event.score.eventPriority, event.score.priorityBand)}
             </Chip>
-            <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
+            <Chip className={twMerge(subtleChipClass)} size="sm" variant="soft">
               {formatEventReliability(event.score.eventReliability)}
             </Chip>
-            <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
+            <Chip className={twMerge(subtleChipClass)} size="sm" variant="soft">
               {formatFreshnessLabel(event.score.freshness)}
             </Chip>
           </div>
-          <Chip className="bg-[rgb(220_38_38_/_0.1)] text-[10px] font-bold text-[rgb(153_27_27)]" size="sm" variant="soft">
+          <Chip className={twMerge(dangerChipClass)} size="sm" variant="soft">
             {event.impactDirection}
           </Chip>
         </div>
         <div className="grid gap-1.5">
-          <h3 className="m-0 overflow-wrap-anywhere text-title-sm font-bold text-ink">
+          <h3 className="m-0 wrap-anywhere text-title-sm font-bold text-ink">
             {event.title}
           </h3>
-          <p className="m-0 text-[11px] font-bold text-muted">
+          <p className="m-0 text-body-sm font-bold text-muted">
             {formatRelativeMinutes(event.publishedMinutesAgo)} · {event.source} · {event.sourceType}
           </p>
         </div>
@@ -55,13 +61,13 @@ export function EventScoreCard({
 
       <div className="grid gap-4 p-4">
         <div className="flex flex-wrap gap-2">
-          <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
+          <Chip className={twMerge(subtleChipClass)} size="sm" variant="soft">
             {formatSourceAuthority(event.score.sourceAuthority)}
           </Chip>
-          <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
+          <Chip className={twMerge(subtleChipClass)} size="sm" variant="soft">
             {formatImpactStrength(event.score.impactStrength)}
           </Chip>
-          <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
+          <Chip className={twMerge(subtleChipClass)} size="sm" variant="soft">
             {formatVerificationStatus(event.score.verificationStatus)}
           </Chip>
         </div>
@@ -76,7 +82,7 @@ export function EventScoreCard({
             {event.industries.map((industry) => (
               <Chip
                 key={industry}
-                className="bg-[rgb(148_163_184_/_0.12)] text-[10px] font-bold text-[rgb(51_65_85)]"
+                className={twMerge(subtleChipClass)}
                 size="sm"
                 variant="soft"
               >
@@ -84,10 +90,10 @@ export function EventScoreCard({
               </Chip>
             ))}
           </div>
-          <p className="m-0 text-[11px] leading-[1.5] text-muted-strong">
+          <p className="m-0 text-body-sm leading-[1.5] text-muted-strong">
             入选原因：{event.score.selectionReason}
           </p>
-          <p className="m-0 text-[11px] leading-[1.5] text-muted-strong">
+          <p className="m-0 text-body-sm leading-[1.5] text-muted-strong">
             {event.actionHint}
           </p>
         </div>

@@ -2,6 +2,7 @@ import {
   Card,
   Chip,
 } from '@heroui/react'
+import { twMerge } from 'tailwind-merge'
 
 import { LinkButton } from '@/shared/ui'
 import { formatRelativeMinutes } from '@/shared/utils'
@@ -14,30 +15,34 @@ import {
   formatPriorityLabel,
 } from '../utils/event-scoring-labels'
 
+const summaryCardClass = 'h-full border border-hairline bg-surface'
+const accentChipClass = 'bg-surface-soft text-body-sm font-bold text-ink'
+const subtleChipClass = 'bg-surface-soft text-body-sm font-bold text-muted-strong'
+
 export function DashboardEventSummaryCard({ event }: { event: EventScoreCardModel }) {
   return (
-    <Card className="h-full border border-hairline bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))]">
+    <Card className={summaryCardClass}>
       <div className="grid gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Chip className="bg-[rgb(59_130_246_/_0.12)] text-[10px] font-bold text-[rgb(29_78_216)]" size="sm" variant="soft">
+          <Chip className={twMerge(accentChipClass)} size="sm" variant="soft">
             {formatPriorityLabel(event.score.eventPriority, event.score.priorityBand)}
           </Chip>
-          <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
+          <Chip className={twMerge(subtleChipClass)} size="sm" variant="soft">
             {formatEventReliability(event.score.eventReliability)}
           </Chip>
-          <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
+          <Chip className={twMerge(subtleChipClass)} size="sm" variant="soft">
             {formatImpactStrength(event.score.impactStrength)}
           </Chip>
-          <Chip className="bg-[rgb(15_23_42_/_0.06)] text-[10px] font-bold text-muted-strong" size="sm" variant="soft">
+          <Chip className={twMerge(subtleChipClass)} size="sm" variant="soft">
             {formatFreshnessLabel(event.score.freshness)}
           </Chip>
         </div>
 
         <div className="grid gap-1.5">
-          <h3 className="m-0 overflow-wrap-anywhere text-title-sm font-bold text-ink">
+          <h3 className="m-0 wrap-anywhere text-title-sm font-bold text-ink">
             {event.title}
           </h3>
-          <p className="m-0 text-[11px] font-bold text-muted">
+          <p className="m-0 text-body-sm font-bold text-muted">
             {formatRelativeMinutes(event.publishedMinutesAgo)} · {event.source}
           </p>
         </div>
@@ -47,10 +52,10 @@ export function DashboardEventSummaryCard({ event }: { event: EventScoreCardMode
         </p>
 
         <div className="grid gap-2">
-          <p className="m-0 text-[11px] leading-[1.5] text-muted-strong">
+          <p className="m-0 text-body-sm leading-[1.5] text-muted-strong">
             入选原因：{event.score.selectionReason}
           </p>
-          <p className="m-0 text-[11px] leading-[1.5] text-muted-strong">
+          <p className="m-0 text-body-sm leading-[1.5] text-muted-strong">
             {event.actionHint}
           </p>
         </div>

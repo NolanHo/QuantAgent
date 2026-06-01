@@ -21,7 +21,7 @@ QuantAgent 已经有两层真源：
 ## Out Of Scope
 
 - 不实现评分算法、权重、模型提示词、训练、回测或个性化排序。
-- 不直接修改 `apps/web`、`apps/api`、`packages/contracts`、generated client 或数据库模型。
+- 不直接修改真实 API DTO、`packages/contracts`、generated client、`apps/api` 或数据库模型；当前允许包含基于 mock data 的 `apps/web` 展示脚手架来验证评分语义落点。
 - 不定义 broker 执行放行、真实交易、批量审批策略或 Policy Gate 后端行为。
 - 不把 Dashboard 首版重新拉回评分驱动首页，也不要求所有页面一次性接完整评分明细。
 

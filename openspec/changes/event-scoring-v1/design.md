@@ -7,7 +7,7 @@
 - `openspec/changes/web-p0-mainflow-pages/`：定义 Web P0 主链路页面职责，但不定义评分字段、排序语义、降级规则和 mock 收口。
 - `apps/web/src/features/mainflow/mock-data.ts`：当前首页骨架存在 `priority`、`referenceStrength`、`industryImpact` 等临时字段，只能视为 mock 表达，不能成为正式 contract。
 
-本 change 不直接写代码，而是把“评分体系如何进入页面和契约”变成后续 Web/API/contracts 实现必须回链的上游。
+本 change 的上游目标仍然是把“评分体系如何进入页面和契约”收成后续 Web/API/contracts 实现必须回链的真源；当前 PR 额外包含基于 mock data 的 Web 展示脚手架，用来验证这些评分语义在页面上的落点，但不包含真实 API/contracts 接入。
 
 ## Goals / Non-Goals
 

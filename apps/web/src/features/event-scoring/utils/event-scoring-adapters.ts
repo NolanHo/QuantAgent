@@ -17,6 +17,7 @@ export function createHealthAlertEventCardModel(
     source: '系统健康',
     status: 'warning',
     sourceType: '内部监控',
+    degradationNotices: [],
     score: {
       ...fallbackEvent.score,
       sourceAuthority: 'C',

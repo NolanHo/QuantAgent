@@ -6,11 +6,18 @@ import {
   scoredApprovals,
   scoredEvents,
 } from '@/features/event-scoring/mocks/event-scoring.mock'
+import {
+  formatVerificationStatus,
+} from '@/features/event-scoring/utils/event-scoring-labels'
 import { createHealthAlertEventCardModel } from '@/features/event-scoring/utils/event-scoring-adapters'
 import { LinkButton } from '@/shared/ui'
 import { DetailFacts, InfoTag, PageHeader } from './shared'
 
 export function EventsIndexPageContent() {
+  const runtimeAlertCard = healthAlerts.length > 0 && scoredEvents.length > 0
+    ? createHealthAlertEventCardModel(healthAlerts[0]!, scoredEvents[0]!)
+    : null
+
   return (
     <div className="grid gap-5">
       <PageHeader
@@ -39,12 +46,17 @@ export function EventsIndexPageContent() {
             title="轻量异常摘要"
             description="只做浏览过程中的轻提示，不把运行态排障台塞回事件中心。"
           />
-          <div className="grid gap-2">
-            <EventScoreCard
-              event={createHealthAlertEventCardModel(healthAlerts[0]!, scoredEvents[0]!)}
-              toDetail={false}
-            />
-          </div>
+          {runtimeAlertCard ? (
+            <div className="grid gap-2">
+              <EventScoreCard event={runtimeAlertCard} toDetail={false} />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-hairline-strong bg-surface p-4">
+              <p className="m-0 text-body-sm text-muted">
+                当前没有可展示的系统提醒。
+              </p>
+            </div>
+          )}
         </PageSectionCard>
       </section>
 
@@ -65,7 +77,30 @@ export function EventsIndexPageContent() {
 }
 
 export function EventDetailPageContent({ eventId }: { eventId: string }) {
-  const event = scoredEvents.find((item) => item.id === eventId) ?? scoredEvents[0]!
+  const event = scoredEvents.find((item) => item.id === eventId)
+
+  if (!event) {
+    return (
+      <div className="grid gap-5">
+        <PageHeader
+          kicker="事件详情 / 决策"
+          title="事件不存在"
+          description="当前事件 ID 没有匹配到 mock 数据，请返回事件中心重新选择。"
+        />
+        <PageSectionCard>
+          <SectionHeader
+            eyebrow="未找到"
+            title="当前事件已移除或 ID 无效"
+            description="首版 mock 页面不做静默兜底到其他事件，避免误导操盘者查看错误事件上下文。"
+          />
+          <div className="flex flex-wrap gap-2">
+            <LinkButton to="/events" variant="outline">返回事件中心</LinkButton>
+          </div>
+        </PageSectionCard>
+      </div>
+    )
+  }
+
   const relatedApproval = scoredApprovals.find((item) => item.eventId === event.id) ?? null
   const highlights = event.analysisHighlights
 
@@ -91,7 +126,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
               `发布时间：${event.publishedAt}`,
               `当前状态：${event.status}`,
               `事件可信度：${event.score.eventReliability} / 100`,
-              `验证状态：${event.score.verificationStatus}`,
+              `验证状态：${formatVerificationStatus(event.score.verificationStatus)}`,
               `事件概括：${event.summary}`,
             ]}
           />
@@ -144,7 +179,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
             {[
               ['支持观点', highlights?.support ?? '当前事件暂无额外支持观点摘要。'],
               ['反方观点', highlights?.opposition ?? '当前事件暂无额外反方观点摘要。'],
-              ['验证状态', highlights?.verificationNote ?? `当前为 ${event.score.verificationStatus}，需要继续补齐交叉信源。`],
+              ['验证状态', highlights?.verificationNote ?? `当前为 ${formatVerificationStatus(event.score.verificationStatus)}，需要继续补齐交叉信源。`],
               ['数据缺口', event.score.uncertaintySummary],
               ['降级摘要', event.degradationNotices.map((item) => item.title).join(' / ') || '当前无降级提示'],
             ].map(([label, text]) => (

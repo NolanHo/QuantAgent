@@ -15,6 +15,7 @@ describe('event scoring adapters', () => {
 
     expect(event.id).toBe(healthAlerts[0]!.id)
     expect(event.source).toBe('系统健康')
+    expect(event.degradationNotices).toEqual([])
     expect(event.score.eventPriority).toBe(40)
     expect(event.score.selectionReason).toContain('不参与高价值事件打分')
   })

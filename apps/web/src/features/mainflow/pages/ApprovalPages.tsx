@@ -66,7 +66,32 @@ export function ApprovalsIndexPageContent() {
 }
 
 export function ApprovalDetailPageContent({ approvalId }: { approvalId: string }) {
-  const approval = scoredApprovals.find((item) => item.id === approvalId) ?? scoredApprovals[0]!
+  const approval = scoredApprovals.find((item) => item.id === approvalId)
+
+  if (!approval) {
+    return (
+      <div className="grid gap-5">
+        <PageHeader
+          kicker="审批详情"
+          title="审批不存在"
+          description="当前审批 ID 没有匹配到 mock 数据，请返回审批工作台重新选择。"
+        />
+        <PageSectionCard>
+          <SectionHeader
+            eyebrow="未找到"
+            title="当前审批已移除或 ID 无效"
+            description="首版 mock 页面不做静默兜底到其他审批，避免误导操盘者查看了错误上下文。"
+          />
+          <div className="flex flex-wrap gap-2">
+            <LinkButton to="/approvals" variant="outline">
+              返回审批工作台
+            </LinkButton>
+          </div>
+        </PageSectionCard>
+      </div>
+    )
+  }
+
   const relatedEvent = scoredEvents.find((item) => item.id === approval.eventId) ?? null
 
   return (
