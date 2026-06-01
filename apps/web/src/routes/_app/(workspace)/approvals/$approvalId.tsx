@@ -1,13 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { ApprovalDetailPageContent } from '../../../../features/mainflow/MainflowSections'
+import { ApprovalDetailPage } from '../../../../features/approvals'
 
 export const Route = createFileRoute('/_app/(workspace)/approvals/$approvalId')({
-  component: ApprovalDetailPage,
+  component: ApprovalDetailRoute,
 })
 
-function ApprovalDetailPage() {
+function ApprovalDetailRoute() {
   const { approvalId } = Route.useParams()
 
-  return <ApprovalDetailPageContent approvalId={approvalId} />
+  return <ApprovalDetailPage approvalId={approvalId} />
 }
