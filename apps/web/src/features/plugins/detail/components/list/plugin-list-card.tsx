@@ -1,7 +1,7 @@
-import { Button, Card, Chip } from "@heroui/react";
-import { Link } from "@tanstack/react-router";
+import { Card, Chip } from "@heroui/react";
 
 import type { PluginRecordResponse } from "../../../api/contracts";
+import { LinkButton } from "@/shared/ui";
 import {
   formatErrorSummary,
   formatOptional,
@@ -18,8 +18,8 @@ export function PluginListCard({ plugin }: PluginListCardProps) {
   const name = manifest?.name ?? plugin.id;
   const type = manifest?.type ?? "unknown";
   const version = formatOptional(manifest?.version);
-  const capabilityCount = manifest?.capabilities.length ?? 0;
-  const sourceBindingCount = manifest?.source_bindings.length ?? 0;
+  const capabilityCount = manifest?.capabilities?.length ?? 0;
+  const sourceBindingCount = manifest?.source_bindings?.length ?? 0;
   const hasError = Boolean(plugin.last_error);
 
   return (
@@ -76,17 +76,15 @@ export function PluginListCard({ plugin }: PluginListCardProps) {
                 未声明配置 Schema
               </Chip>
             )}
-            {manifest?.permissions.length ? (
+            {manifest?.permissions?.length ? (
               <Chip color="warning" size="sm" variant="soft">
                 权限 {manifest.permissions.length} 项
               </Chip>
             ) : null}
           </div>
-          <Link params={{ pluginId: plugin.id }} to="/plugins/$pluginId">
-            <Button size="sm" type="button" variant="primary">
-              详情
-            </Button>
-          </Link>
+          <LinkButton params={{ pluginId: plugin.id }} to="/plugins/$pluginId">
+            详情
+          </LinkButton>
         </div>
       </Card.Content>
     </Card>

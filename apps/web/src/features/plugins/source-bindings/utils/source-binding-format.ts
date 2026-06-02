@@ -8,7 +8,7 @@ import type { SourceBindingSummary } from "../api/source-bindings.contracts";
 export function summarizeBindingScope(binding: SourceBindingSummary): string {
   const schedule = formatRecordSummary(binding.schedule_summary);
   const health = formatRecordSummary(binding.health_summary);
-  return `schedule: ${schedule} · health: ${health}`;
+  return `调度：${schedule} · 健康：${health}`;
 }
 
 export function summarizeLastRun(binding: SourceBindingSummary): string {
@@ -20,8 +20,8 @@ export function summarizeLastRun(binding: SourceBindingSummary): string {
 
 export function summarizeBindingActivity(binding: SourceBindingSummary): string {
   return [
-    `last_run=${summarizeLastRun(binding)}`,
-    `next_run=${formatDateTime(binding.next_run_at)}`,
-    `blocked=${formatOptional(binding.blocked_reason)}`,
+    `最近运行：${summarizeLastRun(binding)}`,
+    `下次运行：${formatDateTime(binding.next_run_at)}`,
+    `阻塞原因：${formatOptional(binding.blocked_reason)}`,
   ].join(" · ");
 }

@@ -1,4 +1,4 @@
-import { Button } from '@heroui/react'
+import { buttonVariants } from '@heroui/react'
 import { Link, type LinkProps } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
@@ -16,10 +16,15 @@ export function LinkButton({
   variant = 'primary',
 }: LinkButtonProps) {
   return (
-    <Link className="inline-flex" params={params} to={to}>
-      <Button className={className} size="sm" variant={variant}>
-        {children}
-      </Button>
+    <Link
+      className={[
+        buttonVariants({ size: 'sm', variant }),
+        className,
+      ].filter(Boolean).join(' ')}
+      params={params}
+      to={to}
+    >
+      {children}
     </Link>
   )
 }

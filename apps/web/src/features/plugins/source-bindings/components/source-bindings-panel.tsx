@@ -6,6 +6,12 @@ import type { PluginOverview } from "../../detail/api/plugin-detail.contracts";
 import { useSourceBindingsQuery } from "../queries/use-source-bindings";
 import { summarizeBindingActivity, summarizeBindingScope } from "../utils/source-binding-format";
 
+const bindingStatusMeta: Record<string, { color: "default" | "success" | "warning"; label: string }> = {
+  active: { color: "success", label: "运行中" },
+  disabled: { color: "default", label: "已禁用" },
+  paused: { color: "warning", label: "已暂停" },
+};
+
 export function SourceBindingsPanel({ overview }: { overview: PluginOverview }) {
   const isIndustryPlugin = overview.type === "industry";
   const bindingsQuery = useSourceBindingsQuery(
@@ -84,22 +90,16 @@ export function SourceBindingsPanel({ overview }: { overview: PluginOverview }) 
                     <Table.Cell>{binding.source_plugin_id}</Table.Cell>
                     <Table.Cell>
                       <Chip
-                        color={
-                          binding.status === "active"
-                            ? "success"
-                            : binding.status === "paused"
-                              ? "warning"
-                              : "default"
-                        }
+                        color={formatBindingStatus(binding.status).color}
                         size="sm"
                         variant="soft"
                       >
-                        {formatBindingStatus(binding.status)}
+                        {formatBindingStatus(binding.status).label}
                       </Chip>
                     </Table.Cell>
                     <Table.Cell>{summarizeBindingScope(binding)}</Table.Cell>
                     <Table.Cell>{summarizeBindingActivity(binding)}</Table.Cell>
-                    <Table.Cell>{binding.allowed_actions.map(formatBindingAction).join(", ") || "-"}</Table.Cell>
+                    <Table.Cell>{(binding.allowed_actions ?? []).map(formatBindingAction).join(", ") || "-"}</Table.Cell>
                   </Table.Row>
                 )}
               </Table.Body>
@@ -112,16 +112,7 @@ export function SourceBindingsPanel({ overview }: { overview: PluginOverview }) 
 }
 
 function formatBindingStatus(status: string) {
-  if (status === "active") {
-    return "运行中";
-  }
-  if (status === "paused") {
-    return "已暂停";
-  }
-  if (status === "disabled") {
-    return "已禁用";
-  }
-  return status;
+  return bindingStatusMeta[status] ?? { color: "default", label: status };
 }
 
 function formatBindingAction(action: string) {

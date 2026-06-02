@@ -1,6 +1,7 @@
 import { Button, Chip, Input } from "@heroui/react";
 
 import type { PluginRecordResponse } from "../../../api/contracts";
+import { formatPluginType } from "../../utils/plugin-detail-format";
 
 type PluginListToolbarProps = {
   activeType: string;
@@ -57,7 +58,7 @@ export function PluginListToolbar({
               onTypeChange(type);
             }}
           >
-            {type === "all" ? "全部" : type}
+            {type === "all" ? "全部" : formatPluginType(type)}
           </Button>
         ))}
       </div>
