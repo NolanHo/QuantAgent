@@ -1,3 +1,4 @@
+# Original comprehensive tests restored from backup
 from __future__ import annotations
 
 import gzip
@@ -48,6 +49,17 @@ class RawEventDraft:
 
 
 def make_plugin():
+    import sys
+    from pathlib import Path
+
+    test_dir = Path(__file__).resolve().parents[1]
+    plugin_src = test_dir / "src"
+    core_src = test_dir.parents[4] / "packages" / "core" / "src"
+
+    for path in (str(core_src), str(plugin_src)):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+
     from twelve_data_source import TwelveDataSourcePlugin
 
     return TwelveDataSourcePlugin()

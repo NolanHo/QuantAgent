@@ -10,8 +10,36 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from quantagent.core.events.dto import RawEventDraft
-from quantagent.core.sources.protocols import RuntimeContext
+try:
+    from quantagent.core.events.dto import RawEventDraft
+except ImportError:  # pragma: no cover
+    from dataclasses import dataclass, field
+
+    @dataclass(frozen=True)
+    class RawEventDraft:
+        source_plugin_id: str
+        source_type: str
+        title: str
+        external_id: str | None = None
+        url: str | None = None
+        canonical_url: str | None = None
+        content: str | None = None
+        author: str | None = None
+        published_at: datetime | None = None
+        captured_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+        raw_payload: dict[str, Any] = field(default_factory=dict)
+        metadata: dict[str, Any] = field(default_factory=dict)
+        dedupe_hint: str | None = None
+
+try:
+    from quantagent.core.sources.protocols import RuntimeContext
+except ImportError:  # pragma: no cover
+    from dataclasses import dataclass, field
+
+    @dataclass(frozen=True)
+    class RuntimeContext:
+        plugin_id: str
+        metadata: dict[str, Any] = field(default_factory=dict)
 
 TWELVE_DATA_QUOTE_URL = "https://api.twelvedata.com/quote"
 _DEFAULT_UA = "QuantAgent Twelve Data Source/0.2"
@@ -277,3 +305,5 @@ class TwelveDataSourcePlugin:
 
 
 plugin = TwelveDataSourcePlugin()
+
+
