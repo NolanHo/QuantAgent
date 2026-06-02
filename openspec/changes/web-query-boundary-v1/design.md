@@ -153,16 +153,16 @@ app/runtime -> FeatureApi -> queries/mutations -> business hooks -> page compone
 
 ## Risks / Trade-offs
 
-- [Risk] 轻量 `shared/query` 可能被实现者误解为“规范太弱，后续仍可继续随意定义 query key”。  
+- [Risk] 轻量 `shared/query` 可能被实现者误解为“规范太弱，后续仍可继续随意定义 query key”。
   Mitigation：spec 明确要求新增一级资源必须先登记共享 root key，route/page/shared UI 不得继续自发明业务查询边界。
 
-- [Risk] 渐进迁移策略会在一段时间内同时存在共享 root key 和历史局部 key。  
+- [Risk] 渐进迁移策略会在一段时间内同时存在共享 root key 和历史局部 key。
   Mitigation：spec 明确“新增强约束、旧能力按触碰迁移”，并以 `models` 作为正式样板，避免实现者误解为可以无限期拖延。
 
-- [Risk] 显式固定 `gcTime` 后，部分现有测试或调试预期可能变化。  
+- [Risk] 显式固定 `gcTime` 后，部分现有测试或调试预期可能变化。
   Mitigation：将默认策略和覆盖方式都写入 change，后续实现时通过 unit test 锁定行为，并允许测试按入口覆盖。
 
-- [Risk] `shared/query` 若被继续扩张，可能反向承载业务 queryFn、invalidate 甚至页面状态。  
+- [Risk] `shared/query` 若被继续扩张，可能反向承载业务 queryFn、invalidate 甚至页面状态。
   Mitigation：spec 和 README 明确其非目标，后续 review 以此作为 must-fix gate。
 
 ## Migration Plan
