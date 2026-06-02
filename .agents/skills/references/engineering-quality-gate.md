@@ -128,10 +128,12 @@
 
 OpenSpec artifacts 必须能指导实现，不能只是空泛愿景：
 
+- OpenSpec 文档主体默认中文；但 `Requirement`、`Scenario`、`SHALL`、`MUST`、`WHEN`、`THEN`、`AND`、`ADDED/MODIFIED/REMOVED/RENAMED Requirements` 等 CLI 结构关键字必须保留英文，具体规则见 `.agents/skills/references/openspec-chinese-artifact-gate.md`。
 - `proposal.md` 说明 why now、当前缺口、非目标和风险边界。
 - `design.md` 是实现蓝图，必须说明目录/文件规划、分层架构、模块职责、核心模型、DTO/schema/API/事件/配置/数据库字段草案、数据流、失败路径、复用/不复用的取舍和验证策略。
 - `specs/**/spec.md` 用 requirement 和 scenario 描述可验证行为，不写实现流水账。
 - `tasks.md` 体现依赖关系、可并行边界、写入范围、review gate 和验证动作。
+- 新建或大幅更新 change 后必须运行 `openspec validate <change-id> --type change --strict --json`，失败时先回改 artifacts。
 
 如果 artifacts 没有说明目录/文件规划、职责边界、核心模型与接口字段、复用点、失败路径或验证方式，不能进入实现；先补强 artifacts 或向维护者追问。
 
