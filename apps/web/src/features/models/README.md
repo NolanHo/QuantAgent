@@ -9,7 +9,7 @@
 
 当前职责：
 - `api/`: 模型相关 REST contracts 与 endpoint 封装
-- `queries/`: query keys 与 `useQuery` 读取逻辑
+- `queries/`: 基于 `shared/query` 的 `models` root key 扩展 feature detail keys，并提供 `useQuery` 读取逻辑
 - `mutations/`: `useMutation` 与 invalidate 逻辑
 - `hooks/`: 页面级业务编排、表单业务状态
 - `components/page/`: 页面装配
@@ -35,3 +35,4 @@
 - 不要在 route 文件里新增 query、mutation、弹窗状态或业务表单逻辑
 - 不要在 `components/` 里直接调 API、拼 query key 或处理 invalidate
 - 不要把 feature DTO、query、页面状态重新平铺回根目录
+- 不要把 `models` 的一级 root key 重新收回 feature 内；共享 root key 留在 `src/shared/query/`，feature 只扩 detail/list/preset 等细分层级
