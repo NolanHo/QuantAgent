@@ -1,8 +1,4 @@
-export {
-  EventAuditPageContent,
-  EventDetailPageContent,
-  EventsIndexPageContent,
-} from './pages/EventPages'
+export { EventsIndexPageContent } from './pages/EventPages'
 export { DashboardPageContent } from './pages/DashboardPageContent'
 export {
   ApprovalDetailPageContent,
