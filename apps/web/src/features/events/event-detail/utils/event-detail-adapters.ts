@@ -1,6 +1,7 @@
 import { formatVerificationStatus } from '@/features/event-scoring/utils/event-scoring-labels'
 import type {
   ApprovalScoreCardModel,
+  AnalysisStatus,
   EventScoreCardModel,
 } from '@/features/event-scoring/types/event-scoring.types'
 import type { RuntimeAgentRunSummary } from '@/features/mainflow/mock-data'
@@ -69,6 +70,85 @@ function buildEvidenceQuality(event: EventScoreCardModel) {
   return '证据质量待补：仍需补齐交叉信源与关键业务指标。'
 }
 
+function formatAnalysisStatusLabel(status: AnalysisStatus) {
+  switch (status) {
+    case 'captured':
+      return '已捕获，等待分析'
+    case 'analyzing':
+      return '分析中'
+    case 'decision_ready':
+      return '分析已完成'
+    case 'pending_approval':
+      return '等待人工审批'
+    case 'warning':
+      return '运行提醒'
+    case 'analysis_failed':
+      return '分析失败'
+    case 'policy_blocked':
+      return '策略门禁阻断'
+    default:
+      return status
+  }
+}
+
+function formatRuntimeStatusLabel(status: string) {
+  switch (status) {
+    case 'succeeded':
+      return '运行完成'
+    case 'output_invalid':
+      return '输出校验失败'
+    case 'timed_out':
+      return '运行超时'
+    case 'failed':
+      return '运行失败'
+    default:
+      return formatAnalysisStatusLabel(status as AnalysisStatus)
+  }
+}
+
+function formatProviderPolicyLabel(policy: string | undefined) {
+  switch (policy) {
+    case 'balanced':
+      return '平衡策略'
+    case 'reasoning':
+      return '深度推理策略'
+    case undefined:
+      return '待补充'
+    default:
+      return policy
+  }
+}
+
+function formatConfirmationLevelLabel(level: string | undefined) {
+  switch (level) {
+    case 'strong_confirm':
+      return '强确认'
+    case 'manual_only':
+      return '仅人工复核'
+    case 'link_confirm':
+      return '链接确认'
+    case undefined:
+      return null
+    default:
+      return level
+  }
+}
+
+function formatRiskDirectionLabel(direction: string | undefined) {
+  switch (direction) {
+    case 'increase_risk':
+      return '风险上升'
+    case 'reduce_risk':
+      return '降低风险暴露'
+    case 'neutral':
+      return '中性复核'
+    case undefined:
+      return undefined
+    default:
+      return direction
+  }
+}
+
 function buildDivergenceSummary(event: EventScoreCardModel) {
   if (event.score.verificationStatus === 'conflicting_sources') {
     return event.analysisHighlights?.verificationNote ?? '当前存在多信源冲突，建议保持人工复核。'
@@ -85,10 +165,10 @@ function buildApprovalStatus(
   approval: ApprovalScoreCardModel | null,
 ) {
   if (!approval) {
-    return '当前暂无 ApprovalRequest'
+    return '当前暂无审批请求'
   }
 
-  return `已生成 ${approval.scoreContext.confirmationLevel}`
+  return `已生成审批请求：${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '待确认'}`
 }
 
 export function createEventDetailPageModel(
@@ -116,7 +196,7 @@ export function createEventDetailPageModel(
       source: event.source,
       sourceAuthority: event.score.sourceAuthority,
       publishedAt: event.publishedAt,
-      status: event.status,
+      status: formatAnalysisStatusLabel(event.status),
       eventReliability: event.score.eventReliability,
       verificationStatusLabel,
       summary: event.summary,
@@ -126,7 +206,7 @@ export function createEventDetailPageModel(
       recommendedAction: approvalActionLabel,
       rationale: approval?.triggerSummary ?? event.score.selectionReason,
       currentBlocker: approval
-        ? `必须先进入 ${approval.scoreContext.confirmationLevel} 审批链路，不能在详情页直接执行。`
+        ? `必须先进入${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '人工确认'}审批链路，不能在详情页直接执行。`
         : event.score.uncertaintySummary,
     },
     impactSummary: {
@@ -150,11 +230,11 @@ export function createEventDetailPageModel(
       uncertaintySummary: event.score.uncertaintySummary,
       approvalStatus: buildApprovalStatus(approval),
       approvalId: approval?.id ?? null,
-      confirmationLevel: approval?.scoreContext.confirmationLevel ?? null,
+      confirmationLevel: formatConfirmationLevelLabel(approval?.scoreContext.confirmationLevel),
       expirationSummary: approval
         ? `${approval.scoreContext.expiresIn}，${approval.scoreContext.expirationAction}`
         : null,
-      riskDirection: approval?.scoreContext.riskDirection,
+      riskDirection: formatRiskDirectionLabel(approval?.scoreContext.riskDirection),
       riskLevel: approval?.scoreContext.riskLevel,
     },
     evidenceSummary: {
@@ -174,10 +254,10 @@ export function createEventDetailPageModel(
     ].map(([label, text]) => ({ label, text })),
     runtimeSummary: {
       runId: run?.id ?? null,
-      status: run?.status ?? event.status,
-      providerPolicy: run?.providerPolicy ?? '待补充',
+      status: run ? formatRuntimeStatusLabel(run.status) : formatAnalysisStatusLabel(event.status),
+      providerPolicy: formatProviderPolicyLabel(run?.providerPolicy),
       traceId: run?.traceId ?? '待补充',
-      summary: run?.summary ?? '当前暂无关联 Agent Run 摘要。',
+      summary: run?.summary ?? '当前暂无关联运行摘要。',
     },
     degradationNotices: event.degradationNotices,
   }
@@ -195,7 +275,7 @@ export function createEventAuditPageModel(
     summary: {
       eventReliability: event.score.eventReliability,
       impactStrength: event.score.impactStrength,
-      status: event.status,
+      status: formatAnalysisStatusLabel(event.status),
       approvalId: approval?.id ?? null,
       runId: run?.id ?? null,
     },

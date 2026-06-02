@@ -1,5 +1,4 @@
 import type {
-  AnalysisStatus,
   ApprovalScoreCardModel,
   EventDegradationNotice,
   EventScoreCardModel,
@@ -10,7 +9,7 @@ export interface EventFactSummary {
   source: string
   sourceAuthority: string
   publishedAt: string
-  status: AnalysisStatus
+  status: string
   eventReliability: number
   verificationStatusLabel: string
   summary: string
@@ -75,7 +74,7 @@ export interface RuntimeSummary {
 export interface AuditSummary {
   eventReliability: number
   impactStrength: number
-  status: AnalysisStatus
+  status: string
   approvalId: string | null
   runId: string | null
 }

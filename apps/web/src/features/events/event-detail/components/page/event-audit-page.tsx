@@ -15,12 +15,12 @@ function EventAuditNotFoundState() {
       <PageHeader
         kicker="事件级审计"
         title="事件不存在"
-        description="当前事件 ID 没有匹配到 mock 数据，请返回事件中心重新选择。"
+        description="当前事件编号没有匹配到演示数据，请返回事件中心重新选择。"
       />
       <PageSectionCard>
         <SectionHeader
           eyebrow="未找到"
-          title="当前事件已移除或 ID 无效"
+          title="当前事件已移除或编号无效"
           description="审计页也不做静默兜底，避免回放到错误事件链路。"
         />
         <div className="flex flex-wrap gap-2">
@@ -50,7 +50,7 @@ export function EventAuditPageContent({ eventId }: { eventId: string }) {
       <PageHeader
         kicker="事件级审计"
         title="事件时间线"
-        description="按事件回放建议生成、重分析和人工动作。这里只做时间线骨架，不发明新的审计 contract。"
+        description="按事件回放建议生成、重分析和人工动作。这里只做时间线骨架，不发明新的审计契约。"
       />
 
       <PageSectionCard>
@@ -78,10 +78,10 @@ export function EventAuditPageContent({ eventId }: { eventId: string }) {
         />
         <div className="grid gap-3">
           {[
-            ['10:24 · event.state_changed', 'Source 插件捕获事件并进入路由阶段。'],
-            ['10:31 · industry.analysis.completed', '行业影响分析输出结构化摘要并生成最佳动作候选。'],
-            ['10:36 · approval.requested', '高风险建议进入人工确认链路，等待 strong_confirm。'],
-            ['10:42 · reanalysis.requested', '因工具超时触发补充验证和重分析请求。'],
+            ['10:24 · 事件状态变更', '来源插件捕获事件并进入路由阶段。'],
+            ['10:31 · 行业分析完成', '行业影响分析输出结构化摘要并生成最佳动作候选。'],
+            ['10:36 · 审批请求已生成', '高风险建议进入人工确认链路，等待强确认。'],
+            ['10:42 · 请求重分析', '因工具超时触发补充验证和重分析请求。'],
           ].map(([title, copy]) => (
             <article key={title} className="grid gap-1.5 border-l-2 border-hairline-strong pl-3.5">
               <p className="m-0 text-[12px] font-bold text-muted">{title}</p>
