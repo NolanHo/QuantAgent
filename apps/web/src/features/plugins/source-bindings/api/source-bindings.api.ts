@@ -11,10 +11,12 @@ export class SourceBindingsApi extends BaseApi {
   }
 
   listBindings(params: SourceBindingListParams = {}): Promise<SourceBindingListResponse> {
+    const limit = params.limit ?? 50;
+
     return this.get<SourceBindingListResponse>("/", {
-      dedupeKey: `source-bindings:${params.ownerType ?? "any"}:${params.ownerId ?? "any"}:${params.sourcePluginId ?? "any"}:${params.status ?? "any"}:${params.limit ?? "any"}`,
+      dedupeKey: `source-bindings:${params.ownerType ?? "any"}:${params.ownerId ?? "any"}:${params.sourcePluginId ?? "any"}:${params.status ?? "any"}:${limit}`,
       params: {
-        limit: params.limit ?? 50,
+        limit,
         owner_id: params.ownerId,
         owner_type: params.ownerType,
         source_plugin_id: params.sourcePluginId,
