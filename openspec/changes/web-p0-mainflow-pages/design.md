@@ -13,17 +13,19 @@
 
 **Goals:**
 
-- 固化 P0 主链路的四个核心页面职责：Dashboard、Events、Event Detail / Decision、Approvals。
-- 明确四个页面的主对象、主任务和禁止职责。
+- 固化 P0 主链路的五个核心页面职责：Dashboard、Events、Event Detail / Decision、Event Audit Timeline、Approvals。
+- 明确五个页面的主对象、主任务和禁止职责。
+- 明确事件级审计页主对象是 Event，主任务是回放建议生成、变更、reanalysis 和人工动作，而不是提供全局日志或 Runtime 镜像。
 - 把根路径 `/` 的默认首页语义从 `/events` 收口为 Dashboard。
-- 为 #129、#130、#131 提供一个可复用的统一上游 change。
+- 为 #129、#130、#131、#132 提供一个可复用的统一上游 change。
 - 让后续实现者能够在不重新做产品判断的情况下进入页面实现。
 
 **Non-Goals:**
 
-- 不在本 change 中实现 React 页面、路由代码、API contract 或组件样式。
+- 不在本 change 中实现 React 页面、路由代码、后端 API contract、generated client、数据库 schema 或组件样式。
 - 不重新设计 Runtime、Plugins、Models、Settings 等非 P0 页面。
-- 不把“相关历史事件”“真实执行流程”“首页外独立系统健康页”拉进 V1 主链路。
+- 不把“相关历史事件”“真实执行流程”“首页外独立系统健康页”“全局日志平台”“完整原始推理回放”拉进 V1 主链路。
+- 不把事件审计页扩展成 audit_logs 后端查询 contract、不可篡改存证设计或完整 payload diff 工具。
 - 不修改登录、会话、CSRF 或 capability guard 的既有行为契约，除非它们与默认首页入口直接相关。
 
 ## Decisions
@@ -35,7 +37,7 @@
 因此本 change 采用两层处理：
 
 - `router-layout` 只修改根路径默认入口这一条稳定路由语义。
-- 新增 `web-p0-mainflow-pages` 能力，专门定义 Dashboard、Events、Event Detail / Decision、Approvals 的行为边界。
+- 新增 `web-p0-mainflow-pages` 能力，专门定义 Dashboard、Events、Event Detail / Decision、Event Audit Timeline、Approvals 的行为边界。
 
 这样后续页面实现 issue 可以直接引用页面能力 spec，而不必从布局 spec 中拆意图。
 
@@ -64,6 +66,7 @@
 - Dashboard：主对象聚焦高价值事件；禁止承担审批执行和插件治理。
 - Events：主对象是事件集合；禁止承担首页总控和审批动作。
 - Event Detail：主对象是单条事件；禁止直接批准或执行高风险动作。
+- Event Audit Timeline：主对象是单条事件的审计回放；禁止变成全局日志页、插件日志中心或 Runtime 替代品。
 - Approvals：主对象是 ApprovalRequest；禁止把批准语义写成真实执行完成。
 
 这种定义方式与现有页面 PRD 的结构一致，也更适合转成验收场景。相反，如果在 OpenSpec 中枚举最终组件名、字段和布局细节，会抢掉 #129、#130、#131 的实现设计空间，并让 spec 过早绑定尚未稳定的 API contract，因此不采用。
@@ -84,26 +87,121 @@
 
 替代方案是在本 change 的 `router-layout` delta 中同时复制登录恢复、403 和 capability snapshot 语义。该方案会让归档后的 `router-layout` 变成认证和权限真源，造成职责重叠，因此不采用。
 
-### 7. PRD 回链单独处理，不在 OpenSpec-only PR 中混入页面附录改动
+### 7. PRD 回链只同步真源映射，不重写页面附录
 
-当前 `origin/main` 上的页面 PRD 已经基本符合 `issue #127` 结论。再次大规模重写 PRD 只会扩大本轮范围，并增加 OpenSpec-only PR 的噪音。
+当前 `docs/prd/08-frontend-pages-overview.md` 已经列出 Event Audit Timeline 作为 P0 主链路页面，但 OpenSpec 真源映射仍停留在 Dashboard / Events / Event Detail / Approvals。为了避免 PRD 与 OpenSpec 分叉，本轮只同步真源映射，不重写页面附录正文。
 
-因此本轮保持 OpenSpec-only 边界：
+因此本轮保持窄文档边界：
 
-- 本 change 只提交 `proposal.md`、`design.md`、`tasks.md`、`specs/**/spec.md` 和必要元数据。
-- `docs/prd/08-frontend-pages-overview.md` 对 `web-p0-mainflow-pages` 的回链在后续独立文档变更中处理，不与 OpenSpec-only PR 混提。
-- 不大改 `00-dashboard.md`、`02-events-home.md`、`03-event-detail.md`、`04-approvals-index.md`，除非后续实现或评审发现与 stable spec 直接冲突的语句。
+- OpenSpec artifacts 承接页面行为契约。
+- `docs/prd/08-frontend-pages-overview.md` 只更新 OpenSpec 真源映射。
+- 不大改 `00-dashboard.md`、`02-events-home.md`、`03-event-detail.md`、`04-approvals-index.md`、`16-event-audit-timeline.md`，除非后续实现或评审发现与 stable spec 直接冲突的语句。
+
+### 8. `/events/:eventId/audit` 以 Event 为主对象，不做全局日志平台
+
+Issue #132 和 `docs/prd/pages/16-event-audit-timeline.md` 已经明确，事件级审计时间线要回答“这条建议为什么变成现在这样，谁在什么时候做过什么”。这与 Runtime 的运行排障、插件详情 Audit tab 或后续全局运营报表不同。
+
+因此本 change 将 `/events/:eventId/audit` 收进 P0 主链路页面契约：
+
+- 时间线按 Event 组织，不按插件、全局日志或审批动作分散浏览。
+- V1 至少表达事件状态变化、分析完成、建议生成 / 变更、reanalysis、人工动作和关键运行错误。
+- 建议变更展示摘要级 before / after、变更原因和分数变化，不展示完整原始推理、secret、私有策略或敏感 payload。
+- 事件详情和审批详情必须提供回到当前事件审计页的稳定入口。
+
+替代方案是把审计页留作 `EventPages.tsx` 里的静态占位，等后端 contract 完全接通后再整理。该方案会继续让 route、mock、节点归并和页面主体混在一起，也无法约束后续实现不要退化成全局日志列表，因此不采用。
+
+### 9. 事件审计 V1 预留前端 API / query 边界，但不新增后端 contract
+
+当前仓库没有事件级审计 REST contract。Issue #132 要求“若后端 contract 尚未完全接通，前端只表达结构化占位和降级态，不在页面层发明新的 audit 真相”，同时要求实现符合 Web gate 的 route / api / query / hook / component / README 分层。
+
+因此后续实现采用前端预留 API + 降级策略：
+
+- `apps/web` 新增事件审计 feature，前端 API 预留 `GET /events/{eventId}/audit` 的调用边界。
+- 服务端状态通过 TanStack Query 承接；route 只传入 `eventId`。
+- 当接口未接通、返回不可用或无数据时，页面展示明确标识的结构化降级态和 mock fallback，不能把 fallback 写成真实审计记录。
+- 不在本 change 中新增 `apps/api` router、数据库表、`packages/contracts` schema 或 generated client。
+
+替代方案一是同步新增后端事件审计接口。该方案会扩大到后端 contract、持久化和审计记录真源，超出 #132 的前端页面收口范围。替代方案二是只保留 mock-only 组件拆分，但它无法满足 TanStack Query 和 API 分层要求，也会削弱未来接入真实 contract 的边界，因此不采用。
+
+### 10. 后续 Web 实现的职责蓝图
+
+本 change 不提交业务实现，但 #132 的实现 PR 必须按 Web gate 把审计页拆到可 review 的职责边界：
+
+```text
+apps/web/src/routes/_app/(workspace)/events/$eventId/audit.tsx
+apps/web/src/features/event-audit/
+  README.md
+  api/
+    event-audit.api.ts
+    event-audit.contracts.ts
+  queries/
+    event-audit.keys.ts
+    use-event-audit-timeline.ts
+  hooks/
+    use-event-audit-page.ts
+  components/
+    page/
+    timeline/
+    states/
+  types/
+    event-audit.types.ts
+  utils/
+    event-audit-node.ts
+  mocks/
+    event-audit.mock.ts
+```
+
+职责边界：
+
+- route 只读取 `eventId` 并装配 feature page，不直接请求、组装节点或渲染时间线主体。
+- feature API 只封装事件审计读取 endpoint 和局部 contract 类型；query key、`useQuery`、toast、页面状态不能放进 API 文件。
+- query hook 通过 `app/runtime` 的稳定 `apis` 对象访问 feature API，不直接创建 `apiClient` 或 `EventAuditApi`。
+- 页面 hook 只组合 query 结果、事件摘要、相关入口和降级态，不承载底层 HTTP、DTO envelope 或复杂 JSX。
+- components 只渲染稳定 props，覆盖 loading、empty、error、only system nodes、only human nodes、degraded fallback 和 sensitive masked 状态。
+- README 说明 feature 职责、route 入口、公开 page/hook、子目录含义、不负责后端 audit contract 和不要继续往根目录平铺什么。
+
+### 11. 数据流、失败路径和安全边界
+
+目标数据流：
+
+```text
+route eventId
+  -> useEventAuditPage(eventId)
+  -> useEventAuditTimeline(eventId)
+  -> runtime apis.eventAudit.getEventAuditTimeline(eventId)
+  -> EventAuditPage / timeline components
+```
+
+当后端事件审计接口未接通、返回 404/501/不可用或暂无记录时，页面进入结构化降级态：
+
+- 明确展示“后端事件审计接口未接通”或“当前事件暂无审计记录”，不得写成真实历史已经发生。
+- 可以使用 mock fallback 解释页面结构，但必须标识为占位数据。
+- 读取失败展示错误摘要和 request_id / trace_id；缺少 trace 的节点只展示可用摘要，不阻断整条时间线。
+- 权限不足展示 capability 缺失或不可见原因，不用 mock 数据绕过权限。
+
+安全和审计边界：
+
+- REST / 数据库 / append-only audit 记录是业务状态真源；WebSocket 只可用于提醒或 query invalidation。
+- `before_state` / `after_state` 只展示脱敏摘要，不展示完整模型推理链、secret、token、私有策略或完整敏感 payload。
+- 审计页只读，不提供编辑历史、补写 audit、批准、执行或策略绕过入口。
+- 后端 `audit_logs` contract、持久化查询、generated client 和跨语言 schema 需要后续独立 change 收口。
 
 ## Risks / Trade-offs
 
 - [Risk] 只修改 OpenSpec 而不立刻改路由代码，短期内仓库实现仍然保持 `/ -> /events`。
   -> Mitigation：在 tasks 中明确实现 PR 必须先处理默认首页入口，再进入 Dashboard UI 或详情/审批页面实现。
 
-- [Risk] 新增 `web-p0-mainflow-pages` capability 后，reviewer 可能质疑和现有页面 PRD 的边界重复，或认为 OpenSpec-only PR 混入了页面附录改动。
-  -> Mitigation：proposal 和 design 中明确 PRD 是页面附录，OpenSpec 是行为真源；PRD 回链单独处理，不在本 PR 混入。
+- [Risk] 新增 `web-p0-mainflow-pages` capability 后，reviewer 可能质疑和现有页面 PRD 的边界重复。
+  -> Mitigation：proposal 和 design 中明确 PRD 是页面附录，OpenSpec 是行为真源；本轮只同步 `docs/prd/08` 的真源映射，不重写页面附录正文。
 
 - [Risk] 事件详情页当前 PRD 提到了更多信息块，spec 若写得过细会抢掉 #130 的设计空间。
   -> Mitigation：spec 只固定主阅读顺序、关键入口和 P0 非目标，不发明最终字段 contract 或交互细节。
 
 - [Risk] 修改 `router-layout` 默认入口会与 `web-login-cookie-session-auth` 的“默认首页流”表述形成歧义。
   -> Mitigation：在 `router-layout` 中显式把默认首页流指向 Dashboard；登录 spec 继续保留“进入默认首页流”的抽象，不重复写死路由细节。
+
+- [Risk] 事件审计页预留前端 API 后，reviewer 可能误以为本 change 已定义后端 audit contract。
+  -> Mitigation：spec 和 tasks 明确本轮只定义页面行为与前端分层，后端事件审计 contract 需要后续窄范围 change 单独收口。
+
+- [Risk] mock fallback 容易被误读成真实历史记录。
+  -> Mitigation：实现任务要求页面显式标识接口未接通 / 降级来源，PR 说明中列为未接通风险，不允许把 fallback 文案写成真实审计事实。

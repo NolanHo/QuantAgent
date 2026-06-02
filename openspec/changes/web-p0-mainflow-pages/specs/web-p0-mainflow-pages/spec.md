@@ -88,6 +88,44 @@
 - **AND** 不将批准文案写成已下单、已成交或已真实执行完成
 - **AND** 批量处理必须比逐条处理更保守
 
+### Requirement: Event Audit Timeline Replays One Event
+
+系统 SHALL 将 `/events/:eventId/audit` 定义为事件级审计时间线页面，用于按单条 Event 回放状态变化、分析完成、建议生成 / 变更、reanalysis 和人工动作，而不是全局日志页、插件日志页或 Runtime 替代品。
+
+#### Scenario: Audit timeline stays event-scoped
+- **WHEN** 用户进入 `/events/:eventId/audit`
+- **THEN** 页面围绕当前 Event 展示审计回放
+- **AND** 时间线节点按照发生时间表达先后关系
+- **AND** 页面不把无关 Event、Plugin、Skill、Tool 或 Runtime 日志提升为主对象
+
+#### Scenario: Audit timeline explains suggestion changes
+- **WHEN** 事件存在建议生成、建议变更或 reanalysis 结果
+- **THEN** 时间线展示建议变更前摘要、变更后摘要、变更原因和分数变化摘要
+- **AND** 用户可以解释“这条建议为什么和之前不一样”
+- **AND** 页面不展示完整模型推理链、secret、私有策略或完整敏感 payload
+
+#### Scenario: Audit timeline distinguishes system and human nodes
+- **WHEN** 时间线同时包含系统节点和人工节点
+- **THEN** 系统节点用于表达事件状态变化、分析完成、建议生成、运行错误和 reanalysis 结果
+- **AND** 人工节点用于表达 approve、reject、amend 或 request_reanalysis 等人工动作
+- **AND** 页面能展示仅系统节点、仅人工节点和无审计记录的退化态
+
+#### Scenario: Audit page links back to related mainflow context
+- **WHEN** 审计节点关联审批请求、事件详情或运行追踪
+- **THEN** 页面提供回到 `/events/:eventId`、相关审批详情或 Runtime 详情的稳定入口
+- **AND** 事件详情和审批详情提供进入当前事件审计时间线的稳定入口
+
+#### Scenario: Audit fallback does not invent backend truth
+- **WHEN** 后端事件审计 contract 未接通、返回不可用或暂无记录
+- **THEN** 前端展示明确标识的结构化降级态或 mock fallback
+- **AND** 降级内容不得被描述为真实后端审计记录
+
+#### Scenario: Audit page handles missing permission or partial trace
+- **WHEN** 当前 actor 无权查看部分审计字段或节点缺少 trace_id / request_id
+- **THEN** 页面展示可见摘要、缺失原因或权限不足状态
+- **AND** 不使用 mock 数据补齐用户无权查看的真实字段
+- **AND** 不因单个节点缺少 trace 而阻断整条事件时间线
+
 ### Requirement: P0 Mainflow Excludes Non-V1 Workspaces
 
 系统 SHALL 明确 P0 主链路的首版非目标，避免后续实现把相关历史事件、独立健康治理、插件治理、API contract、generated client、数据模型或真实审批执行链路混入本 change 的页面契约。
@@ -104,5 +142,5 @@
 
 #### Scenario: Governance and execution remain outside the P0 mainflow
 - **WHEN** 实现 P0 主链路页面
-- **THEN** 插件治理、完整运行时排障台、API contract、generated client、数据模型和真实审批执行链路不作为本 change 的首版页面能力
+- **THEN** 插件治理、完整运行时排障台、后端事件审计 API contract、generated client、数据模型和真实审批执行链路不作为本 change 的首版页面能力
 - **AND** 若后续需要实现这些能力，必须通过对应 issue、设计文档或 OpenSpec change 单独收口
