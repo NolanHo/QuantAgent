@@ -50,14 +50,14 @@ export function EventAuditPageContent({ eventId }: { eventId: string }) {
       <PageHeader
         kicker="事件级审计"
         title="事件时间线"
-        description="按事件回放建议生成、重分析和人工动作。这里只做时间线骨架，不发明新的审计契约。"
+        description="回放建议生成、重分析和人工动作。"
       />
 
       <PageSectionCard>
         <SectionHeader
           eyebrow="当前事件摘要"
           title={event.title}
-          description="时间线围绕事件而不是围绕全局日志组织，让用户能顺着主线回放建议如何变成现在这样。"
+          description="可信度、影响强度、当前状态和关联链路。"
         />
         <DetailFacts
           rows={[
@@ -74,7 +74,7 @@ export function EventAuditPageContent({ eventId }: { eventId: string }) {
         <SectionHeader
           eyebrow="时间线节点"
           title={`事件 ${event.id} 的关键节点`}
-          description="建议变更节点、重分析节点和人工动作节点都需要能跳回相关详情页。"
+          description="事件状态、行业分析、审批请求和重分析记录。"
         />
         <div className="grid gap-3">
           {[
