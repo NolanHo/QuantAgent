@@ -1,7 +1,7 @@
 import { Card, Chip, Tabs } from "@heroui/react";
 
 import { SourceBindingsPanel } from "../../../source-bindings/components/source-bindings-panel";
-import { PluginConfigEditorPanel } from "../config/plugin-config-editor-panel";
+import { PluginConfigViewPanel } from "../config/plugin-config-editor-panel";
 import type {
   PluginAuditViewResponse,
   PluginDependenciesViewResponse,
@@ -70,7 +70,7 @@ export function PluginDetailWorkspace({
             </Tabs.Panel>
 
             <Tabs.Panel id="config" className="min-w-0">
-              <PluginConfigEditorPanel pluginId={detail.overview.plugin_id} />
+              <PluginConfigViewPanel pluginId={detail.overview.plugin_id} />
             </Tabs.Panel>
 
             <Tabs.Panel id="bindings" className="min-w-0">
