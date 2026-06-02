@@ -18,18 +18,45 @@ export interface EventFactSummary {
 
 export interface IndustryImpactSummary {
   industries: string[]
+  affectedObjects: readonly string[]
   impactDirection: string
   impactStrength: number
+  impactWindow: string
+  riskPoints: readonly string[]
+  consensusSummary: string
+  divergenceSummary: string
 }
 
 export interface BestActionSummary {
+  actionTitle: string
   actionHint: string
+  actionTarget: string
+  rationale: string
+  triggerSummary: string
   analysisConfidence: number
   recommendationScore: number
   uncertaintySummary: string
   approvalStatus: string
+  approvalId: string | null
+  confirmationLevel: string | null
+  expirationSummary: string | null
   riskDirection?: string
   riskLevel?: string
+}
+
+export interface DecisionHeroSummary {
+  impactQuestion: string
+  recommendedAction: string
+  rationale: string
+  currentBlocker: string
+}
+
+export interface EvidenceQualitySummary {
+  support: string
+  opposition: string
+  evidenceQuality: string
+  dataGap: string
+  verificationNote: string
 }
 
 export interface ArgumentSummaryItem {
@@ -58,8 +85,10 @@ export interface EventDetailPageModel {
   relatedApproval: ApprovalScoreCardModel | null
   relatedRun: RuntimeAgentRunSummary | null
   factSummary: EventFactSummary
+  decisionSummary: DecisionHeroSummary
   impactSummary: IndustryImpactSummary
   bestActionSummary: BestActionSummary
+  evidenceSummary: EvidenceQualitySummary
   argumentSummaries: readonly ArgumentSummaryItem[]
   runtimeSummary: RuntimeSummary
   degradationNotices: readonly EventDegradationNotice[]

@@ -5,10 +5,15 @@ import { PageSectionCard } from '@/features/mainflow/components/PageSectionCard'
 import { SectionHeader } from '@/features/mainflow/components/SectionHeader'
 import {
   DetailFacts,
-  InfoTag,
   PageHeader,
 } from '@/features/mainflow/pages/shared'
 
+import {
+  BestActionCard,
+  DecisionBrief,
+  EvidenceSummaryPanel,
+  IndustryImpactPanel,
+} from '../analysis/event-analysis-panels'
 import { useEventDetailPage } from '../../hooks/use-event-detail-page'
 
 function EventNotFoundState() {
@@ -41,9 +46,10 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
   }
 
   const {
-    argumentSummaries,
     bestActionSummary,
     degradationNotices,
+    decisionSummary,
+    evidenceSummary,
     event,
     factSummary,
     impactSummary,
@@ -64,7 +70,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
         <PageSectionCard>
           <SectionHeader
             eyebrow="事件事实"
-            title="左栏优先给事实与验证状态"
+            title="事实与验证状态"
             description="事实区回答这件事是什么、来自哪里、目前有多可信。"
           />
           <DetailFacts
@@ -87,42 +93,38 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           </div>
         </PageSectionCard>
 
+        <PageSectionCard className="border-primary/25 bg-primary/5">
+          <SectionHeader
+            eyebrow="决策摘要"
+            title="先回答影响、建议、原因和卡点"
+            description="右栏是首屏焦点；这里不是新闻正文，也不是直接执行台。"
+          />
+          <DecisionBrief summary={decisionSummary} />
+        </PageSectionCard>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
         <PageSectionCard>
           <SectionHeader
-            eyebrow="行业影响与最佳动作"
-            title="右栏首屏优先展示分析和动作"
-            description="首版只展示一个最佳动作，不做多候选动作比较。审批或重分析都从这里继续进入。"
+            eyebrow="行业影响分析"
+            title="影响行业、对象、窗口和关键分歧"
+            description="分析区把事件影响从事实描述中拆出来，便于操盘者判断下一步复核重点。"
           />
-          <DetailFacts
-            rows={[
-              `影响行业：${impactSummary.industries.join(' / ')}`,
-              `影响方向：${impactSummary.impactDirection}`,
-              `行业影响强度：${impactSummary.impactStrength} / 100`,
-              `分析置信度：${bestActionSummary.analysisConfidence} / 100`,
-              `建议推荐度：${bestActionSummary.recommendationScore} / 100`,
-              `建议动作：${bestActionSummary.actionHint}，等待审批确认后进入受控链路。`,
-              `不确定性摘要：${bestActionSummary.uncertaintySummary}`,
-              `审批状态：${bestActionSummary.approvalStatus}`,
-              bestActionSummary.riskDirection ? `风险方向：${bestActionSummary.riskDirection}` : '风险方向：待补充',
-              bestActionSummary.riskLevel ? `风险等级：${bestActionSummary.riskLevel}` : '风险等级：待补充',
-            ]}
+          <IndustryImpactPanel summary={impactSummary} />
+        </PageSectionCard>
+
+        <PageSectionCard>
+          <SectionHeader
+            eyebrow="最佳动作"
+            title="只保留一个建议动作"
+            description="本页不做多候选比较，也不提供 approve / execute。"
           />
-          <div className="flex flex-wrap gap-2">
-            {relatedApproval ? (
-              <LinkButton to="/approvals/$approvalId" params={{ approvalId: relatedApproval.id }}>
-                进入审批
-              </LinkButton>
-            ) : (
-              <InfoTag>当前事件暂无关联审批</InfoTag>
-            )}
-            {relatedRun ? (
-              <LinkButton to="/runtime/agents/$runId" params={{ runId: relatedRun.id }} variant="outline">
-                查看运行摘要
-              </LinkButton>
-            ) : (
-              <LinkButton to="/runtime" variant="outline">查看运行态</LinkButton>
-            )}
-          </div>
+          <BestActionCard
+            action={bestActionSummary}
+            approvalId={relatedApproval?.id ?? null}
+            eventId={event.id}
+            runId={relatedRun?.id ?? null}
+          />
         </PageSectionCard>
       </section>
 
@@ -133,14 +135,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
             title="只展示结构化摘要"
             description="不展示完整 chain-of-thought，只保留支持观点、反方观点、证据质量和数据缺口。"
           />
-          <ul className="m-0 grid list-none gap-3 p-0">
-            {argumentSummaries.map((item) => (
-              <li key={item.label} className="grid gap-1.5 border-l-2 border-hairline-strong pl-3.5">
-                <p className="m-0 text-[12px] font-bold text-muted">{item.label}</p>
-                <p className="m-0 text-body-sm text-muted">{item.text}</p>
-              </li>
-            ))}
-          </ul>
+          <EvidenceSummaryPanel summary={evidenceSummary} />
         </PageSectionCard>
 
         <PageSectionCard>
