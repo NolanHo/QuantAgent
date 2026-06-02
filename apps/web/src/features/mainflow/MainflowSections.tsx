@@ -1,5 +1,4 @@
 export { DashboardPageContent } from './pages/DashboardPageContent'
-export { EventsIndexPageContent } from './pages/EventPages'
 export {
   PluginDetailPageContent,
   PluginsIndexPageContent,

@@ -3,7 +3,6 @@
 负责 QuantAgent V1 操盘主链路占位页面：
 
 - `/`
-- `/events`
 - `/approvals`
 - `/approvals/:approvalId`
 - `/approval-link/:token`
@@ -26,10 +25,11 @@
 - `mock-data.ts`: 仅供正式占位页面使用的静态结构化样例
 - `utils/`: 纯展示格式化 helper
 
-事件详情边界：
+事件页面边界：
 
+- `/events` 已迁移到 `src/features/events/event-center/`
 - `/events/:eventId` 与 `/events/:eventId/audit` 已迁移到 `src/features/events/event-detail/`
-- `mainflow` 保留 `/events` 事件中心骨架与其他主链路占位页面
+- `mainflow` 保留 Dashboard、Approvals、Runtime、Plugins、Settings 等其他主链路占位页面
 
 不负责：
 
