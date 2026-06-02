@@ -256,13 +256,13 @@ Model Providers / LLM Policies
 
 当前已由 `web-p0-mainflow-pages` change 承接的范围：
 
-- Dashboard / Events / Event Detail / Approvals 的页面职责边界。
+- Dashboard / Events / Event Detail / Event Audit Timeline / Approvals 的页面职责边界。
 - ApprovalRequest / ApprovalDecision / ApprovalLink 的主链路入口语义。
 - 根路径 `/` 作为独立 Dashboard 默认首页的 router-layout 语义。
 
 当前未由该 change 承接、需要后续独立 change 收口的范围：
 
-- EventAuditTimeline 节点和 diff 摘要 contract 细化。
+- EventAuditTimeline 后端节点 contract、diff 摘要 schema 和 generated client。
 - Scoring 展示语义和排序权重来源。
 - Registry / Plugin 治理入口的非顶层 Skill / Tool / Industry 约束。
 - Model Providers / LLM Policies 治理入口、ProviderPolicy 字段和敏感信息边界。
