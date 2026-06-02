@@ -69,7 +69,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.92fr)]">
         <PageSectionCard>
           <SectionHeader
-            eyebrow="事件事实"
+            eyebrow="01"
             title="事件事实"
             description="来源、发布时间、可信度和验证状态。"
           />
@@ -95,7 +95,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
 
         <PageSectionCard className="border-primary/25 bg-primary/5">
           <SectionHeader
-            eyebrow="决策摘要"
+            eyebrow="02"
             title="决策摘要"
             description="先看这四项，再决定是否进入审批或复核。"
           />
@@ -106,7 +106,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
         <PageSectionCard>
           <SectionHeader
-            eyebrow="行业影响分析"
+            eyebrow="03"
             title="行业影响"
             description="行业、标的、时间窗口和主要风险点。"
           />
@@ -115,7 +115,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
 
         <PageSectionCard>
           <SectionHeader
-            eyebrow="最佳动作"
+            eyebrow="04"
             title="最佳动作"
             description="建议分数、置信度、风险等级和审批状态。"
           />
@@ -131,7 +131,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,1fr)]">
         <PageSectionCard>
           <SectionHeader
-            eyebrow="支持 / 反方观点"
+            eyebrow="05"
             title="观点与证据"
             description="支持、反方、证据质量和数据缺口。"
           />
@@ -140,7 +140,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
 
         <PageSectionCard>
           <SectionHeader
-            eyebrow="运行摘要"
+            eyebrow="06"
             title="运行摘要"
             description="最近分析状态、调用策略和追踪编号。"
           />
