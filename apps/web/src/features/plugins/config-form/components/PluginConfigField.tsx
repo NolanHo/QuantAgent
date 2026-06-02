@@ -39,10 +39,15 @@ type FieldOption = {
   label: string;
 };
 
+const enumValueLabels: Record<string, string> = {
+  advanced: "高级",
+  basic: "基础",
+};
+
 const sliderWrapClassName =
-  "grid gap-3 rounded-[18px] border border-slate-200/80 bg-slate-50/70 p-3";
+  "grid gap-3 rounded-md border border-hairline bg-surface-soft p-3";
 const switchWrapClassName =
-  "rounded-[16px] border border-slate-200 bg-slate-50/80 px-3 py-3";
+  "rounded-md border border-hairline bg-surface-soft px-3 py-2.5";
 
 type NumericRangeConfig = {
   max: number;
@@ -58,6 +63,9 @@ function renderSelectInput({
 }: Pick<PluginConfigFieldProps, "definition" | "onChange" | "value"> & {
   options: FieldOption[];
 }): JSX.Element {
+  const selectedOption = options.find((option) => option.id === value);
+  const selectedCopy = selectedOption?.label ?? (value || "请选择");
+
   return (
     <Select<FieldOption>
       aria-label={definition.label}
@@ -70,7 +78,7 @@ function renderSelectInput({
       variant="primary"
     >
       <Select.Trigger>
-        <Select.Value>{value || "请选择"}</Select.Value>
+        <Select.Value>{selectedCopy}</Select.Value>
         <Select.Indicator />
       </Select.Trigger>
       <Select.Popover>
@@ -152,7 +160,7 @@ function renderFieldInput({
       value,
       options: definition.enumValues.map((option) => ({
         id: option,
-        label: option,
+        label: enumValueLabels[option] ?? option,
       })),
     });
   }
@@ -259,12 +267,12 @@ function PluginConfigFieldComponent({
     definition.type === "union" ||
     definition.type === "array";
   const fieldRowClassName = [
-    "w-full border-b border-slate-200 py-3 last:border-b-0",
+    "w-full border-b border-hairline py-3 last:border-b-0",
     isInlineRow
       ? prefersWideEditor || isCompactLayout
         ? "grid gap-3"
-        : "grid gap-3 md:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] md:items-start md:gap-6"
-      : "grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm",
+        : "grid gap-3 md:grid-cols-[minmax(180px,240px)_minmax(0,1fr)] md:items-start md:gap-6"
+      : "grid gap-2 rounded-lg border border-hairline bg-surface p-3 shadow-sm",
   ].join(" ");
   const fieldControlWrapClassName = [
     "grid w-full min-w-0 gap-2.5 overflow-visible pt-0.5",
@@ -379,10 +387,10 @@ function PluginConfigFieldComponent({
               />
             </div>
           ) : definition.sensitive ? (
-            <div className="flex min-w-0 items-center justify-between gap-2.5 rounded-full border border-slate-200 bg-slate-50/95 px-3 py-2.5">
+            <div className="flex min-w-0 items-center justify-between gap-2.5 rounded-md border border-hairline bg-surface-soft px-3 py-2.5">
               <span
                 className={[
-                  "min-w-0 truncate text-[13px] text-slate-900 transition-[filter] duration-150",
+                  "min-w-0 truncate text-[13px] text-ink transition-[filter] duration-150",
                   isSensitiveVisible ? "blur-0" : "blur-[4px]",
                 ].join(" ")}
               >
@@ -406,9 +414,9 @@ function PluginConfigFieldComponent({
               </Button>
             </div>
           ) : (
-            <Surface className="rounded-[18px]" variant="secondary">
+            <Surface className="rounded-md" variant="secondary">
               <div className="p-3">
-                <p className="m-0 overflow-hidden text-xs leading-6 text-slate-500 [overflow-wrap:anywhere]">
+                <p className="m-0 overflow-hidden text-xs leading-6 text-muted [overflow-wrap:anywhere]">
                   {readOnlyValueCopy(definition, value, isSensitiveVisible)}
                 </p>
               </div>

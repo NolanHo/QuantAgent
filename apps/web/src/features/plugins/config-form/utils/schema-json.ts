@@ -28,12 +28,12 @@ function parseDescribeMetadata(description: string | undefined): FieldMetadata {
 
   const match = description.match(descriptionPattern)
   if (!match?.groups) {
-    return { description }
+    return { description: localizeSchemaCopy(description) }
   }
 
   return {
-    label: match.groups.title?.trim() || match.groups.label.trim(),
-    description: match.groups.desc?.trim() || match.groups.label.trim(),
+    label: localizeFieldLabel('', match.groups.title?.trim() || match.groups.label.trim()),
+    description: localizeSchemaCopy(match.groups.desc?.trim() || match.groups.label.trim()),
   }
 }
 
@@ -215,23 +215,23 @@ function propertyKeyPatternFromJsonSchema(schema: PluginConfigJsonSchema): strin
 
 function recordValueShapeFromJsonSchema(schema: PluginConfigJsonSchema): string | undefined {
   if (!schema.additionalProperties || typeof schema.additionalProperties !== 'object') {
-    return 'Record<string, any>'
+    return '键值对象'
   }
 
   const valueSchema = schema.additionalProperties
 
   if (Array.isArray(valueSchema.oneOf) && valueSchema.oneOf.length > 0) {
-    return 'Record<string, union>'
+    return '键值对象：联合类型'
   }
 
   if (valueSchema.type) {
     if (valueSchema.type === 'object') {
-      return 'Record<string, object>'
+      return '键值对象：对象值'
     }
-    return `Record<string, ${valueSchema.type}>`
+    return `键值对象：${localizeSchemaType(valueSchema.type)}`
   }
 
-  return 'Record<string, any>'
+  return '键值对象'
 }
 
 export function flattenJsonSchema(
@@ -270,9 +270,9 @@ export function flattenJsonSchema(
       createField({
         path,
         key,
-        label: metadata.label ?? key,
+        label: localizeFieldLabel(path, metadata.label ?? key),
         constValue: childSchema.const,
-        description: metadata.description,
+        description: localizeSchemaCopy(metadata.description),
         type: fieldType,
         required: required.has(key),
         readOnly,
@@ -293,9 +293,9 @@ export function flattenJsonSchema(
         supportNote:
           readOnlySupportNote ??
           (fieldType === 'record'
-            ? '首版以 JSON 文本区域编辑 record，并展示 key pattern 要求。'
+            ? '首版以 JSON 文本区域编辑键值对象，并展示字段名规则。'
             : fieldType === 'union'
-              ? '首版展示 discriminated union 摘要，不提供分支级专用子表单。'
+              ? '首版展示可区分联合类型摘要，不提供分支级专用子表单。'
               : fieldType === 'array' && childSchema.items?.type === 'object'
                 ? '首版以 JSON 文本区域编辑复杂对象数组。'
                 : undefined),
@@ -304,4 +304,80 @@ export function flattenJsonSchema(
   }
 
   return fields
+}
+
+const fieldLabelMap: Record<string, string> = {
+  api_key_ref: 'API Key 引用',
+  channel_allowlist: '频道白名单',
+  default_max_results: '默认最大结果数',
+  default_search_depth: '默认搜索深度',
+  feeds: '订阅源',
+  guild_allowlist: '服务器白名单',
+  headers: '请求头',
+  include_content: '包含正文',
+  include_favicon: '包含站点图标',
+  include_raw_content: '包含原始内容',
+  max_content_chars: '最大正文字符数',
+  max_items_per_feed: '每个订阅源最大条数',
+  max_response_bytes: '最大响应字节数',
+  min_text_length: '最小文本长度',
+  public_key: '应用公钥',
+  public_key_ref: '应用公钥引用',
+  query: '默认查询',
+  response_text: '响应文本',
+  timeout_seconds: '超时时间（秒）',
+  timestamp_tolerance_seconds: '时间戳容忍窗口（秒）',
+  url: '网页 URL',
+  user_agent: 'User-Agent',
+  watchlist_name: '关注列表名称',
+  webhook_secret_ref: 'Webhook 密钥引用',
+}
+
+const copyMap: Record<string, string> = {
+  'Accepted freshness window for Discord signature timestamps.': 'Discord 签名时间戳允许的有效窗口。',
+  'Default query used when source.fetch input omits query.': 'source.fetch 输入未提供 query 时使用的默认查询。',
+  'Demo Placeholder Source Plugin Config': '占位数据源插件配置',
+  'Example Industry Package Config': '示例行业包配置',
+  'Minimal response text returned for supported application commands.': '支持的应用命令返回的最小响应文本。',
+  'Non-sensitive public request headers only. Authorization, Cookie, and API-key style headers are not allowed here.': '仅允许非敏感公共请求头；Authorization、Cookie 和 API-key 类请求头不允许配置在这里。',
+  'Optional channel allowlist for Discord interactions.': 'Discord 交互允许的频道白名单，可选。',
+  'Optional guild allowlist for Discord interactions.': 'Discord 交互允许的服务器白名单，可选。',
+  'Platform-resolved Tavily API key value. Platform validates and injects before plugin load.': '由平台解析的 Tavily API key。平台会在插件加载前完成校验和注入。',
+  'Readability Link Reader Config': 'Readability 链接阅读器配置',
+  'Registry provided plugin config JSON Schema.': '插件注册表提供的配置结构。',
+  'Reference to the Discord application public key for standalone receive tests.': 'Discord 应用公钥引用，用于独立接收测试。',
+  'Request timeout used for Discord webhook send requests.': 'Discord webhook 发送请求使用的超时时间。',
+  'Resolved Discord application public key injected by the host for real ingress.': '由宿主注入的 Discord 应用公钥，用于真实入口校验。',
+  'RSS Source Config': 'RSS 数据源配置',
+  'Secret reference that resolves to the full Discord webhook URL.': '解析为完整 Discord webhook URL 的 secret 引用。',
+  'Tavily Source Tool Config': 'Tavily 数据源工具配置',
+}
+
+function localizeFieldLabel(path: string, label: string): string {
+  const normalized = label.trim()
+  const key = path.split('.').at(-1) ?? normalized
+
+  return fieldLabelMap[key] ?? fieldLabelMap[normalized] ?? normalized
+}
+
+export function localizeSchemaCopy(value: string | undefined): string | undefined {
+  if (!value) {
+    return value
+  }
+
+  return copyMap[value] ?? value
+}
+
+function localizeSchemaType(type: string | string[]): string {
+  const normalized = Array.isArray(type) ? type.join(' / ') : type
+  const typeMap: Record<string, string> = {
+    any: '任意值',
+    boolean: '布尔值',
+    integer: '整数',
+    number: '数字',
+    object: '对象',
+    string: '字符串',
+  }
+
+  return typeMap[normalized] ?? normalized
 }

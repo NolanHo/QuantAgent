@@ -16,7 +16,7 @@ export function usePluginConfigValidationMutation(
   return useMutation({
     mutationFn: (values: PluginConfigValueMap) => {
       if (!schema) {
-        throw new Error('Schema is required before validation.')
+        throw new Error('校验前需要先加载配置结构。')
       }
 
       return validateDraft(schema, values)
