@@ -1,6 +1,7 @@
 import { buttonVariants } from '@heroui/react'
 import { Link, type LinkProps } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
+import { twMerge } from 'tailwind-merge'
 
 interface LinkButtonProps extends Pick<LinkProps, 'to' | 'params'> {
   children: ReactNode
@@ -17,10 +18,7 @@ export function LinkButton({
 }: LinkButtonProps) {
   return (
     <Link
-      className={[
-        buttonVariants({ size: 'sm', variant }),
-        className,
-      ].filter(Boolean).join(' ')}
+      className={twMerge(buttonVariants({ size: 'sm', variant }), className)}
       params={params}
       to={to}
     >
