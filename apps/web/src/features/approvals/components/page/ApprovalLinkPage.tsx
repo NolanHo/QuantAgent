@@ -62,6 +62,8 @@ export function ApprovalLinkPage({ token }: { token: string }) {
   }
 
   const canOpenContext = context.approvalId !== 'unknown' && context.eventId !== 'unknown'
+  const restrictedActionReason =
+    context.disabledReason ?? '一次性授权页首版只展示最小上下文；真实批准/拒绝需要回到后台审批详情完成。'
 
   return (
     <div className="grid gap-5">
@@ -96,17 +98,15 @@ export function ApprovalLinkPage({ token }: { token: string }) {
             <p className="m-0">审计请求：{context.requestId}</p>
           </div>
 
-          {context.disabledReason ? (
-            <div className="rounded-lg border border-hairline bg-surface-soft px-3 py-3 text-[12px] text-muted">
-              {context.disabledReason}
-            </div>
-          ) : null}
+          <div className="rounded-lg border border-hairline bg-surface-soft px-3 py-3 text-[12px] text-muted">
+            {restrictedActionReason}
+          </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button isDisabled={context.actionDisabled} size="sm" variant="primary">
+            <Button isDisabled size="sm" variant="primary">
               受限批准
             </Button>
-            <Button isDisabled={context.actionDisabled} size="sm" variant="danger-soft">
+            <Button isDisabled size="sm" variant="danger-soft">
               受限拒绝
             </Button>
             {canOpenContext ? (
