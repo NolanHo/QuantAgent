@@ -70,7 +70,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
         <PageSectionCard>
           <SectionHeader
             eyebrow="事件事实"
-            title="事实与验证状态"
+            title="事件事实"
             description="来源、发布时间、可信度和验证状态。"
           />
           <DetailFacts
@@ -96,7 +96,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
         <PageSectionCard className="border-primary/25 bg-primary/5">
           <SectionHeader
             eyebrow="决策摘要"
-            title="影响、建议、原因和卡点"
+            title="决策摘要"
             description="先看这四项，再决定是否进入审批或复核。"
           />
           <DecisionBrief summary={decisionSummary} />
@@ -107,7 +107,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
         <PageSectionCard>
           <SectionHeader
             eyebrow="行业影响分析"
-            title="影响行业、对象、窗口和关键分歧"
+            title="行业影响"
             description="行业、标的、时间窗口和主要风险点。"
           />
           <IndustryImpactPanel summary={impactSummary} />
@@ -116,7 +116,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
         <PageSectionCard>
           <SectionHeader
             eyebrow="最佳动作"
-            title="只保留一个建议动作"
+            title="最佳动作"
             description="建议分数、置信度、风险等级和审批状态。"
           />
           <BestActionCard
@@ -132,7 +132,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
         <PageSectionCard>
           <SectionHeader
             eyebrow="支持 / 反方观点"
-            title="只展示结构化摘要"
+            title="观点与证据"
             description="支持、反方、证据质量和数据缺口。"
           />
           <EvidenceSummaryPanel summary={evidenceSummary} />
