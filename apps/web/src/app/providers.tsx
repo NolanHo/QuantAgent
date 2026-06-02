@@ -51,6 +51,8 @@ export function createAppQueryClient(
   const defaultOptions = deepMergeRecord(
     {
       queries: {
+        // 中文注释：显式固定 gcTime，避免缓存生命周期继续跟随库默认值漂移。
+        gcTime: 5 * 60_000,
         staleTime: 30_000,
         retry: 1,
       },

@@ -141,7 +141,7 @@ function Example({ pluginId }: { pluginId: string }) {
 ## 目录说明
 
 - `components/`: schema-driven form 的展示组件和字段控件；不放 query、mutation 或数据源 adapter。
-- `queries/`: TanStack Query 查询壳和 query key；只负责读取 schema/config 的服务端状态。
+- `queries/`: TanStack Query 查询壳和 query key；只负责读取 schema/config 的服务端状态。当前仍保留局部 key 形状，等插件列表 / 详情 / 配置查询能力一起触及时，再统一对齐到共享 `plugins` root key。
 - `mutations/`: 表单校验和保存 mutation 壳；不承接页面状态机或 toast。
 - `hooks/`: 页面可复用的表单草稿状态 hook；只组合本地草稿、issue 映射和 reset。
 - `types/`: 插件配置表单局部类型；不放运行时代码。
