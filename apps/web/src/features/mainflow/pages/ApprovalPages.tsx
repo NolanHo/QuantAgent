@@ -2,8 +2,14 @@ import { Button } from '@heroui/react'
 import { useState } from 'react'
 
 import { runtimeAgentRuns } from '../mock-data'
-import { PageSectionCard } from '../components/PageSectionCard'
-import { SectionHeader } from '../components/SectionHeader'
+import {
+  DetailFacts,
+  InfoTag,
+  LinkButton,
+  PageHeader,
+  PageSectionCard,
+  SectionHeader,
+} from '@/shared/ui'
 import { maskToken } from '../utils/format'
 import { ApprovalScoreCard } from '@/features/event-scoring/components/ApprovalScoreCard'
 import {
@@ -11,8 +17,6 @@ import {
   scoredEvents,
 } from '@/features/event-scoring/mocks/event-scoring.mock'
 import { formatRecommendationPriority } from '@/features/event-scoring/utils/event-scoring-labels'
-import { LinkButton } from '@/shared/ui'
-import { DetailFacts, InfoTag, PageHeader } from './shared'
 
 export function ApprovalsIndexPageContent() {
   return (

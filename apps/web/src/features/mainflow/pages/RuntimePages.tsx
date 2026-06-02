@@ -1,6 +1,11 @@
-import { LinkButton } from '@/shared/ui'
-import { PageSectionCard } from '../components/PageSectionCard'
-import { SectionHeader } from '../components/SectionHeader'
+import {
+  DetailFacts,
+  InfoTag,
+  LinkButton,
+  PageHeader,
+  PageSectionCard,
+  SectionHeader,
+} from '@/shared/ui'
 import {
   runtimeAgentRuns,
   runtimeErrors,
@@ -8,7 +13,6 @@ import {
   runtimeHealthSummary,
   runtimeToolInvocations,
 } from '../mock-data'
-import { DetailFacts, InfoTag, PageHeader } from './shared'
 
 export function RuntimeDashboardPageContent() {
   return (

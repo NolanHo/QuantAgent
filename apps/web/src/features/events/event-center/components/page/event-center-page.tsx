@@ -1,114 +1,15 @@
-import {
-  Chip,
-} from '@heroui/react'
-import { twMerge } from 'tailwind-merge'
-
 import { EventScoreCard } from '@/features/event-scoring/components/EventScoreCard'
-import { LinkButton } from '@/shared/ui'
-import { formatRelativeMinutes } from '@/shared/utils'
 
-import { PageSectionCard } from '@/features/mainflow/components/PageSectionCard'
-import { SectionHeader } from '@/features/mainflow/components/SectionHeader'
 import {
-  InfoTag,
   PageHeader,
-} from '@/features/mainflow/pages/shared'
+  PageSectionCard,
+  SectionHeader,
+} from '@/shared/ui'
 
+import { EventListRow } from '../event-list/event-list-row'
+import { MockFilterBar } from '../filters/mock-filter-bar'
+import { EventCenterMetricGrid } from '../overview/event-center-metric-grid'
 import { useEventCenterPage } from '../../hooks/use-event-center-page'
-import type {
-  EventCenterFilterOption,
-  EventCenterListItem,
-  EventCenterMetric,
-} from '../../types/event-center.types'
-
-const activeChipClass = 'bg-primary/10 text-primary'
-const mutedChipClass = 'bg-surface-soft text-muted-strong'
-
-function EventCenterMetricGrid({ metrics }: { metrics: readonly EventCenterMetric[] }) {
-  return (
-    <div className="grid gap-3 md:grid-cols-4">
-      {metrics.map((metric) => (
-        <div key={metric.label} className="rounded-3xl border border-hairline bg-surface p-4">
-          <p className="m-0 text-[12px] font-bold text-muted">{metric.label}</p>
-          <p className="m-0 mt-2 text-[30px] font-extrabold leading-none text-foreground">{metric.value}</p>
-          <p className="m-0 mt-2 text-body-sm text-muted">{metric.description}</p>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function MockFilterBar({
-  title,
-  options,
-}: {
-  title: string
-  options: readonly EventCenterFilterOption[]
-}) {
-  return (
-    <div className="grid gap-2">
-      <p className="m-0 text-[12px] font-bold text-muted">{title}</p>
-      <div className="flex flex-wrap gap-2">
-        {options.map((option) => (
-          <Chip
-            key={option.value}
-            className={twMerge('text-body-sm font-bold', option.active ? activeChipClass : mutedChipClass)}
-            size="sm"
-            variant="soft"
-          >
-            {option.label}
-          </Chip>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function EventListRow({ item }: { item: EventCenterListItem }) {
-  const { event } = item
-
-  return (
-    <article className="grid gap-3 rounded-3xl border border-hairline bg-surface p-4">
-      <div className="grid gap-3 xl:grid-cols-[56px_minmax(0,1fr)_auto] xl:items-start">
-        <div className="rounded-2xl bg-canvas px-3 py-2 text-center text-body-sm font-extrabold text-muted">
-          {item.rankLabel}
-        </div>
-        <div className="grid gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <InfoTag>{item.analysisState}</InfoTag>
-            <InfoTag>{event.impactDirection}</InfoTag>
-            <InfoTag>{formatRelativeMinutes(event.publishedMinutesAgo)}</InfoTag>
-          </div>
-          <h3 className="m-0 text-title-sm font-extrabold leading-tight text-foreground">{event.title}</h3>
-          <p className="m-0 text-body-sm leading-[1.55] text-muted">{event.summary}</p>
-        </div>
-        <div className="flex flex-wrap gap-2 xl:justify-end">
-          <LinkButton to="/events/$eventId" params={{ eventId: event.id }}>
-            查看分析
-          </LinkButton>
-          <LinkButton to="/events/$eventId/audit" params={{ eventId: event.id }} variant="outline">
-            审计
-          </LinkButton>
-        </div>
-      </div>
-      <div className="grid gap-2 border-t border-hairline pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.4fr)]">
-        <div className="grid gap-1">
-          <p className="m-0 text-[12px] font-bold text-muted">评分摘要</p>
-          <p className="m-0 text-body-sm text-muted-strong">{item.scoreSummary}</p>
-        </div>
-        <div className="grid gap-1">
-          <p className="m-0 text-[12px] font-bold text-muted">入选原因</p>
-          <p className="m-0 text-body-sm text-muted-strong">{item.rowReason}</p>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {event.industries.map((industry) => (
-          <InfoTag key={industry}>{industry}</InfoTag>
-        ))}
-      </div>
-    </article>
-  )
-}
 
 export function EventsIndexPageContent() {
   const model = useEventCenterPage()
@@ -118,7 +19,7 @@ export function EventsIndexPageContent() {
       <PageHeader
         kicker="事件中心"
         title="高价值事件中心"
-        description="从 Dashboard 进入后的事件浏览和筛选页；重点事件只提供查看分析入口，不在这里审批或执行。"
+        description="用于浏览高价值事件、筛选分析线索，并进入事件详情或审计记录。"
       />
 
       <EventCenterMetricGrid metrics={model.metrics} />
@@ -128,7 +29,7 @@ export function EventsIndexPageContent() {
           <SectionHeader
             eyebrow="今日重点事件"
             title="先看为什么值得进入分析页"
-            description="重点区展示优先级、可信度、行业影响和入选原因，点击查看分析进入 `/events/:eventId`。"
+            description="重点区展示优先级、可信度、行业影响和入选原因。"
           />
           <div className="grid gap-3 lg:grid-cols-2">
             {model.featuredEvents.map((event) => (
@@ -140,14 +41,14 @@ export function EventsIndexPageContent() {
         <PageSectionCard>
           <SectionHeader
             eyebrow="筛选与排序"
-            title="mock URL 条件入口"
-            description="真实 search params / query 接入前，先固定筛选维度和排序语义，避免退回新闻流。"
+            title="按事件价值收窄范围"
+            description="先按状态、风险、行业和价值排序筛出值得继续分析的事件。"
           />
           <MockFilterBar title="筛选条件" options={model.filters} />
           <MockFilterBar title="排序方式" options={model.sortOptions} />
           <div className="rounded-2xl border border-dashed border-hairline-strong bg-surface p-3">
             <p className="m-0 text-body-sm text-muted">
-              当前为 mock 页面：筛选芯片仅展示目标维度，后续真实 API ready 后再接 URL search params 和服务端状态。
+              当前筛选项用于呈现目标维度，正式数据接入后会同步为可分享的筛选条件。
             </p>
           </div>
         </PageSectionCard>
@@ -158,7 +59,7 @@ export function EventsIndexPageContent() {
           <SectionHeader
             eyebrow="全量事件列表"
             title="每行都能完成初筛并进入详情"
-            description="列表行拆开事件事实、评分摘要、行业标签和分析状态；点击整行动作进入分析页。"
+            description="列表行展示事件事实、评分摘要、行业标签和分析状态。"
           />
           <div className="grid gap-3">
             {model.listItems.map((item) => (
@@ -170,7 +71,7 @@ export function EventsIndexPageContent() {
         <PageSectionCard>
           <SectionHeader
             eyebrow="轻量系统提醒"
-            title="只提醒，不替代 Runtime"
+            title="只提醒，不替代运行记录"
             description="这些提醒帮助判断事件分析质量，但不参与事件高价值排序。"
           />
           {model.runtimeAlertEvents.length > 0 ? (

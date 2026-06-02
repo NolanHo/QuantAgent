@@ -79,5 +79,26 @@ describe('event detail adapters', () => {
 
     expect(model.summary.approvalId).toBe(scoredApprovals[2]!.id)
     expect(model.summary.runId).toBeNull()
+    expect(model.timeline.map((item) => item.title)).toEqual(expect.arrayContaining([
+      expect.stringContaining('审批请求'),
+      expect.stringContaining('降级提示'),
+    ]))
+  })
+
+  it('does not invent approval or run audit nodes when links are missing', () => {
+    const model = createEventAuditPageModel(
+      scoredEvents[4]!,
+      null,
+      null,
+    )
+
+    expect(model.summary.approvalId).toBeNull()
+    expect(model.summary.runId).toBeNull()
+    expect(model.timeline.map((item) => item.title)).toEqual(expect.arrayContaining([
+      expect.stringContaining('事件捕获'),
+      '未生成审批请求',
+      expect.stringContaining('降级提示'),
+    ]))
+    expect(model.timeline.map((item) => item.title).join(' / ')).not.toContain('运行分析')
   })
 })

@@ -1,11 +1,10 @@
-import { LinkButton } from '@/shared/ui'
-
-import { PageSectionCard } from '@/features/mainflow/components/PageSectionCard'
-import { SectionHeader } from '@/features/mainflow/components/SectionHeader'
 import {
   DetailFacts,
+  LinkButton,
   PageHeader,
-} from '@/features/mainflow/pages/shared'
+  PageSectionCard,
+  SectionHeader,
+} from '@/shared/ui'
 
 import { useEventAuditPage } from '../../hooks/use-event-detail-page'
 
@@ -43,6 +42,7 @@ export function EventAuditPageContent({ eventId }: { eventId: string }) {
     relatedApproval,
     relatedRun,
     summary,
+    timeline,
   } = audit.model
 
   return (
@@ -77,15 +77,10 @@ export function EventAuditPageContent({ eventId }: { eventId: string }) {
           description="事件状态、行业分析、审批请求和重分析记录。"
         />
         <div className="grid gap-3">
-          {[
-            ['10:24 · 事件状态变更', '来源插件捕获事件并进入路由阶段。'],
-            ['10:31 · 行业分析完成', '行业影响分析输出结构化摘要并生成最佳动作候选。'],
-            ['10:36 · 审批请求已生成', '高风险建议进入人工确认链路，等待强确认。'],
-            ['10:42 · 请求重分析', '因工具超时触发补充验证和重分析请求。'],
-          ].map(([title, copy]) => (
-            <article key={title} className="grid gap-1.5 border-l-2 border-hairline-strong pl-3.5">
-              <p className="m-0 text-[12px] font-bold text-muted">{title}</p>
-              <p className="m-0 text-body-sm text-muted">{copy}</p>
+          {timeline.map((item) => (
+            <article key={`${item.title}-${item.copy}`} className="grid gap-1.5 border-l-2 border-hairline-strong pl-3.5">
+              <p className="m-0 text-[12px] font-bold text-muted">{item.title}</p>
+              <p className="m-0 text-body-sm text-muted">{item.copy}</p>
             </article>
           ))}
         </div>

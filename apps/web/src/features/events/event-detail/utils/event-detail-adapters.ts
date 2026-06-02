@@ -4,9 +4,10 @@ import type {
   AnalysisStatus,
   EventScoreCardModel,
 } from '@/features/event-scoring/types/event-scoring.types'
-import type { RuntimeAgentRunSummary } from '@/features/mainflow/mock-data'
 
 import type {
+  AuditTimelineItem,
+  EventRunSummary,
   EventAuditPageModel,
   EventDetailPageModel,
 } from '../types/event-detail.types'
@@ -171,10 +172,59 @@ function buildApprovalStatus(
   return `已生成审批请求：${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '待确认'}`
 }
 
+function buildAuditTimeline(
+  event: EventScoreCardModel,
+  approval: ApprovalScoreCardModel | null,
+  run: EventRunSummary | null,
+): readonly AuditTimelineItem[] {
+  const capturedAt = event.publishedAt.split(' ').at(1) ?? event.publishedAt
+  const items: AuditTimelineItem[] = [
+    {
+      title: `事件捕获 · ${capturedAt}`,
+      copy: `${event.source} 捕获事件，当前状态为${formatAnalysisStatusLabel(event.status)}。`,
+    },
+  ]
+
+  if (run) {
+    items.push({
+      title: '运行分析',
+      copy: `${formatRuntimeStatusLabel(run.status)}，耗时 ${run.duration}。${run.summary}`,
+    })
+  } else if (event.status === 'analysis_failed') {
+    items.push({
+      title: '分析未完成',
+      copy: event.score.uncertaintySummary,
+    })
+  }
+
+  if (approval) {
+    items.push({
+      title: '审批请求',
+      copy: `${approval.actionLabel}，确认等级为${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '待确认'}，确认窗口 ${approval.scoreContext.expiresIn}。`,
+    })
+  } else {
+    items.push({
+      title: '未生成审批请求',
+      copy: event.status === 'captured'
+        ? '当前只保留事件事实和审计入口，未进入建议动作审批链路。'
+        : '当前没有关联人工审批请求。',
+    })
+  }
+
+  event.degradationNotices.forEach((notice) => {
+    items.push({
+      title: `降级提示 · ${notice.title}`,
+      copy: notice.summary,
+    })
+  })
+
+  return items
+}
+
 export function createEventDetailPageModel(
   event: EventScoreCardModel,
   approval: ApprovalScoreCardModel | null,
-  run: RuntimeAgentRunSummary | null,
+  run: EventRunSummary | null,
 ): EventDetailPageModel {
   const verificationStatusLabel = formatVerificationStatus(event.score.verificationStatus)
   const approvalActionLabel = approval?.actionLabel ?? event.actionHint
@@ -266,7 +316,7 @@ export function createEventDetailPageModel(
 export function createEventAuditPageModel(
   event: EventScoreCardModel,
   approval: ApprovalScoreCardModel | null,
-  run: RuntimeAgentRunSummary | null,
+  run: EventRunSummary | null,
 ): EventAuditPageModel {
   return {
     event,
@@ -279,5 +329,6 @@ export function createEventAuditPageModel(
       approvalId: approval?.id ?? null,
       runId: run?.id ?? null,
     },
+    timeline: buildAuditTimeline(event, approval, run),
   }
 }

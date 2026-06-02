@@ -3,7 +3,15 @@ import type {
   EventDegradationNotice,
   EventScoreCardModel,
 } from '@/features/event-scoring/types/event-scoring.types'
-import type { RuntimeAgentRunSummary } from '@/features/mainflow/mock-data'
+
+export interface EventRunSummary {
+  id: string
+  status: string
+  providerPolicy?: string
+  duration: string
+  traceId: string
+  summary: string
+}
 
 export interface EventFactSummary {
   source: string
@@ -79,10 +87,15 @@ export interface AuditSummary {
   runId: string | null
 }
 
+export interface AuditTimelineItem {
+  title: string
+  copy: string
+}
+
 export interface EventDetailPageModel {
   event: EventScoreCardModel
   relatedApproval: ApprovalScoreCardModel | null
-  relatedRun: RuntimeAgentRunSummary | null
+  relatedRun: EventRunSummary | null
   factSummary: EventFactSummary
   decisionSummary: DecisionHeroSummary
   impactSummary: IndustryImpactSummary
@@ -96,6 +109,7 @@ export interface EventDetailPageModel {
 export interface EventAuditPageModel {
   event: EventScoreCardModel
   relatedApproval: ApprovalScoreCardModel | null
-  relatedRun: RuntimeAgentRunSummary | null
+  relatedRun: EventRunSummary | null
   summary: AuditSummary
+  timeline: readonly AuditTimelineItem[]
 }

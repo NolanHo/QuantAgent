@@ -1,12 +1,11 @@
 import { DegradationNoticeList } from '@/features/event-scoring/components/DegradationNoticeList'
-import { LinkButton } from '@/shared/ui'
-
-import { PageSectionCard } from '@/features/mainflow/components/PageSectionCard'
-import { SectionHeader } from '@/features/mainflow/components/SectionHeader'
 import {
   DetailFacts,
+  LinkButton,
   PageHeader,
-} from '@/features/mainflow/pages/shared'
+  PageSectionCard,
+  SectionHeader,
+} from '@/shared/ui'
 
 import {
   BestActionCard,

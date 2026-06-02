@@ -1,8 +1,12 @@
 import { useRuntimeConfig } from '../../../shared/config'
 import { useAuth } from '../../../shared/auth'
-import { PageSectionCard } from '../components/PageSectionCard'
-import { SectionHeader } from '../components/SectionHeader'
-import { DetailFacts, InfoTag, PageHeader } from './shared'
+import {
+  DetailFacts,
+  InfoTag,
+  PageHeader,
+  PageSectionCard,
+  SectionHeader,
+} from '@/shared/ui'
 
 export function SettingsPageContent() {
   const auth = useAuth()

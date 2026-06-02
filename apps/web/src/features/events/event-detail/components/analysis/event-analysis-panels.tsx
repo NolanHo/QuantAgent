@@ -3,7 +3,7 @@ import { LinkButton } from '@/shared/ui'
 import {
   DetailFacts,
   InfoTag,
-} from '@/features/mainflow/pages/shared'
+} from '@/shared/ui'
 
 import type {
   BestActionSummary,
