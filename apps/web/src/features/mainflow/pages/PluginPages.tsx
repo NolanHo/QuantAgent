@@ -1,7 +1,7 @@
 import { Button } from '@heroui/react'
-import { LinkButton } from '@/shared/ui'
 
 import { PlaceholderPanel } from '../../../app/components/PlaceholderPanel'
+import { LinkButton } from '../components/LinkButton'
 import { PageSectionCard } from '../components/PageSectionCard'
 import { SectionHeader } from '../components/SectionHeader'
 import { pluginRecords } from '../mock-data'

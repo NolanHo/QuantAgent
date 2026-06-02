@@ -1,4 +1,4 @@
-import { LinkButton } from '@/shared/ui'
+import { LinkButton } from '../components/LinkButton'
 import { PageSectionCard } from '../components/PageSectionCard'
 import { SectionHeader } from '../components/SectionHeader'
 import {
