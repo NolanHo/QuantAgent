@@ -24,7 +24,7 @@ export function PluginDetailEmptyState({ pluginId }: { pluginId: string }) {
     <div className="rounded-xl border border-hairline bg-surface p-5">
       <p className="m-0 text-title-sm font-bold text-ink">未找到插件</p>
       <p className="m-0 mt-2 text-body-sm text-muted">
-        当前 Registry 没有返回 plugin_id={pluginId} 的插件详情；请回到列表确认插件是否仍存在。
+        当前插件注册表没有返回 plugin_id={pluginId} 的插件详情；请回到列表确认插件是否仍存在。
       </p>
     </div>
   );

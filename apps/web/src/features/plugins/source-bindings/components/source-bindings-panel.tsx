@@ -49,7 +49,7 @@ export function SourceBindingsPanel({ overview }: { overview: PluginOverview }) 
 
   return (
     <DetailSectionCard
-      description="V1 只读展示绑定状态、调度摘要、blocked reason 和最近活动；pause/resume/run-now 等动作不在本轮前端落地。"
+      description="V1 只读展示绑定状态、调度摘要、阻塞原因和最近活动；pause/resume/run-now 等动作不在本轮前端落地。"
       eyebrow="SourceBinding"
       title="Industry 内嵌 SourceBinding 管理面"
     >
@@ -70,10 +70,10 @@ export function SourceBindingsPanel({ overview }: { overview: PluginOverview }) 
           <Table aria-label="SourceBinding 列表" variant="secondary">
             <Table.Content className="min-w-[64rem]">
               <Table.Header>
-                <Table.Column>Binding</Table.Column>
-                <Table.Column>Source Plugin</Table.Column>
+                <Table.Column>绑定 ID</Table.Column>
+                <Table.Column>Source 插件</Table.Column>
                 <Table.Column>状态</Table.Column>
-                <Table.Column>Scope / Health</Table.Column>
+                <Table.Column>范围 / 健康</Table.Column>
                 <Table.Column>最近活动</Table.Column>
                 <Table.Column>允许动作</Table.Column>
               </Table.Header>
@@ -94,12 +94,12 @@ export function SourceBindingsPanel({ overview }: { overview: PluginOverview }) 
                         size="sm"
                         variant="soft"
                       >
-                        {binding.status}
+                        {formatBindingStatus(binding.status)}
                       </Chip>
                     </Table.Cell>
                     <Table.Cell>{summarizeBindingScope(binding)}</Table.Cell>
                     <Table.Cell>{summarizeBindingActivity(binding)}</Table.Cell>
-                    <Table.Cell>{binding.allowed_actions.join(", ") || "-"}</Table.Cell>
+                    <Table.Cell>{binding.allowed_actions.map(formatBindingAction).join(", ") || "-"}</Table.Cell>
                   </Table.Row>
                 )}
               </Table.Body>
@@ -109,4 +109,30 @@ export function SourceBindingsPanel({ overview }: { overview: PluginOverview }) 
       ) : null}
     </DetailSectionCard>
   );
+}
+
+function formatBindingStatus(status: string) {
+  if (status === "active") {
+    return "运行中";
+  }
+  if (status === "paused") {
+    return "已暂停";
+  }
+  if (status === "disabled") {
+    return "已禁用";
+  }
+  return status;
+}
+
+function formatBindingAction(action: string) {
+  if (action === "pause") {
+    return "暂停";
+  }
+  if (action === "resume") {
+    return "恢复";
+  }
+  if (action === "run-now") {
+    return "立即运行";
+  }
+  return action;
 }
