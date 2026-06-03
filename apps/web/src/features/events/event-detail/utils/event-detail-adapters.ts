@@ -172,6 +172,81 @@ function buildApprovalStatus(
   return `已生成审批请求：${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '待确认'}`
 }
 
+function buildInvestmentActionTitle(
+  event: EventScoreCardModel,
+  approval: ApprovalScoreCardModel | null,
+) {
+  if (approval?.actionLabel) {
+    return approval.actionLabel
+  }
+
+  if (event.status === 'analysis_failed') {
+    return '先暂停交易判断，等待重分析'
+  }
+
+  if (event.score.freshness === 'low') {
+    return '不追旧闻，只保留复盘'
+  }
+
+  if (event.impactDirection.includes('偏空')) {
+    return `降低${event.industries[0] ?? '相关产业'}暴露`
+  }
+
+  if (event.impactDirection.includes('偏多')) {
+    return `观察${event.industries[0] ?? '相关产业'}做多确认信号`
+  }
+
+  return event.actionHint
+}
+
+function buildInvestorImpactSummary(event: EventScoreCardModel, affectedObjects: readonly string[]) {
+  const target = affectedObjects[0] ?? event.industries[0] ?? '相关产业链'
+
+  if (event.impactDirection.includes('偏空')) {
+    return `${target}短线承压，优先检查相关股票仓位、盈利假设和对冲需求。`
+  }
+
+  if (event.impactDirection.includes('偏多')) {
+    return `${target}可能受益，但需要先确认价格、订单或需求信号是否同步。`
+  }
+
+  if (event.status === 'analysis_failed') {
+    return `${target}存在信号，但当前分析链路不完整，不适合直接形成交易动作。`
+  }
+
+  return `${target}需要继续复核，不把单条事件直接等同于买卖结论。`
+}
+
+function buildInvestorRationale(
+  event: EventScoreCardModel,
+  approval: ApprovalScoreCardModel | null,
+) {
+  if (approval?.triggerSummary) {
+    return approval.triggerSummary
+  }
+
+  return `${event.score.selectionReason}；${event.score.uncertaintySummary}`
+}
+
+function buildCurrentBlocker(
+  event: EventScoreCardModel,
+  approval: ApprovalScoreCardModel | null,
+) {
+  if (approval) {
+    return `下一步：进入${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '人工确认'}，确认后再处理相关产业股票。`
+  }
+
+  if (event.status === 'analysis_failed') {
+    return '下一步：先请求重分析或查看工具失败，当前不应直接下交易判断。'
+  }
+
+  if (event.score.freshness === 'low') {
+    return '下一步：事件窗口已过，不追当前盘面，只用于复盘和审计。'
+  }
+
+  return '下一步：补齐确认信号后再进入审批或调整仓位。'
+}
+
 function buildAuditTimeline(
   event: EventScoreCardModel,
   approval: ApprovalScoreCardModel | null,
@@ -227,10 +302,10 @@ export function createEventDetailPageModel(
   run: EventRunSummary | null,
 ): EventDetailPageModel {
   const verificationStatusLabel = formatVerificationStatus(event.score.verificationStatus)
-  const approvalActionLabel = approval?.actionLabel ?? event.actionHint
   const affectedObjects = buildAffectedObjects(event)
   const riskPoints = buildRiskPoints(event, approval)
   const evidenceQuality = buildEvidenceQuality(event)
+  const investmentActionTitle = buildInvestmentActionTitle(event, approval)
   const verificationNote = event.analysisHighlights?.verificationNote
     ?? `当前为 ${verificationStatusLabel}，需要继续补齐交叉信源。`
   const dataGap = event.degradationNotices.length > 0
@@ -252,12 +327,10 @@ export function createEventDetailPageModel(
       summary: event.summary,
     },
     decisionSummary: {
-      impactQuestion: `${event.impactDirection}，重点影响 ${affectedObjects.join('、') || event.industries.join('、')}。`,
-      recommendedAction: approvalActionLabel,
-      rationale: approval?.triggerSummary ?? event.score.selectionReason,
-      currentBlocker: approval
-        ? `必须先进入${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '人工确认'}审批链路，不能在详情页直接执行。`
-        : event.score.uncertaintySummary,
+      impactQuestion: buildInvestorImpactSummary(event, affectedObjects),
+      recommendedAction: investmentActionTitle,
+      rationale: buildInvestorRationale(event, approval),
+      currentBlocker: buildCurrentBlocker(event, approval),
     },
     impactSummary: {
       industries: event.industries,
@@ -270,10 +343,10 @@ export function createEventDetailPageModel(
       divergenceSummary: buildDivergenceSummary(event),
     },
     bestActionSummary: {
-      actionTitle: approvalActionLabel,
+      actionTitle: investmentActionTitle,
       actionHint: event.actionHint,
       actionTarget: affectedObjects[0] ?? event.industries[0] ?? '待补充',
-      rationale: approval?.triggerSummary ?? event.score.selectionReason,
+      rationale: buildInvestorRationale(event, approval),
       triggerSummary: approval?.triggerSummary ?? `由 ${event.score.selectionReason} 触发。`,
       analysisConfidence: event.score.analysisConfidence,
       recommendationScore: event.score.recommendationScore,
