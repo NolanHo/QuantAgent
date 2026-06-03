@@ -13,11 +13,11 @@
 - [ ] 2.2 为 Dashboard 增加受保护工作区入口，并更新导航、面包屑与默认入口策略。
 - [ ] 2.3 保持 `/login`、受保护路由和 capability-limited forbidden 语义与既有登录和权限 spec 一致。
 - [ ] 2.4 issue #129 的实现必须以 Dashboard 为独立默认首页，并保持首页只承接重点事件、待审批摘要、关键健康提醒和主工作入口。
-- [ ] 2.5 issue #130 的实现必须保持 `/events` 只承担事件中心职责，并让 `/events/:eventId` 首屏优先展示行业影响分析与最佳动作。
-- [ ] 2.5.1 issue #130 必须把 `routes/_app/(workspace)/events/$eventId` 与 `$eventId/audit` 保持为薄 route，只负责参数读取与页面装配。
-- [ ] 2.5.2 issue #130 必须将事件详情 / 审计页从 `features/mainflow/pages/EventPages.tsx` 迁出到独立事件详情 feature 边界，不在主链路骨架文件里继续堆真实页面职责。
-- [ ] 2.5.3 issue #130 的事件详情 feature 至少补 `README.md`、`components/`、`hooks/`、`types/`、`utils/`，并明确哪些职责暂不进入 `api/`、`queries/`。
-- [ ] 2.5.4 issue #130 必须固定首屏阅读顺序为“事件事实 -> 行业影响分析 / 最佳动作 -> 支持 / 反方观点与运行 / 审计摘要”，不把辅助诊断信息抬成首屏主对象。
+- [x] 2.5 issue #130 的实现必须保持 `/events` 只承担事件中心职责，并让 `/events/:eventId` 首屏优先展示行业影响分析与最佳动作。
+- [x] 2.5.1 issue #130 必须把 `routes/_app/(workspace)/events/$eventId` 与 `$eventId/audit` 保持为薄 route，只负责参数读取与页面装配。
+- [x] 2.5.2 issue #130 必须将事件详情 / 审计页从 `features/mainflow/pages/EventPages.tsx` 迁出到独立事件详情 feature 边界，不在主链路骨架文件里继续堆真实页面职责。
+- [x] 2.5.3 issue #130 的事件详情 feature 至少补 `README.md`、`components/`、`hooks/`、`types/`、`utils/`，并明确哪些职责暂不进入 `api/`、`queries/`。
+- [x] 2.5.4 issue #130 必须固定首屏阅读顺序为“事件事实 -> 行业影响分析 / 最佳动作 -> 支持 / 反方观点与运行 / 审计摘要”，不把辅助诊断信息抬成首屏主对象。
 - [ ] 2.6 issue #131 的实现必须保持 `/approvals` 为独立人类确认工作台，并严格区分“批准”与“真实执行完成”。
 
 ## 3. 验证
