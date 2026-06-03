@@ -186,6 +186,78 @@ route eventId
 - 审计页只读，不提供编辑历史、补写 audit、批准、执行或策略绕过入口。
 - 后端 `audit_logs` contract、持久化查询、generated client 和跨语言 schema 需要后续独立 change 收口。
 
+### 8. issue #130 先收口事件详情 feature，而不是顺手重写整个事件中心
+
+`issue #130` 的目标是把 `/events/:eventId` 收口为可进入真实 API 接入前的事件详情 / 决策页 V1，而不是把 `/events` 事件中心、Dashboard 和评分实现一次性重写。当前 `apps/web` 已有 `features/mainflow/pages/EventPages.tsx` 骨架，但它不应继续承载事件详情页的长期职责。
+
+因此本轮实现输入需要固定为：
+
+- `/events` 继续承担事件中心骨架，不要求与详情页迁移绑成一次性目录大重构。
+- `/events/:eventId` 与 `/events/:eventId/audit` 迁出到独立事件详情 feature 边界，避免在 `mainflow` 骨架里继续追加真实页面状态和复杂 JSX。
+- route 文件保持薄层，只负责参数读取和页面装配；事件事实、行业影响分析、最佳动作、支持 / 反方观点、运行摘要和审计入口进入 feature 内部职责目录。
+- 详情页首屏阅读顺序固定为“左栏事实、右栏分析与最佳动作、下方辅助摘要”，不因为实现 convenience 把运行摘要或审计入口抬到首屏主判断位。
+
+这里不在 `web-p0-mainflow-pages` 中发明最终 API contract、query key 或 DTO 字段；这些属于 `event-scoring-v1` 与后续真实 API/contracts change 的职责。但页面级目录职责、主阅读顺序和 `mainflow` 迁移边界必须在这里先固定，否则实现者仍需要自行决定应该拆到哪里、哪些页面一起迁。
+
+### 9. 事件详情实现先以 mock 适配层为边界，而不是在 route 或视图里硬编码临时字段
+
+`issue #130` 当前没有要求同时交付真实事件详情 API DTO、`packages/contracts` 或 generated client。现有 `event-scoring-v1` 也把“真实 DTO 来源”保留为后续 gate。因此事件详情首版实现应允许先基于现有 mock contract 收口页面结构，但不能把这些临时结构直接扩散成 route 或 view 的长期依赖。
+
+实现蓝图应固定为：
+
+- 事件详情 feature 至少包含 `README.md`、`components/`、`hooks/`、`types/`、`utils/`；如果未来真实 API ready，再在同一边界补 `api/`、`queries/`。
+- feature 内通过 page model / adapter 把当前 mock 数据映射成页面消费模型；展示组件不直接依赖原始 mock DTO 结构。
+- `features/mainflow` 保留静态骨架入口，不继续承担事件详情的数据适配、评分解释或审计摘要拼装。
+- 中文注释需要落在“评分不是执行放行”“运行摘要只做辅助复核”“审计入口不替代审计页”这类非显然边界上，避免后续实现误把高分当作可执行结论。
+
+## Responsibility Blueprint
+
+本 change 的实现前职责边界如下：
+
+| 页面 / 边界 | 主对象 | 负责什么 | 不负责什么 |
+| --- | --- | --- | --- |
+| Dashboard | 高价值事件聚合视图 | 登录后的第一判断、重点事件、待审批摘要、关键健康提醒、主工作入口 | 完整事件列表、审批执行、插件治理、完整运行时排障 |
+| `/events` | Event collection | 浏览、筛选、排序、扩展重点事件视野、进入事件详情 | 系统总首页、审批动作、插件 / Skill / Tool / Runtime 治理 |
+| `/events/:eventId` | 单条 Event | 事件事实、验证状态、行业影响分析、最佳动作、支持 / 反方观点、审批入口、轻量运行 / 审计摘要 | 直接批准、真实执行、完整运行时排障、完整审计工作台、相关历史事件 P0 必备能力 |
+| `/events/:eventId/audit` | 单条事件的审计入口 | 提供事件级审计线索或跳转承接位 | 替代正式审计页、改变事件详情首屏主判断位 |
+| `/approvals` | ApprovalRequest collection | 待处理审批、风险 / 到期 / 确认等级摘要、人工确认动作入口 | 真实执行结果页、事件列表、运行态调试 |
+| `router-layout` delta | 路由默认入口 | 根路径 `/` 进入独立 Dashboard 首页流 | 登录、会话、CSRF、403、capability guard 语义 |
+
+后续 Web 实现必须按 Web gate 拆分：
+
+- `routes/_app/(workspace)/events/$eventId` 与 `$eventId/audit` 只保留参数读取、loader / beforeLoad 和页面装配。
+- 事件详情页面主体迁入独立 feature，例如 `features/events/detail/` 或等价职责目录。
+- 事件详情 feature 至少包含 `README.md`、`components/`、`hooks/`、`types/`、`utils/`；真实 API ready 后再补 `api/`、`queries/`、`mutations/`。
+- page model / adapter 负责把当前 mock 输入映射为页面消费模型；展示组件只接收稳定 props。
+- `features/mainflow` 不继续承载事件详情的数据适配、评分解释、最佳动作、运行摘要或审计入口拼装。
+
+## Event Detail Reading Order
+
+`issue #130` 的事件详情首版必须保持以下阅读顺序：
+
+```text
+事件事实与验证状态
+  -> 行业影响分析与最佳动作
+  -> 支持观点 / 反方观点 / 不确定性
+  -> 运行摘要 / 审计入口 / 审批入口
+```
+
+运行摘要、审计入口和 trace / request 线索只用于辅助复核，不得抬升为首屏主对象。最佳动作可以高亮，但 CTA 文案必须保持“进入审批 / 查看审批详情 / 请求重分析”等人工确认语义，不得表达为“执行 / 下单 / 已放行”。
+
+## Validation Strategy
+
+本 OpenSpec change 的最小验证：
+
+- `openspec validate web-p0-mainflow-pages --type change --strict --json`
+- 人工核对 `router-layout` delta 只修改 `/` 默认入口，不复制认证、登录恢复或 403 capability 语义。
+- 人工核对页面职责与 `docs/prd/pages/00-dashboard.md`、`02-events-home.md`、`03-event-detail.md`、`04-approvals-index.md`、`05-approval-detail.md` 一致。
+
+后续 Web 实现 PR 的最小验证：
+
+- `git diff --check`
+- `bun run --cwd apps/web build`
+- 按实现范围补充 unit / component / e2e 测试，至少覆盖根路径进入 Dashboard、事件详情薄 route、事件详情 feature page model、审批入口不表达真实执行。
+
 ## Risks / Trade-offs
 
 - [Risk] 只修改 OpenSpec 而不立刻改路由代码，短期内仓库实现仍然保持 `/ -> /events`。

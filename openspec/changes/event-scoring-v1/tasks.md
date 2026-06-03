@@ -8,12 +8,14 @@
 ## 2. 后续实现前置 Gate
 
 - [ ] 2.1 后续 `/events` 评分实现必须先明确 API DTO / `packages/contracts` 字段来源，再接入真实服务端数据源，替换当前前端局部 mock contract。
-- [x] 2.2 后续 Web 实现必须按 feature 职责拆分 route、api、contracts、query keys、queries、hooks、components、types、utils 和 README，不把正式评分 API、筛选、排序或解释逻辑继续堆进 `features/mainflow` 的静态骨架文件。
-- [x] 2.3 后续 Dashboard 只消费少量重点事件评分摘要，不作为评分首次正式落地点，也不承担完整评分解释和事件筛选职责。
-- [x] 2.4 后续 Event Detail 必须补来源权威度、事件可信度、行业影响强度、分析置信度、建议推荐度、验证状态和不确定性摘要，并保持事件事实、评分解释、建议动作分层。
-- [x] 2.5 后续 Approvals / Approval Detail 必须同时展示建议推荐度、事件可信度摘要、分析置信度摘要、风险方向、风险等级、确认等级和到期策略。
-- [x] 2.6 后续 API DTO、`packages/contracts`、generated client、mock data 和前端字段命名必须从首页骨架期的临时字段收口到正式评分语义。
-- [x] 2.7 后续实现必须覆盖低权威单信源、多信源冲突、工具失败、分析输出无效、事件过期和 Policy Gate 阻断的降级展示。
+- [ ] 2.2 后续 Web 实现必须按 feature 职责拆分 route、api、contracts、query keys、queries、hooks、components、types、utils 和 README，不把正式评分 API、筛选、排序或解释逻辑继续堆进 `features/mainflow` 的静态骨架文件。
+- [ ] 2.3 后续 Dashboard 只消费少量重点事件评分摘要，不作为评分首次正式落地点，也不承担完整评分解释和事件筛选职责。
+- [ ] 2.4 后续 Event Detail 必须补来源权威度、事件可信度、行业影响强度、分析置信度、建议推荐度、验证状态和不确定性摘要，并保持事件事实、评分解释、建议动作分层。
+- [ ] 2.4.1 issue #130 的事件详情实现允许先通过 feature 内部 adapter / page model 消费现有 mock scoring contract，但 route、hook 和 view 不得直接依赖原始 mock DTO shape。
+- [ ] 2.4.2 issue #130 的事件详情实现必须把评分摘要与最佳动作、审批入口、运行 / 审计摘要分层展示，不把推荐度或分析置信度单独表达成可执行信号。
+- [ ] 2.5 后续 Approvals / Approval Detail 必须同时展示建议推荐度、事件可信度摘要、分析置信度摘要、风险方向、风险等级、确认等级和到期策略。
+- [ ] 2.6 后续 API DTO、`packages/contracts`、generated client、mock data 和前端字段命名必须从首页骨架期的临时字段收口到正式评分语义。
+- [ ] 2.7 后续实现必须覆盖低权威单信源、多信源冲突、工具失败、分析输出无效、事件过期和 Policy Gate 阻断的降级展示。
 
 ## 3. 验证与 Review
 
