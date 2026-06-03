@@ -1,5 +1,4 @@
 import {
-  InfoTag,
   LinkButton,
 } from '@/shared/ui'
 
@@ -7,7 +6,6 @@ import type {
   BestActionSummary,
   DecisionHeroSummary,
   EvidenceQualitySummary,
-  IndustryImpactSummary,
 } from '../../types/event-detail.types'
 
 function MetricPill({
@@ -40,7 +38,7 @@ export function DecisionBrief({ summary }: { summary: DecisionHeroSummary }) {
         <p className="m-0 text-[12px] font-extrabold text-primary">处理建议</p>
         <h2 className="m-0 text-[26px] font-extrabold leading-tight text-foreground">{summary.recommendedAction}</h2>
       </div>
-      <div className="grid gap-2 rounded-2xl bg-surface px-3 py-2">
+      <div className="grid gap-2 rounded-2xl bg-surface px-3 py-3">
         <p className="m-0 text-body-sm font-bold text-foreground">{summary.impactQuestion}</p>
         <p className="m-0 text-body-sm text-muted-strong">{summary.rationale}</p>
       </div>
@@ -55,46 +53,27 @@ export function BestActionCard({
   action,
   approvalId,
   eventId,
-  runId,
 }: {
   action: BestActionSummary
   approvalId: string | null
   eventId: string
-  runId: string | null
 }) {
   return (
     <div className="grid gap-4">
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         <MetricPill label="建议推荐度" value={`${action.recommendationScore} / 100`} tone="strong" />
         <MetricPill label="分析置信度" value={`${action.analysisConfidence} / 100`} tone="strong" />
-        <MetricPill label="风险等级" value={action.riskLevel ?? '待补充'} tone="risk" />
       </div>
       <div className="grid gap-2 rounded-3xl bg-canvas p-3">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <InfoTag>{action.actionTarget}</InfoTag>
-          <InfoTag>{action.riskDirection ?? '待补充'}</InfoTag>
-          <InfoTag>{action.approvalStatus}</InfoTag>
-          <InfoTag>{action.confirmationLevel ?? '暂无确认等级'}</InfoTag>
-        </div>
-        {action.expirationSummary ? (
-          <p className="m-0 text-body-sm font-bold text-muted-strong">{action.expirationSummary}</p>
-        ) : null}
+        <p className="m-0 text-body-sm font-bold text-foreground">{action.actionTarget}</p>
+        <p className="m-0 text-body-sm text-muted-strong">{action.rationale}</p>
       </div>
       <div className="flex flex-wrap gap-2">
         {approvalId ? (
-          <LinkButton to="/approvals/$approvalId" params={{ approvalId }}>
-            进入审批
+          <LinkButton to="/approvals/$approvalId" params={{ approvalId }} variant="outline">
+            审批记录
           </LinkButton>
-        ) : (
-          <InfoTag>当前事件暂无关联审批</InfoTag>
-        )}
-        {runId ? (
-          <LinkButton to="/runtime/agents/$runId" params={{ runId }} variant="outline">
-            运行详情
-          </LinkButton>
-        ) : (
-          <LinkButton to="/runtime" variant="outline">查看运行态</LinkButton>
-        )}
+        ) : null}
         <LinkButton to="/events/$eventId/audit" params={{ eventId }} variant="outline">
           审计时间线
         </LinkButton>
@@ -108,32 +87,37 @@ export function InvestmentDecisionPanel({
   approvalId,
   decision,
   eventId,
-  impact,
-  runId,
+  evidence,
 }: {
   action: BestActionSummary
   approvalId: string | null
   decision: DecisionHeroSummary
   eventId: string
-  impact: IndustryImpactSummary
-  runId: string | null
+  evidence: EvidenceQualitySummary
 }) {
   return (
     <div className="grid gap-4">
       <DecisionBrief summary={decision} />
-      <BestActionCard action={action} approvalId={approvalId} eventId={eventId} runId={runId} />
+      <BestActionCard action={action} approvalId={approvalId} eventId={eventId} />
       <div className="grid gap-3 rounded-3xl border border-hairline bg-surface/70 p-4">
-        <div className="grid gap-2 sm:grid-cols-3">
-          <MetricPill label="影响方向" value={impact.impactDirection} tone="strong" />
-          <MetricPill label="影响强度" value={`${impact.impactStrength} / 100`} tone="strong" />
-          <MetricPill label="影响窗口" value={impact.impactWindow} />
+        <div className="grid gap-3 md:grid-cols-2">
+          <ReasonBlock label="支持理由" text={evidence.support} />
+          <ReasonBlock label="反方观点" text={evidence.opposition} />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {[...impact.industries, ...impact.affectedObjects].map((item) => (
-            <InfoTag key={item}>{item}</InfoTag>
-          ))}
+        <div className="rounded-2xl bg-canvas px-3 py-2">
+          <p className="m-0 text-[12px] font-bold text-muted">证据状态</p>
+          <p className="m-0 mt-1 text-body-sm text-muted-strong">{evidence.evidenceQuality}</p>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ReasonBlock({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="rounded-2xl bg-canvas px-3 py-2">
+      <p className="m-0 text-[12px] font-bold text-muted">{label}</p>
+      <p className="m-0 mt-1 text-body-sm text-muted-strong">{text}</p>
     </div>
   )
 }
@@ -141,23 +125,14 @@ export function InvestmentDecisionPanel({
 export function EvidenceAndDiagnosticsPanel({
   eventId,
   evidence,
-  runId,
 }: {
   eventId: string
   evidence: EvidenceQualitySummary
-  runId: string | null
 }) {
   return (
     <div className="grid gap-4">
       <EvidenceSummaryPanel summary={evidence} />
       <div className="flex flex-wrap gap-2">
-        {runId ? (
-          <LinkButton to="/runtime/agents/$runId" params={{ runId }} variant="outline">
-            运行详情
-          </LinkButton>
-        ) : (
-          <LinkButton to="/runtime" variant="outline">运行态</LinkButton>
-        )}
         <LinkButton to="/events/$eventId/audit" params={{ eventId }} variant="outline">
           审计时间线
         </LinkButton>
@@ -168,8 +143,6 @@ export function EvidenceAndDiagnosticsPanel({
 
 export function EvidenceSummaryPanel({ summary }: { summary: EvidenceQualitySummary }) {
   const items = [
-    ['支持观点', summary.support],
-    ['反方观点', summary.opposition],
     ['证据质量', summary.evidenceQuality],
     ['数据缺口', summary.dataGap],
     ['验证状态', summary.verificationNote],

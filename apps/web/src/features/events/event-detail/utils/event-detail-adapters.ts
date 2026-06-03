@@ -135,21 +135,6 @@ function formatConfirmationLevelLabel(level: string | undefined) {
   }
 }
 
-function formatRiskDirectionLabel(direction: string | undefined) {
-  switch (direction) {
-    case 'increase_risk':
-      return '风险上升'
-    case 'reduce_risk':
-      return '降低风险暴露'
-    case 'neutral':
-      return '中性复核'
-    case undefined:
-      return undefined
-    default:
-      return direction
-  }
-}
-
 function buildDivergenceSummary(event: EventScoreCardModel) {
   if (event.score.verificationStatus === 'conflicting_sources') {
     return event.analysisHighlights?.verificationNote ?? '当前存在多信源冲突，建议保持人工复核。'
@@ -160,16 +145,6 @@ function buildDivergenceSummary(event: EventScoreCardModel) {
   }
 
   return event.score.uncertaintySummary
-}
-
-function buildApprovalStatus(
-  approval: ApprovalScoreCardModel | null,
-) {
-  if (!approval) {
-    return '当前暂无审批请求'
-  }
-
-  return `已生成审批请求：${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '待确认'}`
 }
 
 function buildInvestmentActionTitle(
@@ -233,7 +208,7 @@ function buildCurrentBlocker(
   approval: ApprovalScoreCardModel | null,
 ) {
   if (approval) {
-    return `下一步：进入${formatConfirmationLevelLabel(approval.scoreContext.confirmationLevel) ?? '人工确认'}，确认后再处理相关产业股票。`
+    return '下一步：先看清支持和反方观点，再到审批页确认是否处理仓位。'
   }
 
   if (event.status === 'analysis_failed') {
@@ -351,14 +326,7 @@ export function createEventDetailPageModel(
       analysisConfidence: event.score.analysisConfidence,
       recommendationScore: event.score.recommendationScore,
       uncertaintySummary: event.score.uncertaintySummary,
-      approvalStatus: buildApprovalStatus(approval),
       approvalId: approval?.id ?? null,
-      confirmationLevel: formatConfirmationLevelLabel(approval?.scoreContext.confirmationLevel),
-      expirationSummary: approval
-        ? `${approval.scoreContext.expiresIn}，${approval.scoreContext.expirationAction}`
-        : null,
-      riskDirection: formatRiskDirectionLabel(approval?.scoreContext.riskDirection),
-      riskLevel: approval?.scoreContext.riskLevel,
     },
     evidenceSummary: {
       support: event.analysisHighlights?.support ?? '当前事件暂无额外支持观点摘要。',

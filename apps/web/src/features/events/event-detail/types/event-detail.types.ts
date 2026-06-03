@@ -43,12 +43,7 @@ export interface BestActionSummary {
   analysisConfidence: number
   recommendationScore: number
   uncertaintySummary: string
-  approvalStatus: string
   approvalId: string | null
-  confirmationLevel: string | null
-  expirationSummary: string | null
-  riskDirection?: string
-  riskLevel?: string
 }
 
 export interface DecisionHeroSummary {

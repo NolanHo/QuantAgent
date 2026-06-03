@@ -31,7 +31,6 @@ describe('event detail adapters', () => {
     expect(model.impactSummary.divergenceSummary).toContain('兑现节奏')
     expect(model.bestActionSummary.actionTitle).toBe(scoredApprovals[0]!.actionLabel)
     expect(model.bestActionSummary.triggerSummary).toBe(scoredApprovals[0]!.triggerSummary)
-    expect(model.bestActionSummary.approvalStatus).toContain('强确认')
     expect(model.bestActionSummary.approvalId).toBe(scoredApprovals[0]!.id)
     expect(model.evidenceSummary.evidenceQuality).toContain('双信源交叉验证')
     expect(model.argumentSummaries).toHaveLength(6)
@@ -45,7 +44,6 @@ describe('event detail adapters', () => {
       null,
     )
 
-    expect(model.bestActionSummary.approvalStatus).toBe('当前暂无审批请求')
     expect(model.bestActionSummary.approvalId).toBeNull()
     expect(model.decisionSummary.currentBlocker).toContain('事件窗口已过')
     expect(model.impactSummary.riskPoints).toContain('事件窗口已过，当前仅保留审计和历史解释价值。')
@@ -67,7 +65,7 @@ describe('event detail adapters', () => {
     ]))
     expect(model.impactSummary.divergenceSummary).toContain('正式口径与渠道跟踪仍冲突')
     expect(model.evidenceSummary.evidenceQuality).toContain('信号冲突')
-    expect(model.bestActionSummary.confirmationLevel).toBe('链接确认')
+    expect(model.bestActionSummary.approvalId).toBe(scoredApprovals[2]!.id)
   })
 
   it('maps audit summary links separately from detail rendering', () => {

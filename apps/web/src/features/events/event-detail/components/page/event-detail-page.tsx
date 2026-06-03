@@ -49,9 +49,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
     evidenceSummary,
     event,
     factSummary,
-    impactSummary,
     relatedApproval,
-    relatedRun,
   } = detail.model
 
   return (
@@ -71,8 +69,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
             approvalId={relatedApproval?.id ?? null}
             decision={decisionSummary}
             eventId={event.id}
-            impact={impactSummary}
-            runId={relatedRun?.id ?? null}
+            evidence={evidenceSummary}
           />
         </PageSectionCard>
 
@@ -106,7 +103,6 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <EvidenceAndDiagnosticsPanel
             eventId={event.id}
             evidence={evidenceSummary}
-            runId={relatedRun?.id ?? null}
           />
         </PageSectionCard>
       </section>
