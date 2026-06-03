@@ -7,6 +7,7 @@ import {
 } from '@/shared/ui'
 
 import { EventListRow } from '../event-list/event-list-row'
+import { EventCenterAlertStrip } from '../alerts/event-center-alert-strip'
 import { EventCenterFilterNav } from '../filters/event-center-filter-nav'
 import { useEventCenterPage } from '../../hooks/use-event-center-page'
 
@@ -28,6 +29,8 @@ export function EventsIndexPageContent() {
         sortOptions={model.sortOptions}
       />
 
+      <EventCenterAlertStrip alerts={model.runtimeAlerts} />
+
       <section>
         <PageSectionCard>
           <SectionHeader
@@ -45,7 +48,7 @@ export function EventsIndexPageContent() {
         </PageSectionCard>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.75fr)]">
+      <section>
         <PageSectionCard>
           <SectionHeader
             eyebrow="全量事件列表"
@@ -58,25 +61,6 @@ export function EventsIndexPageContent() {
             </div>
           ) : (
             <EventCenterEmptyState />
-          )}
-        </PageSectionCard>
-
-        <PageSectionCard>
-          <SectionHeader
-            eyebrow="轻量系统提醒"
-          />
-          {model.runtimeAlertEvents.length > 0 ? (
-            <div className="grid gap-2">
-              {model.runtimeAlertEvents.map((event) => (
-                <EventScoreCard key={event.id} event={event} toDetail={false} />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-hairline-strong bg-surface p-4">
-              <p className="m-0 text-body-sm text-muted">
-                当前没有可展示的系统提醒。
-              </p>
-            </div>
           )}
         </PageSectionCard>
       </section>

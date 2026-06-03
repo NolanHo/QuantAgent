@@ -2,6 +2,9 @@ import type {
   AnalysisStatus,
   EventScoreCardModel,
 } from '@/features/event-scoring/types/event-scoring.types'
+import type {
+  HealthAlert,
+} from '@/features/mainflow/mock-data'
 
 export interface EventCenterFilterOption {
   label: string
@@ -36,5 +39,5 @@ export interface EventCenterPageModel {
   filterGroups: readonly EventCenterFilterGroup[]
   sortOptions: readonly EventCenterFilterOption[]
   statusBuckets: Readonly<Record<AnalysisStatus, number>>
-  runtimeAlertEvents: readonly EventScoreCardModel[]
+  runtimeAlerts: readonly HealthAlert[]
 }

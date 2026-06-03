@@ -2,9 +2,6 @@ import {
   healthAlerts,
 } from '@/features/mainflow/mock-data'
 import {
-  createHealthAlertEventCardModel,
-} from '@/features/event-scoring/utils/event-scoring-adapters'
-import {
   formatEventReliability,
   formatImpactStrength,
   formatPriorityLabel,
@@ -89,9 +86,6 @@ export function createEventCenterPageModel(
   const sortedEvents = sortEventCenterEvents(filteredEvents, selectedSortKey)
   const statusBuckets = buildStatusBuckets(events)
   const featuredEvents = sortedEvents.filter(isFeaturedEvent).slice(0, 4)
-  const runtimeAlertEvents = events.length > 0
-    ? healthAlerts.map((alert, index) => createHealthAlertEventCardModel(alert, events[index] ?? events[0]!))
-    : []
 
   // 中文注释：事件中心只做浏览和筛选入口，不能把高分或高优先级表达成审批/执行动作。
   return {
@@ -100,6 +94,6 @@ export function createEventCenterPageModel(
     filterGroups: buildEventCenterFilterGroups(selectedFilterKeys),
     sortOptions: buildEventCenterSortOptions(selectedSortKey),
     statusBuckets,
-    runtimeAlertEvents,
+    runtimeAlerts: healthAlerts,
   }
 }

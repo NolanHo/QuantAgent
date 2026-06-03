@@ -70,11 +70,10 @@ describe('event center adapters', () => {
     ])
   })
 
-  it('maps runtime alerts separately from event ranking', () => {
+  it('keeps runtime alerts separate from event ranking', () => {
     const model = createEventCenterPageModel(scoredEvents)
 
-    expect(model.runtimeAlertEvents).toHaveLength(2)
-    expect(model.runtimeAlertEvents[0]!.impactDirection).toBe('运行风险提示')
-    expect(model.runtimeAlertEvents[0]!.score.selectionReason).toContain('不参与高价值事件打分')
+    expect(model.runtimeAlerts).toHaveLength(2)
+    expect(model.runtimeAlerts[0]!.title).toContain('source 插件')
   })
 })
