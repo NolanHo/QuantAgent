@@ -17,8 +17,17 @@ import type {
 
 import type {
   EventCenterListItem,
+  EventCenterModelOptions,
   EventCenterPageModel,
 } from '../types/event-center.types'
+import {
+  buildEventCenterFilterGroups,
+  buildEventCenterSortOptions,
+  eventCenterDefaultFilterSelection,
+  eventCenterDefaultSortKey,
+  filterEventCenterEvents,
+  sortEventCenterEvents,
+} from './event-center-filters'
 
 const analysisStateCopies: Record<AnalysisStatus, string> = {
   captured: '已捕获，等待分析',
@@ -29,22 +38,6 @@ const analysisStateCopies: Record<AnalysisStatus, string> = {
   analysis_failed: '分析失败',
   policy_blocked: 'Policy Gate 阻断',
 }
-
-const filterLabels = [
-  '今日',
-  '半导体设备',
-  '存储芯片',
-  '晶圆代工',
-  '事件可信度 >= 55',
-  '可查看分析',
-  '待复核 / 失败',
-] as const
-
-const sortLabels = [
-  '最新 + 高价值混合',
-  '最新优先',
-  '高价值优先',
-] as const
 
 function buildStatusBuckets(events: readonly EventScoreCardModel[]) {
   return events.reduce<Record<AnalysisStatus, number>>((acc, event) => {
@@ -85,16 +78,15 @@ function buildListItem(event: EventScoreCardModel, index: number): EventCenterLi
 
 export function createEventCenterPageModel(
   events: readonly EventScoreCardModel[],
+  options: EventCenterModelOptions = {},
 ): EventCenterPageModel {
-  const sortedEvents = [...events].sort((left, right) => {
-    const priorityDelta = right.score.eventPriority - left.score.eventPriority
-
-    if (priorityDelta !== 0) {
-      return priorityDelta
-    }
-
-    return left.publishedMinutesAgo - right.publishedMinutesAgo
-  })
+  const selectedFilterKeys = {
+    ...eventCenterDefaultFilterSelection,
+    ...options.selectedFilterKeys,
+  }
+  const selectedSortKey = options.selectedSortKey ?? eventCenterDefaultSortKey
+  const filteredEvents = filterEventCenterEvents(events, selectedFilterKeys)
+  const sortedEvents = sortEventCenterEvents(filteredEvents, selectedSortKey)
   const statusBuckets = buildStatusBuckets(events)
   const featuredEvents = sortedEvents.filter(isFeaturedEvent).slice(0, 4)
   const runtimeAlertEvents = events.length > 0
@@ -105,16 +97,8 @@ export function createEventCenterPageModel(
   return {
     featuredEvents,
     listItems: sortedEvents.map(buildListItem),
-    filters: filterLabels.map((label, index) => ({
-      label,
-      value: label,
-      active: index <= 1,
-    })),
-    sortOptions: sortLabels.map((label, index) => ({
-      label,
-      value: label,
-      active: index === 0,
-    })),
+    filterGroups: buildEventCenterFilterGroups(selectedFilterKeys),
+    sortOptions: buildEventCenterSortOptions(selectedSortKey),
     statusBuckets,
     runtimeAlertEvents,
   }

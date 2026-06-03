@@ -4,11 +4,11 @@
 
 当前阶段负责：
 
-- 今日重点事件、筛选 / 排序入口、全量事件列表和轻量系统提醒的页面装配。
+- 顶部多类别筛选栏、今日重点事件、全量事件列表和轻量系统提醒的页面装配。
 - 将现有 `event-scoring` mock 映射为事件中心可消费的 page model。
 - 稳定 `/events` -> `/events/:eventId` 的“查看分析”入口。
 - `components/page/` 只做页面组合。
-- `components/filters/` 只放筛选 / 排序展示控件。
+- `components/filters/` 只放顶部筛选 / 排序 picker 展示控件。
 - `components/event-list/` 只放事件列表行与列表展示控件。
 
 当前阶段不负责：

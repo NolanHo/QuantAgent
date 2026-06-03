@@ -9,6 +9,19 @@ export interface EventCenterFilterOption {
   active: boolean
 }
 
+export interface EventCenterFilterGroup {
+  key: string
+  label: string
+  options: readonly EventCenterFilterOption[]
+}
+
+export type EventCenterFilterSelection = Readonly<Record<string, string>>
+
+export interface EventCenterModelOptions {
+  selectedFilterKeys?: EventCenterFilterSelection
+  selectedSortKey?: string
+}
+
 export interface EventCenterListItem {
   event: EventScoreCardModel
   rankLabel: string
@@ -20,7 +33,7 @@ export interface EventCenterListItem {
 export interface EventCenterPageModel {
   featuredEvents: readonly EventScoreCardModel[]
   listItems: readonly EventCenterListItem[]
-  filters: readonly EventCenterFilterOption[]
+  filterGroups: readonly EventCenterFilterGroup[]
   sortOptions: readonly EventCenterFilterOption[]
   statusBuckets: Readonly<Record<AnalysisStatus, number>>
   runtimeAlertEvents: readonly EventScoreCardModel[]

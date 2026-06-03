@@ -36,11 +36,38 @@ describe('event center adapters', () => {
   it('keeps mock filters explicit before URL search params are wired', () => {
     const model = createEventCenterPageModel(scoredEvents)
 
-    expect(model.filters.filter((item) => item.active).map((item) => item.label)).toEqual([
+    expect(model.filterGroups.map((group) => group.label)).toEqual([
+      '时间范围',
+      '行业方向',
+      '事件价值',
+      '分析状态',
+    ])
+    expect(model.filterGroups.map((group) => group.options.find((item) => item.active)?.label)).toEqual([
       '今日',
-      '半导体设备',
+      '全部行业',
+      '全部价值层级',
+      '全部状态',
     ])
     expect(model.sortOptions.find((item) => item.active)?.label).toBe('最新 + 高价值混合')
+  })
+
+  it('applies layered mock filters before building visible rows', () => {
+    const model = createEventCenterPageModel(scoredEvents, {
+      selectedFilterKeys: {
+        analysis: 'decision-ready',
+        industry: 'semiconductor-equipment',
+        time: 'today',
+        value: 'high-value',
+      },
+      selectedSortKey: 'latest',
+    })
+
+    expect(model.filterGroups.find((group) => group.key === 'industry')?.options.find((item) => item.active)?.label)
+      .toBe('半导体设备')
+    expect(model.listItems.map((item) => item.event.id)).toEqual([
+      'evt-semiconductor-policy-block',
+      'evt-semiconductor-export',
+    ])
   })
 
   it('maps runtime alerts separately from event ranking', () => {
