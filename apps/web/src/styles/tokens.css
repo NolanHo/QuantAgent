@@ -34,12 +34,12 @@
 
   /* Event scoring tones: 参考 HeroUI 的语义角色思路，但与主题 / 状态 / 交易色隔离。 */
   --qa-score-on-strong: #181a20;
-  --qa-score-priority-strong: #f31260;
+  --qa-score-priority-strong: #dc2626;
   --qa-score-priority-on-strong: #ffffff;
-  --qa-score-priority-panel: #fff1f5;
-  --qa-score-priority-bg: #ffe4ec;
-  --qa-score-priority-border: #ff8fab;
-  --qa-score-priority-fg: #b0003a;
+  --qa-score-priority-panel: #fff1f2;
+  --qa-score-priority-bg: #fee2e2;
+  --qa-score-priority-border: #fca5a5;
+  --qa-score-priority-fg: #991b1b;
   --qa-score-action-strong: #f5a524;
   --qa-score-action-panel: #fff8ed;
   --qa-score-action-bg: #fff1d8;

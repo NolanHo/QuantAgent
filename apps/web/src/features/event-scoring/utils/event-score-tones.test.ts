@@ -77,8 +77,14 @@ describe('event score tones', () => {
 
   it('keeps recommendation tone separate from raw priority band', () => {
     expect(getRecommendationTone(93).label).toBe('S 级建议')
+    expect(getRecommendationTone(93).scoreClass).toContain('--qa-score-priority-strong')
     expect(getRecommendationTone(83).label).toBe('A 级关注')
+    expect(getRecommendationTone(83).scoreClass).toContain('--qa-score-priority-bg')
     expect(getRecommendationTone(72).label).toBe('B 级复核')
+    expect(getRecommendationTone(93).scoreClass).not.toContain('--qa-score-action')
+    expect(getRecommendationTone(83).scoreClass).not.toContain('--qa-score-action')
+    expect(getRecommendationTone(72).scoreClass).not.toContain('--qa-score-attention-bg')
+    expect(getRecommendationTone(72).scoreClass).toContain('--qa-score-neutral-bg')
     expectIsolatedScoreTone(getRecommendationTone(93))
   })
 })

@@ -160,21 +160,21 @@ export function getRecommendationTone(score: number): EventScoreTone {
   if (score >= 90) {
     return {
       label: 'S 级建议',
-      ...scoreToneTokens.actionStrong,
+      ...scoreToneTokens.priorityStrong,
     }
   }
 
   if (score >= 80) {
     return {
       label: 'A 级关注',
-      ...scoreToneTokens.actionSoft,
+      ...scoreToneTokens.prioritySoft,
     }
   }
 
   if (score >= 70) {
     return {
       label: 'B 级复核',
-      ...scoreToneTokens.attentionSoft,
+      ...scoreNeutralTone,
     }
   }
 
