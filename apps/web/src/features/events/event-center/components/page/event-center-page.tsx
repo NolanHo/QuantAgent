@@ -16,8 +16,8 @@ export function EventsIndexPageContent() {
   return (
     <div className="grid gap-5">
       <PageHeader
-        kicker="事件池"
         title="全部事件"
+        titleClassName="font-extrabold"
       />
 
       <EventCenterFilterNav
@@ -39,8 +39,8 @@ export function EventsAllPageContent() {
   return (
     <div className="grid gap-5">
       <PageHeader
-        kicker="事件池"
         title="全部事件"
+        titleClassName="font-extrabold"
       />
 
       <EventCenterFilterNav

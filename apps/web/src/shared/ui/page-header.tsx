@@ -1,16 +1,18 @@
 export function PageHeader({
   kicker,
   title,
+  titleClassName,
   description,
 }: {
-  kicker: string
+  kicker?: string
   title: string
+  titleClassName?: string
   description?: string
 }) {
   return (
     <section className="page-header">
-      <p className="page-kicker">{kicker}</p>
-      <h1 className="page-title">{title}</h1>
+      {kicker ? <p className="page-kicker">{kicker}</p> : null}
+      <h1 className={['page-title', titleClassName].filter(Boolean).join(' ')}>{title}</h1>
       {description ? <p className="page-description">{description}</p> : null}
     </section>
   )

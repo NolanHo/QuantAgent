@@ -154,7 +154,7 @@ test('redirects protected routes to login and restores the original target', asy
   await page.getByRole('button', { name: '登录' }).click();
 
   await expect(page).toHaveURL(/\/events/);
-  await expect(page.locator('.page-title')).toHaveText('高价值事件');
+  await expect(page.locator('.page-title')).toHaveText('全部事件');
 });
 
 test('shows login failure without leaking submitted password', async ({ page }) => {
@@ -173,7 +173,7 @@ test('restores an existing session through /me and logs out with CSRF', async ({
 
   await page.goto('/events');
 
-  await expect(page.locator('.page-title')).toHaveText('高价值事件');
+  await expect(page.locator('.page-title')).toHaveText('全部事件');
   await expect(page.getByText('local_admin')).toBeVisible();
 
   await page.getByRole('button', { name: '退出登录' }).click();
@@ -192,7 +192,7 @@ test('authenticated development actor enters the dashboard without auth-disabled
 
   await expect(page.getByText('开发环境已关闭鉴权')).toHaveCount(0);
   await expect(page.getByText('local_dev')).toBeVisible();
-  await expect(page.locator('.page-title')).toHaveText('高价值事件');
+  await expect(page.locator('.page-title')).toHaveText('全部事件');
 });
 
 test('authenticated users without route capability stay in forbidden flow instead of returning to login', async ({
