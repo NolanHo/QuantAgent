@@ -32,6 +32,37 @@
   /* Info */
   --qa-color-info: #3b82f6;
 
+  /* Event scoring tones: 独立于品牌、交易涨跌和状态色的评分色阶。 */
+  --qa-score-on-strong: #181a20;
+  --qa-score-pink-strong: #ec4899;
+  --qa-score-pink-on-strong: #ffffff;
+  --qa-score-pink-panel: #fdf2f8;
+  --qa-score-pink-bg: #fce7f3;
+  --qa-score-pink-border: #f9a8d4;
+  --qa-score-pink-fg: #be185d;
+  --qa-score-amber-strong: #f0b90b;
+  --qa-score-amber-panel: #fffbeb;
+  --qa-score-amber-bg: #fff7d6;
+  --qa-score-amber-border: #f3d46b;
+  --qa-score-amber-fg: #8a5a00;
+  --qa-score-teal-strong: #14b8a6;
+  --qa-score-teal-panel: #f0fdfa;
+  --qa-score-teal-bg: #dcfaf5;
+  --qa-score-teal-border: #8ee2d3;
+  --qa-score-teal-fg: #0f766e;
+  --qa-score-bluegray-panel: #f8fafc;
+  --qa-score-bluegray-bg: #edf4ff;
+  --qa-score-bluegray-border: #b9c9e4;
+  --qa-score-bluegray-fg: #475569;
+  --qa-score-rose-panel: #fff7f8;
+  --qa-score-rose-bg: #fff1f2;
+  --qa-score-rose-border: #fda4af;
+  --qa-score-rose-fg: #be123c;
+  --qa-score-neutral-panel: #fafafa;
+  --qa-score-neutral-bg: #f5f5f5;
+  --qa-score-neutral-border: #d1d5db;
+  --qa-score-neutral-fg: #4b5563;
+
   /* Elevation */
   --qa-shadow-card: 0 1px 3px rgb(0 0 0 / 0.06);
   --qa-shadow-elevated: 0 4px 12px rgb(0 0 0 / 0.08);
