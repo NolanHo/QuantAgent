@@ -44,15 +44,10 @@ const scoreToneTokens = {
     scoreClass: 'border border-[var(--qa-score-reliability-border)] bg-[var(--qa-score-reliability-bg)] text-[var(--qa-score-reliability-fg)]',
     tagClass: 'border border-[var(--qa-score-reliability-border)] bg-[var(--qa-score-reliability-bg)] text-[var(--qa-score-reliability-fg)]',
   },
-  reviewSoft: {
-    panelClass: 'border border-[var(--qa-score-review-border)] bg-[var(--qa-score-review-panel)]',
-    scoreClass: 'border border-[var(--qa-score-review-border)] bg-[var(--qa-score-review-bg)] text-[var(--qa-score-review-fg)]',
-    tagClass: 'border border-[var(--qa-score-review-border)] bg-[var(--qa-score-review-bg)] text-[var(--qa-score-review-fg)]',
-  },
-  impactSoft: {
-    panelClass: 'border border-[var(--qa-score-impact-border)] bg-[var(--qa-score-impact-panel)]',
-    scoreClass: 'border border-[var(--qa-score-impact-border)] bg-[var(--qa-score-impact-bg)] text-[var(--qa-score-impact-fg)]',
-    tagClass: 'border border-[var(--qa-score-impact-border)] bg-[var(--qa-score-impact-bg)] text-[var(--qa-score-impact-fg)]',
+  attentionSoft: {
+    panelClass: 'border border-[var(--qa-score-attention-border)] bg-[var(--qa-score-attention-panel)]',
+    scoreClass: 'border border-[var(--qa-score-attention-border)] bg-[var(--qa-score-attention-bg)] text-[var(--qa-score-attention-fg)]',
+    tagClass: 'border border-[var(--qa-score-attention-border)] bg-[var(--qa-score-attention-bg)] text-[var(--qa-score-attention-fg)]',
   },
 }
 
@@ -74,7 +69,7 @@ export function getPriorityTone(priorityBand: EventScoreLevel, score: number): E
   if (priorityBand === 'B') {
     return {
       label: '观察',
-      ...scoreToneTokens.reviewSoft,
+      ...scoreToneTokens.attentionSoft,
     }
   }
 
@@ -109,7 +104,7 @@ export function getReliabilityTone(score: number): EventScoreTone {
   if (score >= 70) {
     return {
       label: '中等可信',
-      ...scoreToneTokens.reviewSoft,
+      ...scoreToneTokens.attentionSoft,
     }
   }
 
@@ -130,7 +125,7 @@ export function getImpactTone(score: number): EventScoreTone {
   if (score >= 90) {
     return {
       label: '极强影响',
-      ...scoreToneTokens.impactSoft,
+      ...scoreToneTokens.prioritySoft,
     }
   }
 
@@ -144,7 +139,7 @@ export function getImpactTone(score: number): EventScoreTone {
   if (score >= 70) {
     return {
       label: '中高影响',
-      ...scoreToneTokens.reviewSoft,
+      ...scoreToneTokens.attentionSoft,
     }
   }
 
@@ -179,7 +174,7 @@ export function getRecommendationTone(score: number): EventScoreTone {
   if (score >= 70) {
     return {
       label: 'B 级复核',
-      ...scoreToneTokens.reviewSoft,
+      ...scoreToneTokens.attentionSoft,
     }
   }
 

@@ -62,16 +62,16 @@ describe('event score tones', () => {
     expect(getReliabilityTone(84).label).toBe('高可信')
     expect(getReliabilityTone(84).scoreClass).toContain('--qa-score-reliability-bg')
     expect(getReliabilityTone(92).label).toBe('极高可信')
-    expect(getReliabilityTone(72).scoreClass).toContain('--qa-score-review-bg')
+    expect(getReliabilityTone(72).scoreClass).toContain('--qa-score-attention-bg')
     expectIsolatedScoreTone(getReliabilityTone(92))
   })
 
-  it('only uses score-specific rose for extreme impact scores', () => {
+  it('only uses score-specific red for extreme impact scores', () => {
     expect(getImpactTone(95).label).toBe('极强影响')
-    expect(getImpactTone(95).scoreClass).toContain('--qa-score-impact-bg')
+    expect(getImpactTone(95).scoreClass).toContain('--qa-score-priority-bg')
     expect(getImpactTone(89).label).toBe('高影响')
-    expect(getImpactTone(89).scoreClass).not.toContain('--qa-score-impact-bg')
-    expect(getImpactTone(73).scoreClass).toContain('--qa-score-review-bg')
+    expect(getImpactTone(89).scoreClass).not.toContain('--qa-score-priority-bg')
+    expect(getImpactTone(73).scoreClass).toContain('--qa-score-attention-bg')
     expectIsolatedScoreTone(getImpactTone(95))
   })
 
