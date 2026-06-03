@@ -37,12 +37,8 @@ export interface IndustryImpactSummary {
 export interface BestActionSummary {
   actionTitle: string
   actionHint: string
-  actionTarget: string
-  rationale: string
-  triggerSummary: string
   analysisConfidence: number
   recommendationScore: number
-  uncertaintySummary: string
   approvalId: string | null
 }
 

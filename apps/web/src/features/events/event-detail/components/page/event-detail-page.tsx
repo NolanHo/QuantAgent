@@ -8,7 +8,6 @@ import {
 import type { EventDegradationNotice } from '@/features/event-scoring/types/event-scoring.types'
 
 import {
-  EvidenceAndDiagnosticsPanel,
   InvestmentDecisionPanel,
 } from '../analysis/event-analysis-panels'
 import { useEventDetailPage } from '../../hooks/use-event-detail-page'
@@ -60,7 +59,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
       />
 
       <section>
-        <PageSectionCard className="border-primary/25 bg-primary/5">
+        <PageSectionCard className="bg-surface">
           <SectionHeader
             eyebrow="投资处理建议"
           />
@@ -68,8 +67,10 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
             action={bestActionSummary}
             approvalId={relatedApproval?.id ?? null}
             decision={decisionSummary}
+            eventReliability={factSummary.eventReliability}
             eventId={event.id}
             evidence={evidenceSummary}
+            verificationLabel={factSummary.verificationStatusLabel}
           />
           <EventFactStrip
             notices={degradationNotices}
@@ -77,29 +78,15 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
               ['来源', factSummary.source],
               ['时间', factSummary.publishedAt],
               ['状态', factSummary.status],
-              ['可信度', `${factSummary.eventReliability} / 100`],
-              ['验证', factSummary.verificationStatusLabel],
             ]}
             summary={factSummary.summary}
           />
           <div className="flex flex-wrap gap-2">
-            <LinkButton to="/events" variant="outline">返回重点事件</LinkButton>
-            <LinkButton to="/events/all" variant="outline">全部事件</LinkButton>
+            <LinkButton to="/events" variant="outline">返回全部事件</LinkButton>
           </div>
         </PageSectionCard>
       </section>
 
-      <section>
-        <PageSectionCard>
-          <SectionHeader
-            eyebrow="证据与诊断"
-          />
-          <EvidenceAndDiagnosticsPanel
-            eventId={event.id}
-            evidence={evidenceSummary}
-          />
-        </PageSectionCard>
-      </section>
     </div>
   )
 }

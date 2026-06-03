@@ -175,7 +175,7 @@ function buildInvestmentActionTitle(
 }
 
 function buildInvestorImpactSummary(event: EventScoreCardModel, affectedObjects: readonly string[]) {
-  const target = affectedObjects[0] ?? event.industries[0] ?? '相关产业链'
+  const target = event.industries.join('、') || affectedObjects[0] || '相关产业链'
 
   if (event.impactDirection.includes('偏空')) {
     return `${target}短线承压，优先检查相关股票仓位、盈利假设和对冲需求。`
@@ -194,13 +194,10 @@ function buildInvestorImpactSummary(event: EventScoreCardModel, affectedObjects:
 
 function buildInvestorRationale(
   event: EventScoreCardModel,
-  approval: ApprovalScoreCardModel | null,
 ) {
-  if (approval?.triggerSummary) {
-    return approval.triggerSummary
-  }
+  const support = event.analysisHighlights?.support ?? event.score.selectionReason
 
-  return `${event.score.selectionReason}；${event.score.uncertaintySummary}`
+  return `${support} ${event.score.uncertaintySummary}`
 }
 
 function buildAuditTimeline(
@@ -285,7 +282,7 @@ export function createEventDetailPageModel(
     decisionSummary: {
       impactQuestion: buildInvestorImpactSummary(event, affectedObjects),
       recommendedAction: investmentActionTitle,
-      rationale: buildInvestorRationale(event, approval),
+      rationale: buildInvestorRationale(event),
     },
     impactSummary: {
       industries: event.industries,
@@ -300,12 +297,8 @@ export function createEventDetailPageModel(
     bestActionSummary: {
       actionTitle: investmentActionTitle,
       actionHint: event.actionHint,
-      actionTarget: affectedObjects[0] ?? event.industries[0] ?? '待补充',
-      rationale: buildInvestorRationale(event, approval),
-      triggerSummary: approval?.triggerSummary ?? `由 ${event.score.selectionReason} 触发。`,
       analysisConfidence: event.score.analysisConfidence,
       recommendationScore: event.score.recommendationScore,
-      uncertaintySummary: event.score.uncertaintySummary,
       approvalId: approval?.id ?? null,
     },
     evidenceSummary: {

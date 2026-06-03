@@ -30,7 +30,6 @@ describe('event detail adapters', () => {
     expect(model.impactSummary.consensusSummary).toContain('出口限制升级')
     expect(model.impactSummary.divergenceSummary).toContain('兑现节奏')
     expect(model.bestActionSummary.actionTitle).toBe(scoredApprovals[0]!.actionLabel)
-    expect(model.bestActionSummary.triggerSummary).toBe(scoredApprovals[0]!.triggerSummary)
     expect(model.bestActionSummary.approvalId).toBe(scoredApprovals[0]!.id)
     expect(model.evidenceSummary.evidenceQuality).toContain('双信源交叉验证')
     expect(model.argumentSummaries).toHaveLength(6)
