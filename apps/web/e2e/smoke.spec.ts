@@ -22,8 +22,9 @@ test('renders the Events app shell in Chromium', async ({ page }) => {
 
   await page.goto('/events');
 
-  await expect(page.getByText('事件池')).toHaveCount(0);
   await expect(page.locator('.page-title')).toHaveText('全部事件', {
     timeout: 60_000,
   });
+  await expect(page.locator('.page-kicker')).toHaveCount(0);
+  await expect(page.getByText('事件池')).toHaveCount(0);
 });
