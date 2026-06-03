@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from ipaddress import ip_address
 from typing import Any
@@ -30,9 +31,12 @@ class JinaSourcePlugin(BasePlugin):
                 **normalized["headers"],
             },
         )
-        with urlopen(http_request, timeout=normalized["timeout_seconds"]) as response:
-            body = response.read()
-            content_type = response.headers.get("Content-Type")
+        # External reader access is blocking I/O; keep it off the runtime event loop.
+        body, content_type = await asyncio.to_thread(
+            _read_response,
+            http_request,
+            normalized["timeout_seconds"],
+        )
 
         text = _decode_body(body, content_type).strip()
         if not text:
@@ -95,12 +99,17 @@ class JinaSourcePlugin(BasePlugin):
         endpoint = config.get("endpoint", DEFAULT_ENDPOINT)
         if not isinstance(endpoint, str) or not endpoint.strip():
             raise ValueError("endpoint must be a non-empty string")
+        normalized_endpoint = endpoint.strip()
+        parsed_endpoint = urlparse(normalized_endpoint)
+        if parsed_endpoint.scheme != "https":
+            raise ValueError("endpoint scheme must be https")
+        _reject_private_target(parsed_endpoint)
 
         return {
             "url": normalized_url,
             "headers": normalized_headers,
             "timeout_seconds": timeout_seconds,
-            "endpoint": endpoint.strip(),
+            "endpoint": normalized_endpoint,
         }
 
 
@@ -116,6 +125,11 @@ def _reject_private_target(parsed) -> None:
         return
     if candidate.is_private or candidate.is_loopback or candidate.is_link_local or candidate.is_reserved:
         raise ValueError("private or local urls must not be sent to external reader")
+
+
+def _read_response(http_request: Request, timeout_seconds: int) -> tuple[bytes, str | None]:
+    with urlopen(http_request, timeout=timeout_seconds) as response:
+        return response.read(), response.headers.get("Content-Type")
 
 
 def _build_reader_url(endpoint: str, url: str) -> str:

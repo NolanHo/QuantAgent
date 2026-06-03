@@ -5,7 +5,8 @@
   "properties": {
     "url": {
       "type": "string",
-      "format": "uri"
+      "format": "uri",
+      "description": "Optional default URL. If omitted, source.fetch input.query must provide the URL for this invocation."
     },
     "headers": {
       "type": "object",
@@ -26,12 +27,11 @@
     },
     "endpoint": {
       "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
       "minLength": 1,
       "default": "https://r.jina.ai/http://{url_without_scheme}"
     }
   },
-  "required": [
-    "url"
-  ],
   "additionalProperties": false
 }

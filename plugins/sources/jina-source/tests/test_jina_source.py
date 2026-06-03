@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import unittest
 from importlib import util
 from pathlib import Path
 from unittest.mock import patch
 
-from quantagent.core.plugins.manifest import load_plugin_manifest
+REPO_ROOT = Path(__file__).resolve().parents[4]
+for src_root in (
+    REPO_ROOT / "packages" / "core" / "src",
+    REPO_ROOT / "packages" / "plugin-sdk" / "src",
+):
+    if str(src_root) not in sys.path:
+        sys.path.insert(0, str(src_root))
+
+from quantagent.core.registry import RegistryScanner
 from quantagent.plugin_sdk import PluginInvokeRequest, RuntimeContext
 
 
@@ -16,7 +25,9 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 class JinaSourcePluginTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        manifest = load_plugin_manifest(PLUGIN_ROOT)
+        manifest = _plugin_record().manifest
+        if manifest is None:
+            raise RuntimeError("Jina plugin manifest is missing from registry record.")
         module_name, _, attribute_name = manifest.entrypoint.partition(":")
         if not module_name or not attribute_name:
             raise RuntimeError(f"Invalid plugin entrypoint: {manifest.entrypoint}")
@@ -144,6 +155,50 @@ class JinaSourcePluginTestCase(unittest.TestCase):
                 )
             )
 
+    def test_fetch_rejects_non_https_endpoint(self) -> None:
+        self._run_async(
+            self.plugin.load(
+                RuntimeContext(
+                    plugin_id=self.plugin_id,
+                    plugin_version="0.1.0",
+                    request_id="req-endpoint-scheme",
+                    logger=__import__("logging").getLogger("test.jina"),
+                    config={
+                        "url": "https://example.test/news/oil",
+                        "endpoint": "http://reader.test/{url}",
+                    },
+                )
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "endpoint scheme must be https"):
+            self._run_async(
+                self.plugin.invoke(
+                    PluginInvokeRequest(capability="source.fetch", request_id="req-endpoint-scheme", input={})
+                )
+            )
+
+    def test_fetch_rejects_private_endpoint_target(self) -> None:
+        self._run_async(
+            self.plugin.load(
+                RuntimeContext(
+                    plugin_id=self.plugin_id,
+                    plugin_version="0.1.0",
+                    request_id="req-endpoint-private",
+                    logger=__import__("logging").getLogger("test.jina"),
+                    config={
+                        "url": "https://example.test/news/oil",
+                        "endpoint": "https://127.0.0.1/{url}",
+                    },
+                )
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "private or local urls must not be sent to external reader"):
+            self._run_async(
+                self.plugin.invoke(
+                    PluginInvokeRequest(capability="source.fetch", request_id="req-endpoint-private", input={})
+                )
+            )
+
     def test_fetch_rejects_timeout_above_schema_maximum(self) -> None:
         self._run_async(
             self.plugin.load(
@@ -228,3 +283,11 @@ class _FakeHTTPResponse:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _plugin_record():
+    records = RegistryScanner(
+        official_root=REPO_ROOT / "plugins",
+        runtime_root=REPO_ROOT / "runtime" / "plugins",
+    ).scan()
+    return {item.id: item for item in records}["quantagent.official.source.jina"]
