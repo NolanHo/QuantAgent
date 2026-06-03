@@ -40,8 +40,7 @@ export function DashboardPageContent() {
   return (
     <div className="grid gap-5">
       <PageHeader
-        kicker="Dashboard"
-        title="今天先看什么"
+        title="Dashboard"
       />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -49,7 +48,6 @@ export function DashboardPageContent() {
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <SectionHeader
               eyebrow="今日重点事件"
-              title={dashboardHighlightedEvents.length === 0 ? '当前暂无重点事件' : `优先看这 ${dashboardHighlightedEvents.length} 条`}
             />
             <LinkButton to="/events" variant="outline">全部事件</LinkButton>
           </div>
