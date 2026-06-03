@@ -28,7 +28,7 @@ describe('event center adapters', () => {
 
     expect(first.event.id).toBe('evt-semiconductor-export')
     expect(first.rankLabel).toBe('#01')
-    expect(first.scoreSummary).toContain('事件优先级')
+    expect(first.priorityLabel).toContain('事件优先级')
     expect(first.analysisState).toBe('可查看分析')
     expect(first.rowReason).toContain('高可信')
   })

@@ -28,7 +28,10 @@ export interface EventCenterModelOptions {
 export interface EventCenterListItem {
   event: EventScoreCardModel
   rankLabel: string
-  scoreSummary: string
+  priorityLabel: string
+  reliabilityLabel: string
+  impactLabel: string
+  verificationLabel: string
   analysisState: string
   rowReason: string
 }

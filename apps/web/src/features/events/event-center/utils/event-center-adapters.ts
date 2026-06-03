@@ -62,12 +62,10 @@ function buildListItem(event: EventScoreCardModel, index: number): EventCenterLi
   return {
     event,
     rankLabel: `#${String(index + 1).padStart(2, '0')}`,
-    scoreSummary: [
-      formatPriorityLabel(event.score.eventPriority, event.score.priorityBand),
-      formatEventReliability(event.score.eventReliability),
-      formatImpactStrength(event.score.impactStrength),
-      formatVerificationStatus(event.score.verificationStatus),
-    ].join(' · '),
+    priorityLabel: formatPriorityLabel(event.score.eventPriority, event.score.priorityBand),
+    reliabilityLabel: formatEventReliability(event.score.eventReliability),
+    impactLabel: formatImpactStrength(event.score.impactStrength),
+    verificationLabel: formatVerificationStatus(event.score.verificationStatus),
     analysisState: analysisStateCopies[event.status],
     rowReason: event.score.selectionReason,
   }
