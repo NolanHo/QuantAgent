@@ -1,7 +1,5 @@
 import { Card, Chip } from "@heroui/react";
 
-import { LinkButton } from "@/shared/ui";
-
 import {
   usePluginAuditViewQuery,
   usePluginDependenciesViewQuery,
@@ -47,18 +45,13 @@ export function PluginDetailPage({ pluginId }: { pluginId: string }) {
   return (
     <div className="grid gap-5">
       <section className="page-header">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <p className="page-kicker">插件详情</p>
-            <h1 className="page-title">{detail.overview.name}</h1>
-            <p className="page-description">
-              {detail.overview.description ??
-                "插件治理详情：配置、依赖、能力、健康、审计与操作边界。"}
-            </p>
-          </div>
-          <LinkButton to="/plugins" variant="outline">
-            返回插件列表
-          </LinkButton>
+        <div className="min-w-0">
+          <p className="page-kicker">插件详情</p>
+          <h1 className="page-title">{detail.overview.name}</h1>
+          <p className="page-description">
+            {detail.overview.description ??
+              "插件治理详情：配置、依赖、能力、健康、审计与操作边界。"}
+          </p>
         </div>
       </section>
 
