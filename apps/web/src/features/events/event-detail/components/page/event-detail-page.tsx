@@ -62,7 +62,6 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
       <PageHeader
         kicker="事件详情 / 决策"
         title={event.title}
-        description="围绕单条事件查看事实、影响、建议动作和审批入口。"
       />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.92fr)]">
@@ -70,7 +69,6 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <SectionHeader
             eyebrow="01"
             title="事件事实"
-            description="来源、发布时间、可信度和验证状态。"
           />
           <DetailFacts
             rows={[
@@ -96,7 +94,6 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <SectionHeader
             eyebrow="02"
             title="决策摘要"
-            description="先看这四项，再决定是否进入审批或复核。"
           />
           <DecisionBrief summary={decisionSummary} />
         </PageSectionCard>
@@ -107,7 +104,6 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <SectionHeader
             eyebrow="03"
             title="行业影响"
-            description="行业、标的、时间窗口和主要风险点。"
           />
           <IndustryImpactPanel summary={impactSummary} />
         </PageSectionCard>
@@ -116,7 +112,6 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <SectionHeader
             eyebrow="04"
             title="最佳动作"
-            description="建议分数、置信度、风险等级和审批状态。"
           />
           <BestActionCard
             action={bestActionSummary}
@@ -132,7 +127,6 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <SectionHeader
             eyebrow="05"
             title="观点与证据"
-            description="支持、反方、证据质量和数据缺口。"
           />
           <EvidenceSummaryPanel summary={evidenceSummary} />
         </PageSectionCard>
@@ -141,7 +135,6 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           <SectionHeader
             eyebrow="06"
             title="运行摘要"
-            description="最近分析状态、调用策略和追踪编号。"
           />
           <DetailFacts
             rows={[

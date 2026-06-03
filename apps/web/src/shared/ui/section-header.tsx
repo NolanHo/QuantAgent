@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 interface SectionHeaderProps {
   eyebrow: string
   title: string
-  description: string
+  description?: string
   action?: ReactNode
 }
 
@@ -22,9 +22,11 @@ export function SectionHeader({
         <h2 className="m-0 wrap-anywhere text-title-md font-bold text-ink">
           {title}
         </h2>
-        <p className="m-0 max-w-[62ch] text-body-sm text-muted">
-          {description}
-        </p>
+        {description ? (
+          <p className="m-0 max-w-[62ch] text-body-sm text-muted">
+            {description}
+          </p>
+        ) : null}
       </div>
       {action}
     </header>

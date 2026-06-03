@@ -50,14 +50,12 @@ export function EventAuditPageContent({ eventId }: { eventId: string }) {
       <PageHeader
         kicker="事件级审计"
         title="事件时间线"
-        description="回放建议生成、重分析和人工动作。"
       />
 
       <PageSectionCard>
         <SectionHeader
           eyebrow="当前事件摘要"
           title={event.title}
-          description="可信度、影响强度、当前状态和关联链路。"
         />
         <DetailFacts
           rows={[
@@ -74,7 +72,6 @@ export function EventAuditPageContent({ eventId }: { eventId: string }) {
         <SectionHeader
           eyebrow="时间线节点"
           title={`事件 ${event.id} 的关键节点`}
-          description="事件状态、行业分析、审批请求和重分析记录。"
         />
         <div className="grid gap-3">
           {timeline.map((item) => (
