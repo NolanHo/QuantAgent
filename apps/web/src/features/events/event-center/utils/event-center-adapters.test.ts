@@ -11,11 +11,9 @@ import {
 import { createEventCenterPageModel } from './event-center-adapters'
 
 describe('event center adapters', () => {
-  it('builds overview metrics and featured events from scored mock data', () => {
+  it('builds featured events from scored mock data', () => {
     const model = createEventCenterPageModel(scoredEvents)
 
-    expect(model.metrics).toHaveLength(4)
-    expect(model.metrics.find((item) => item.label === '重点事件')?.value).toBe('04')
     expect(model.featuredEvents.map((event) => event.id)).toEqual([
       'evt-semiconductor-export',
       'evt-semiconductor-policy-block',

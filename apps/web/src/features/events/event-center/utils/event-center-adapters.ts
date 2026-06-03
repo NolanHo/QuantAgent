@@ -103,28 +103,6 @@ export function createEventCenterPageModel(
 
   // 中文注释：事件中心只做浏览和筛选入口，不能把高分或高优先级表达成审批/执行动作。
   return {
-    metrics: [
-      {
-        label: '新事件',
-        value: String(events.filter((event) => event.publishedMinutesAgo <= 180).length).padStart(2, '0'),
-        description: '近 3 小时进入事件池',
-      },
-      {
-        label: '重点事件',
-        value: String(featuredEvents.length).padStart(2, '0'),
-        description: 'S/A 优先级或已进入审批链路',
-      },
-      {
-        label: '分析中',
-        value: String(statusBuckets.analyzing).padStart(2, '0'),
-        description: '事实可见，分析结果待完成',
-      },
-      {
-        label: '待复核',
-        value: String(statusBuckets.analysis_failed + statusBuckets.policy_blocked + statusBuckets.pending_approval).padStart(2, '0'),
-        description: '失败、阻断或需要人工确认',
-      },
-    ],
     featuredEvents,
     listItems: sortedEvents.map(buildListItem),
     filters: filterLabels.map((label, index) => ({

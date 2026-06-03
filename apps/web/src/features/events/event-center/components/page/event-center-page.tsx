@@ -8,7 +8,6 @@ import {
 
 import { EventListRow } from '../event-list/event-list-row'
 import { MockFilterBar } from '../filters/mock-filter-bar'
-import { EventCenterMetricGrid } from '../overview/event-center-metric-grid'
 import { useEventCenterPage } from '../../hooks/use-event-center-page'
 
 export function EventsIndexPageContent() {
@@ -20,8 +19,6 @@ export function EventsIndexPageContent() {
         kicker="事件中心"
         title="高价值事件中心"
       />
-
-      <EventCenterMetricGrid metrics={model.metrics} />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.8fr)]">
         <PageSectionCard>
