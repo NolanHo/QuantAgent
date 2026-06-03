@@ -177,16 +177,16 @@ function buildInvestmentActionTitle(
 function buildInvestorImpactSummary(event: EventScoreCardModel, affectedObjects: readonly string[]) {
   const target = event.industries.join('、') || affectedObjects[0] || '相关产业链'
 
+  if (event.status === 'analysis_failed') {
+    return `${target}存在信号，但当前分析链路不完整，不适合直接形成交易动作。`
+  }
+
   if (event.impactDirection.includes('偏空')) {
     return `${target}短线承压，优先检查相关股票仓位、盈利假设和对冲需求。`
   }
 
   if (event.impactDirection.includes('偏多')) {
     return `${target}可能受益，但需要先确认价格、订单或需求信号是否同步。`
-  }
-
-  if (event.status === 'analysis_failed') {
-    return `${target}存在信号，但当前分析链路不完整，不适合直接形成交易动作。`
   }
 
   return `${target}需要继续复核，不把单条事件直接等同于买卖结论。`

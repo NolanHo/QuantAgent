@@ -59,7 +59,7 @@ export function getPriorityTone(priorityBand: EventScoreLevel, score: number): E
     }
   }
 
-  if (priorityBand === 'A' || score >= 70) {
+  if (priorityBand === 'A') {
     return {
       label: '关注',
       ...scoreToneTokens.prioritySoft,
@@ -73,10 +73,17 @@ export function getPriorityTone(priorityBand: EventScoreLevel, score: number): E
     }
   }
 
+  if (score >= 70) {
     return {
-      label: '记录',
-      ...scoreNeutralTone,
+      label: '关注',
+      ...scoreToneTokens.prioritySoft,
     }
+  }
+
+  return {
+    label: '记录',
+    ...scoreNeutralTone,
+  }
 }
 
 export function getReliabilityTone(score: number): EventScoreTone {

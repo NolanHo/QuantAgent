@@ -50,6 +50,17 @@ describe('event detail adapters', () => {
     expect(model.runtimeSummary.summary).toContain('暂无关联运行摘要')
   })
 
+  it('keeps analysis failure impact summary non-directional', () => {
+    const model = createEventDetailPageModel(
+      scoredEvents[3]!,
+      null,
+      null,
+    )
+
+    expect(model.decisionSummary.impactQuestion).toContain('当前分析链路不完整')
+    expect(model.decisionSummary.impactQuestion).not.toContain('可能受益')
+  })
+
   it('keeps conflicting evidence visible for manual confirmation', () => {
     const model = createEventDetailPageModel(
       scoredEvents[2]!,

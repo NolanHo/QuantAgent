@@ -42,6 +42,9 @@ describe('event score tones', () => {
     expect(getPriorityTone('S', 91).scoreClass).toContain('--qa-score-priority-strong')
     expect(getPriorityTone('A', 74).label).toBe('关注')
     expect(getPriorityTone('A', 74).scoreClass).toContain('--qa-score-priority-bg')
+    expect(getPriorityTone('B', 74).label).toBe('观察')
+    expect(getPriorityTone('B', 74).scoreClass).toContain('--qa-score-attention-bg')
+    expect(getPriorityTone('C', 74).label).toBe('关注')
     expectIsolatedScoreTone(getPriorityTone('S', 91))
   })
 

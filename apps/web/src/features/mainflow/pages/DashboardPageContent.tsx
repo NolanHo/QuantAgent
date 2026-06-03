@@ -40,7 +40,7 @@ export function DashboardPageContent() {
   return (
     <div className="grid gap-5">
       <PageHeader
-        title="Dashboard"
+        title="仪表盘"
       />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">

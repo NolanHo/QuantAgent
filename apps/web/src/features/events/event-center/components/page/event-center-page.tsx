@@ -9,7 +9,7 @@ import { EventCenterFilterNav } from '../filters/event-center-filter-nav'
 import { useEventCenterPage } from '../../hooks/use-event-center-page'
 import type { EventCenterListItem } from '../../types/event-center.types'
 
-export function EventsIndexPageContent() {
+function EventCenterPageContent() {
   const page = useEventCenterPage()
   const { model } = page
 
@@ -32,27 +32,12 @@ export function EventsIndexPageContent() {
   )
 }
 
+export function EventsIndexPageContent() {
+  return <EventCenterPageContent />
+}
+
 export function EventsAllPageContent() {
-  const page = useEventCenterPage()
-  const { model } = page
-
-  return (
-    <div className="grid gap-5">
-      <PageHeader
-        title="全部事件"
-        titleClassName="font-extrabold"
-      />
-
-      <EventCenterFilterNav
-        groups={model.filterGroups}
-        onFilterChange={page.selectFilter}
-        onSortChange={page.selectSort}
-        sortOptions={model.sortOptions}
-      />
-
-      <EventCenterListSection items={model.listItems} />
-    </div>
-  )
+  return <EventCenterPageContent />
 }
 
 function EventCenterListSection({ items }: { items: readonly EventCenterListItem[] }) {
