@@ -39,9 +39,9 @@ function expectIsolatedScoreTone(tone: ReturnType<typeof getRecommendationTone>)
 describe('event score tones', () => {
   it('uses isolated score tokens for priority instead of brand semantics', () => {
     expect(getPriorityTone('S', 91).label).toBe('重点')
-    expect(getPriorityTone('S', 91).scoreClass).toContain('--qa-score-pink-strong')
+    expect(getPriorityTone('S', 91).scoreClass).toContain('--qa-score-priority-strong')
     expect(getPriorityTone('A', 74).label).toBe('关注')
-    expect(getPriorityTone('A', 74).scoreClass).toContain('--qa-score-pink-bg')
+    expect(getPriorityTone('A', 74).scoreClass).toContain('--qa-score-priority-bg')
     expectIsolatedScoreTone(getPriorityTone('S', 91))
   })
 
@@ -60,18 +60,18 @@ describe('event score tones', () => {
 
   it('uses score-specific reliable gradients above 60', () => {
     expect(getReliabilityTone(84).label).toBe('高可信')
-    expect(getReliabilityTone(84).scoreClass).toContain('--qa-score-teal-bg')
+    expect(getReliabilityTone(84).scoreClass).toContain('--qa-score-reliability-bg')
     expect(getReliabilityTone(92).label).toBe('极高可信')
-    expect(getReliabilityTone(72).scoreClass).toContain('--qa-score-bluegray-bg')
+    expect(getReliabilityTone(72).scoreClass).toContain('--qa-score-review-bg')
     expectIsolatedScoreTone(getReliabilityTone(92))
   })
 
   it('only uses score-specific rose for extreme impact scores', () => {
     expect(getImpactTone(95).label).toBe('极强影响')
-    expect(getImpactTone(95).scoreClass).toContain('--qa-score-rose-bg')
+    expect(getImpactTone(95).scoreClass).toContain('--qa-score-impact-bg')
     expect(getImpactTone(89).label).toBe('高影响')
-    expect(getImpactTone(89).scoreClass).not.toContain('--qa-score-rose-bg')
-    expect(getImpactTone(73).scoreClass).toContain('--qa-score-bluegray-bg')
+    expect(getImpactTone(89).scoreClass).not.toContain('--qa-score-impact-bg')
+    expect(getImpactTone(73).scoreClass).toContain('--qa-score-review-bg')
     expectIsolatedScoreTone(getImpactTone(95))
   })
 

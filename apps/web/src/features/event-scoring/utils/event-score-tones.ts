@@ -14,45 +14,45 @@ export const scoreNeutralTone: Pick<EventScoreTone, 'panelClass' | 'scoreClass' 
 }
 
 const scoreToneTokens = {
-  pinkStrong: {
-    panelClass: 'border border-[var(--qa-score-pink-border)] bg-[var(--qa-score-pink-panel)]',
-    scoreClass: 'bg-[var(--qa-score-pink-strong)] text-[var(--qa-score-pink-on-strong)] shadow-[0_10px_24px_rgb(190_24_93/0.18)]',
-    tagClass: 'bg-[var(--qa-score-pink-strong)] text-[var(--qa-score-pink-on-strong)] shadow-[0_10px_24px_rgb(190_24_93/0.18)]',
+  priorityStrong: {
+    panelClass: 'border border-[var(--qa-score-priority-border)] bg-[var(--qa-score-priority-panel)]',
+    scoreClass: 'bg-[var(--qa-score-priority-strong)] text-[var(--qa-score-priority-on-strong)] shadow-[0_10px_24px_rgb(190_24_93/0.18)]',
+    tagClass: 'bg-[var(--qa-score-priority-strong)] text-[var(--qa-score-priority-on-strong)] shadow-[0_10px_24px_rgb(190_24_93/0.18)]',
   },
-  pinkSoft: {
-    panelClass: 'border border-[var(--qa-score-pink-border)] bg-[var(--qa-score-pink-panel)]',
-    scoreClass: 'border border-[var(--qa-score-pink-border)] bg-[var(--qa-score-pink-bg)] text-[var(--qa-score-pink-fg)]',
-    tagClass: 'border border-[var(--qa-score-pink-border)] bg-[var(--qa-score-pink-bg)] text-[var(--qa-score-pink-fg)]',
+  prioritySoft: {
+    panelClass: 'border border-[var(--qa-score-priority-border)] bg-[var(--qa-score-priority-panel)]',
+    scoreClass: 'border border-[var(--qa-score-priority-border)] bg-[var(--qa-score-priority-bg)] text-[var(--qa-score-priority-fg)]',
+    tagClass: 'border border-[var(--qa-score-priority-border)] bg-[var(--qa-score-priority-bg)] text-[var(--qa-score-priority-fg)]',
   },
-  amberStrong: {
-    panelClass: 'border border-[var(--qa-score-amber-border)] bg-[var(--qa-score-amber-panel)]',
-    scoreClass: 'bg-[var(--qa-score-amber-strong)] text-[var(--qa-score-on-strong)] shadow-[0_10px_24px_rgb(180_98_0/0.18)]',
-    tagClass: 'bg-[var(--qa-score-amber-strong)] text-[var(--qa-score-on-strong)] shadow-[0_10px_24px_rgb(180_98_0/0.18)]',
+  actionStrong: {
+    panelClass: 'border border-[var(--qa-score-action-border)] bg-[var(--qa-score-action-panel)]',
+    scoreClass: 'bg-[var(--qa-score-action-strong)] text-[var(--qa-score-on-strong)] shadow-[0_10px_24px_rgb(180_98_0/0.18)]',
+    tagClass: 'bg-[var(--qa-score-action-strong)] text-[var(--qa-score-on-strong)] shadow-[0_10px_24px_rgb(180_98_0/0.18)]',
   },
-  amberSoft: {
-    panelClass: 'border border-[var(--qa-score-amber-border)] bg-[var(--qa-score-amber-panel)]',
-    scoreClass: 'border border-[var(--qa-score-amber-border)] bg-[var(--qa-score-amber-bg)] text-[var(--qa-score-amber-fg)]',
-    tagClass: 'border border-[var(--qa-score-amber-border)] bg-[var(--qa-score-amber-bg)] text-[var(--qa-score-amber-fg)]',
+  actionSoft: {
+    panelClass: 'border border-[var(--qa-score-action-border)] bg-[var(--qa-score-action-panel)]',
+    scoreClass: 'border border-[var(--qa-score-action-border)] bg-[var(--qa-score-action-bg)] text-[var(--qa-score-action-fg)]',
+    tagClass: 'border border-[var(--qa-score-action-border)] bg-[var(--qa-score-action-bg)] text-[var(--qa-score-action-fg)]',
   },
-  tealStrong: {
-    panelClass: 'border border-[var(--qa-score-teal-border)] bg-[var(--qa-score-teal-panel)]',
-    scoreClass: 'bg-[var(--qa-score-teal-strong)] text-[var(--qa-score-on-strong)] shadow-[0_10px_24px_rgb(13_148_136/0.16)]',
-    tagClass: 'bg-[var(--qa-score-teal-strong)] text-[var(--qa-score-on-strong)] shadow-[0_10px_24px_rgb(13_148_136/0.16)]',
+  reliabilityStrong: {
+    panelClass: 'border border-[var(--qa-score-reliability-border)] bg-[var(--qa-score-reliability-panel)]',
+    scoreClass: 'bg-[var(--qa-score-reliability-strong)] text-[var(--qa-score-on-strong)] shadow-[0_10px_24px_rgb(13_148_136/0.16)]',
+    tagClass: 'bg-[var(--qa-score-reliability-strong)] text-[var(--qa-score-on-strong)] shadow-[0_10px_24px_rgb(13_148_136/0.16)]',
   },
-  tealSoft: {
-    panelClass: 'border border-[var(--qa-score-teal-border)] bg-[var(--qa-score-teal-panel)]',
-    scoreClass: 'border border-[var(--qa-score-teal-border)] bg-[var(--qa-score-teal-bg)] text-[var(--qa-score-teal-fg)]',
-    tagClass: 'border border-[var(--qa-score-teal-border)] bg-[var(--qa-score-teal-bg)] text-[var(--qa-score-teal-fg)]',
+  reliabilitySoft: {
+    panelClass: 'border border-[var(--qa-score-reliability-border)] bg-[var(--qa-score-reliability-panel)]',
+    scoreClass: 'border border-[var(--qa-score-reliability-border)] bg-[var(--qa-score-reliability-bg)] text-[var(--qa-score-reliability-fg)]',
+    tagClass: 'border border-[var(--qa-score-reliability-border)] bg-[var(--qa-score-reliability-bg)] text-[var(--qa-score-reliability-fg)]',
   },
-  blueGraySoft: {
-    panelClass: 'border border-[var(--qa-score-bluegray-border)] bg-[var(--qa-score-bluegray-panel)]',
-    scoreClass: 'border border-[var(--qa-score-bluegray-border)] bg-[var(--qa-score-bluegray-bg)] text-[var(--qa-score-bluegray-fg)]',
-    tagClass: 'border border-[var(--qa-score-bluegray-border)] bg-[var(--qa-score-bluegray-bg)] text-[var(--qa-score-bluegray-fg)]',
+  reviewSoft: {
+    panelClass: 'border border-[var(--qa-score-review-border)] bg-[var(--qa-score-review-panel)]',
+    scoreClass: 'border border-[var(--qa-score-review-border)] bg-[var(--qa-score-review-bg)] text-[var(--qa-score-review-fg)]',
+    tagClass: 'border border-[var(--qa-score-review-border)] bg-[var(--qa-score-review-bg)] text-[var(--qa-score-review-fg)]',
   },
-  roseSoft: {
-    panelClass: 'border border-[var(--qa-score-rose-border)] bg-[var(--qa-score-rose-panel)]',
-    scoreClass: 'border border-[var(--qa-score-rose-border)] bg-[var(--qa-score-rose-bg)] text-[var(--qa-score-rose-fg)]',
-    tagClass: 'border border-[var(--qa-score-rose-border)] bg-[var(--qa-score-rose-bg)] text-[var(--qa-score-rose-fg)]',
+  impactSoft: {
+    panelClass: 'border border-[var(--qa-score-impact-border)] bg-[var(--qa-score-impact-panel)]',
+    scoreClass: 'border border-[var(--qa-score-impact-border)] bg-[var(--qa-score-impact-bg)] text-[var(--qa-score-impact-fg)]',
+    tagClass: 'border border-[var(--qa-score-impact-border)] bg-[var(--qa-score-impact-bg)] text-[var(--qa-score-impact-fg)]',
   },
 }
 
@@ -60,21 +60,21 @@ export function getPriorityTone(priorityBand: EventScoreLevel, score: number): E
   if (priorityBand === 'S') {
     return {
       label: '重点',
-      ...scoreToneTokens.pinkStrong,
+      ...scoreToneTokens.priorityStrong,
     }
   }
 
   if (priorityBand === 'A' || score >= 70) {
     return {
       label: '关注',
-      ...scoreToneTokens.pinkSoft,
+      ...scoreToneTokens.prioritySoft,
     }
   }
 
   if (priorityBand === 'B') {
     return {
       label: '观察',
-      ...scoreToneTokens.blueGraySoft,
+      ...scoreToneTokens.reviewSoft,
     }
   }
 
@@ -95,27 +95,27 @@ export function getReliabilityTone(score: number): EventScoreTone {
   if (score >= 90) {
     return {
       label: '极高可信',
-      ...scoreToneTokens.tealStrong,
+      ...scoreToneTokens.reliabilityStrong,
     }
   }
 
   if (score >= 80) {
     return {
       label: '高可信',
-      ...scoreToneTokens.tealSoft,
+      ...scoreToneTokens.reliabilitySoft,
     }
   }
 
   if (score >= 70) {
     return {
       label: '中等可信',
-      ...scoreToneTokens.blueGraySoft,
+      ...scoreToneTokens.reviewSoft,
     }
   }
 
   return {
     label: '待增强',
-    ...scoreToneTokens.amberSoft,
+    ...scoreToneTokens.actionSoft,
   }
 }
 
@@ -130,21 +130,21 @@ export function getImpactTone(score: number): EventScoreTone {
   if (score >= 90) {
     return {
       label: '极强影响',
-      ...scoreToneTokens.roseSoft,
+      ...scoreToneTokens.impactSoft,
     }
   }
 
   if (score >= 80) {
     return {
       label: '高影响',
-      ...scoreToneTokens.amberSoft,
+      ...scoreToneTokens.actionSoft,
     }
   }
 
   if (score >= 70) {
     return {
       label: '中高影响',
-      ...scoreToneTokens.blueGraySoft,
+      ...scoreToneTokens.reviewSoft,
     }
   }
 
@@ -165,21 +165,21 @@ export function getRecommendationTone(score: number): EventScoreTone {
   if (score >= 90) {
     return {
       label: 'S 级建议',
-      ...scoreToneTokens.amberStrong,
+      ...scoreToneTokens.actionStrong,
     }
   }
 
   if (score >= 80) {
     return {
       label: 'A 级关注',
-      ...scoreToneTokens.amberSoft,
+      ...scoreToneTokens.actionSoft,
     }
   }
 
   if (score >= 70) {
     return {
       label: 'B 级复核',
-      ...scoreToneTokens.blueGraySoft,
+      ...scoreToneTokens.reviewSoft,
     }
   }
 
