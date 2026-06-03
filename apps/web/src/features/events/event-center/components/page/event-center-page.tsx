@@ -38,7 +38,6 @@ export function EventsIndexPageContent() {
         <PageSectionCard>
           <SectionHeader
             eyebrow="筛选与排序"
-            title="按事件价值收窄范围"
           />
           <MockFilterBar title="筛选条件" options={model.filters} />
           <MockFilterBar title="排序方式" options={model.sortOptions} />
@@ -49,7 +48,6 @@ export function EventsIndexPageContent() {
         <PageSectionCard>
           <SectionHeader
             eyebrow="全量事件列表"
-            title="每行都能完成初筛并进入详情"
           />
           <div className="grid gap-3">
             {model.listItems.map((item) => (
@@ -61,7 +59,6 @@ export function EventsIndexPageContent() {
         <PageSectionCard>
           <SectionHeader
             eyebrow="轻量系统提醒"
-            title="系统提醒"
           />
           {model.runtimeAlertEvents.length > 0 ? (
             <div className="grid gap-2">
