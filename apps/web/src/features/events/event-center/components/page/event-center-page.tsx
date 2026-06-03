@@ -27,7 +27,6 @@ export function EventsIndexPageContent() {
         <PageSectionCard>
           <SectionHeader
             eyebrow="今日重点事件"
-            title="优先进入分析页"
           />
           <div className="grid gap-3 lg:grid-cols-2">
             {model.featuredEvents.map((event) => (
