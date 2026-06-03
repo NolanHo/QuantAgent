@@ -1,10 +1,4 @@
 import {
-  healthAlerts,
-} from '@/features/mainflow/mock-data'
-import {
-  formatEventReliability,
-  formatImpactStrength,
-  formatPriorityLabel,
   formatVerificationStatus,
 } from '@/features/event-scoring/utils/event-scoring-labels'
 import type {
@@ -51,23 +45,12 @@ function buildStatusBuckets(events: readonly EventScoreCardModel[]) {
   })
 }
 
-function isFeaturedEvent(event: EventScoreCardModel) {
-  return event.score.priorityBand === 'S'
-    || event.score.eventPriority >= 70
-    || event.status === 'pending_approval'
-    || event.status === 'policy_blocked'
-}
-
 function buildListItem(event: EventScoreCardModel, index: number): EventCenterListItem {
   return {
     event,
     rankLabel: `#${String(index + 1).padStart(2, '0')}`,
-    priorityLabel: formatPriorityLabel(event.score.eventPriority, event.score.priorityBand),
-    reliabilityLabel: formatEventReliability(event.score.eventReliability),
-    impactLabel: formatImpactStrength(event.score.impactStrength),
     verificationLabel: formatVerificationStatus(event.score.verificationStatus),
     analysisState: analysisStateCopies[event.status],
-    rowReason: event.score.selectionReason,
   }
 }
 
@@ -83,15 +66,12 @@ export function createEventCenterPageModel(
   const filteredEvents = filterEventCenterEvents(events, selectedFilterKeys)
   const sortedEvents = sortEventCenterEvents(filteredEvents, selectedSortKey)
   const statusBuckets = buildStatusBuckets(events)
-  const featuredEvents = sortedEvents.filter(isFeaturedEvent).slice(0, 4)
 
-  // 中文注释：事件中心只做浏览和筛选入口，不能把高分或高优先级表达成审批/执行动作。
+  // 中文注释：事件中心只做全部事件浏览和筛选入口，重点事件聚合留给 Dashboard。
   return {
-    featuredEvents,
     listItems: sortedEvents.map(buildListItem),
     filterGroups: buildEventCenterFilterGroups(selectedFilterKeys),
     sortOptions: buildEventCenterSortOptions(selectedSortKey),
     statusBuckets,
-    runtimeAlerts: healthAlerts,
   }
 }

@@ -1,11 +1,11 @@
 # Event Center Feature
 
-该目录负责 `/events` 高价值事件中心的 mock 页面收口。
+该目录负责 `/events` 全部事件工作台的 mock 页面收口。
 
 当前阶段负责：
 
-- `/events` 事件中心入口：运行提醒条、今日重点事件和进入全部事件的入口。
-- `/events/all` 全量事件池：顶部多类别筛选栏、排序 picker 和全量事件列表。
+- `/events` 事件中心入口：顶部多类别筛选栏、排序 picker 和全量事件列表。
+- `/events/all` 作为兼容入口复用全部事件页面，不再承担独立信息架构。
 - 将现有 `event-scoring` mock 映射为事件中心可消费的 page model。
 - 稳定 `/events` -> `/events/:eventId` 的“查看分析”入口。
 - `components/page/` 只做页面组合。
@@ -16,6 +16,7 @@
 
 - 真实 Events API、TanStack Query、URL search params 写回或 generated client。
 - `/events/:eventId` 事件详情 / 决策页，该能力在 `features/events/event-detail/`。
+- Dashboard 的重点事件聚合与运行健康提醒模块。
 - 审批 mutation、真实执行、Runtime 深层排障或新闻全文阅读。
 
 不要继续放入：

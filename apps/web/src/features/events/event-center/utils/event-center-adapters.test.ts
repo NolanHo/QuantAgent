@@ -11,26 +11,15 @@ import {
 import { createEventCenterPageModel } from './event-center-adapters'
 
 describe('event center adapters', () => {
-  it('builds featured events from scored mock data', () => {
-    const model = createEventCenterPageModel(scoredEvents)
-
-    expect(model.featuredEvents.map((event) => event.id)).toEqual([
-      'evt-semiconductor-export',
-      'evt-semiconductor-policy-block',
-      'evt-semiconductor-memory',
-      'evt-semiconductor-foundry',
-    ])
-  })
-
   it('keeps list rows sorted by priority and able to enter analysis', () => {
     const model = createEventCenterPageModel(scoredEvents)
     const first = model.listItems[0]!
 
     expect(first.event.id).toBe('evt-semiconductor-export')
     expect(first.rankLabel).toBe('#01')
-    expect(first.priorityLabel).toContain('事件优先级')
+    expect(first.event.score.eventPriority).toBe(91)
     expect(first.analysisState).toBe('可查看分析')
-    expect(first.rowReason).toContain('高可信')
+    expect(first.verificationLabel).toBe('双信源验证')
   })
 
   it('keeps mock filters explicit before URL search params are wired', () => {
@@ -68,12 +57,5 @@ describe('event center adapters', () => {
       'evt-semiconductor-policy-block',
       'evt-semiconductor-export',
     ])
-  })
-
-  it('keeps runtime alerts separate from event ranking', () => {
-    const model = createEventCenterPageModel(scoredEvents)
-
-    expect(model.runtimeAlerts).toHaveLength(2)
-    expect(model.runtimeAlerts[0]!.title).toContain('source 插件')
   })
 })
