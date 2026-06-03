@@ -42,9 +42,6 @@ export function DecisionBrief({ summary }: { summary: DecisionHeroSummary }) {
         <p className="m-0 text-body-sm font-bold text-foreground">{summary.impactQuestion}</p>
         <p className="m-0 text-body-sm text-muted-strong">{summary.rationale}</p>
       </div>
-      <div className="rounded-2xl bg-warning/10 px-3 py-2 text-body-sm font-bold text-warning">
-        {summary.currentBlocker}
-      </div>
     </div>
   )
 }

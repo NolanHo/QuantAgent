@@ -50,7 +50,6 @@ export interface DecisionHeroSummary {
   impactQuestion: string
   recommendedAction: string
   rationale: string
-  currentBlocker: string
 }
 
 export interface EvidenceQualitySummary {

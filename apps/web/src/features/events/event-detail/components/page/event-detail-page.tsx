@@ -1,11 +1,11 @@
 import { DegradationNoticeList } from '@/features/event-scoring/components/DegradationNoticeList'
 import {
-  DetailFacts,
   LinkButton,
   PageHeader,
   PageSectionCard,
   SectionHeader,
 } from '@/shared/ui'
+import type { EventDegradationNotice } from '@/features/event-scoring/types/event-scoring.types'
 
 import {
   EvidenceAndDiagnosticsPanel,
@@ -59,7 +59,7 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
         title={event.title}
       />
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.32fr)_minmax(340px,0.78fr)]">
+      <section>
         <PageSectionCard className="border-primary/25 bg-primary/5">
           <SectionHeader
             eyebrow="投资处理建议"
@@ -71,23 +71,17 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
             eventId={event.id}
             evidence={evidenceSummary}
           />
-        </PageSectionCard>
-
-        <PageSectionCard>
-          <SectionHeader
-            eyebrow="事件事实"
-          />
-          <DetailFacts
+          <EventFactStrip
+            notices={degradationNotices}
             rows={[
-              `来源：${factSummary.source}`,
-              `发布时间：${factSummary.publishedAt}`,
-              `当前状态：${factSummary.status}`,
-              `可信度：${factSummary.eventReliability} / 100`,
-              `验证：${factSummary.verificationStatusLabel}`,
-              factSummary.summary,
+              ['来源', factSummary.source],
+              ['时间', factSummary.publishedAt],
+              ['状态', factSummary.status],
+              ['可信度', `${factSummary.eventReliability} / 100`],
+              ['验证', factSummary.verificationStatusLabel],
             ]}
+            summary={factSummary.summary}
           />
-          <DegradationNoticeList notices={degradationNotices} />
           <div className="flex flex-wrap gap-2">
             <LinkButton to="/events" variant="outline">返回重点事件</LinkButton>
             <LinkButton to="/events/all" variant="outline">全部事件</LinkButton>
@@ -106,6 +100,31 @@ export function EventDetailPageContent({ eventId }: { eventId: string }) {
           />
         </PageSectionCard>
       </section>
+    </div>
+  )
+}
+
+function EventFactStrip({
+  notices,
+  rows,
+  summary,
+}: {
+  notices: readonly EventDegradationNotice[]
+  rows: readonly [string, string][]
+  summary: string
+}) {
+  return (
+    <div className="grid gap-3 rounded-3xl border border-hairline bg-surface/75 p-3">
+      <div className="flex flex-wrap gap-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-2xl bg-canvas px-3 py-2">
+            <span className="mr-2 text-[12px] font-bold text-muted">{label}</span>
+            <span className="text-body-sm font-bold text-foreground">{value}</span>
+          </div>
+        ))}
+      </div>
+      <p className="m-0 text-body-sm leading-[1.55] text-muted-strong">{summary}</p>
+      <DegradationNoticeList notices={notices} />
     </div>
   )
 }

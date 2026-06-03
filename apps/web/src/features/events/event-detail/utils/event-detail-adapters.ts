@@ -203,25 +203,6 @@ function buildInvestorRationale(
   return `${event.score.selectionReason}；${event.score.uncertaintySummary}`
 }
 
-function buildCurrentBlocker(
-  event: EventScoreCardModel,
-  approval: ApprovalScoreCardModel | null,
-) {
-  if (approval) {
-    return '下一步：先看清支持和反方观点，再到审批页确认是否处理仓位。'
-  }
-
-  if (event.status === 'analysis_failed') {
-    return '下一步：先请求重分析或查看工具失败，当前不应直接下交易判断。'
-  }
-
-  if (event.score.freshness === 'low') {
-    return '下一步：事件窗口已过，不追当前盘面，只用于复盘和审计。'
-  }
-
-  return '下一步：补齐确认信号后再进入审批或调整仓位。'
-}
-
 function buildAuditTimeline(
   event: EventScoreCardModel,
   approval: ApprovalScoreCardModel | null,
@@ -305,7 +286,6 @@ export function createEventDetailPageModel(
       impactQuestion: buildInvestorImpactSummary(event, affectedObjects),
       recommendedAction: investmentActionTitle,
       rationale: buildInvestorRationale(event, approval),
-      currentBlocker: buildCurrentBlocker(event, approval),
     },
     impactSummary: {
       industries: event.industries,

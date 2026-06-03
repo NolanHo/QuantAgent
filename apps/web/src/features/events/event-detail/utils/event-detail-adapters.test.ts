@@ -45,7 +45,7 @@ describe('event detail adapters', () => {
     )
 
     expect(model.bestActionSummary.approvalId).toBeNull()
-    expect(model.decisionSummary.currentBlocker).toContain('事件窗口已过')
+    expect(model.decisionSummary.recommendedAction).toBe('不追旧闻，只保留复盘')
     expect(model.impactSummary.riskPoints).toContain('事件窗口已过，当前仅保留审计和历史解释价值。')
     expect(model.runtimeSummary.runId).toBeNull()
     expect(model.runtimeSummary.summary).toContain('暂无关联运行摘要')
