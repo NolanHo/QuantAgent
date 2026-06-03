@@ -1,6 +1,7 @@
 import { EventScoreCard } from '@/features/event-scoring/components/EventScoreCard'
 
 import {
+  LinkButton,
   PageHeader,
   PageSectionCard,
   SectionHeader,
@@ -22,13 +23,6 @@ export function EventsIndexPageContent() {
         title="高价值事件中心"
       />
 
-      <EventCenterFilterNav
-        groups={model.filterGroups}
-        onFilterChange={page.selectFilter}
-        onSortChange={page.selectSort}
-        sortOptions={model.sortOptions}
-      />
-
       <EventCenterAlertStrip alerts={model.runtimeAlerts} />
 
       <section>
@@ -45,8 +39,40 @@ export function EventsIndexPageContent() {
           ) : (
             <EventCenterEmptyState />
           )}
+          <div className="mt-4 flex justify-end">
+            <LinkButton to="/events/all" variant="outline">
+              查看全部事件
+            </LinkButton>
+          </div>
         </PageSectionCard>
       </section>
+    </div>
+  )
+}
+
+export function EventsAllPageContent() {
+  const page = useEventCenterPage()
+  const { model } = page
+
+  return (
+    <div className="grid gap-5">
+      <PageHeader
+        kicker="事件池"
+        title="全部事件"
+      />
+
+      <div className="flex justify-end">
+        <LinkButton to="/events" variant="outline">
+          返回重点事件
+        </LinkButton>
+      </div>
+
+      <EventCenterFilterNav
+        groups={model.filterGroups}
+        onFilterChange={page.selectFilter}
+        onSortChange={page.selectSort}
+        sortOptions={model.sortOptions}
+      />
 
       <section>
         <PageSectionCard>

@@ -1,1 +1,4 @@
-export { EventsIndexPageContent } from './components/page/event-center-page'
+export {
+  EventsAllPageContent,
+  EventsIndexPageContent,
+} from './components/page/event-center-page'

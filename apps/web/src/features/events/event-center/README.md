@@ -4,7 +4,8 @@
 
 当前阶段负责：
 
-- 顶部多类别筛选栏、运行提醒条、今日重点事件和全量事件列表的页面装配。
+- `/events` 事件中心入口：运行提醒条、今日重点事件和进入全部事件的入口。
+- `/events/all` 全量事件池：顶部多类别筛选栏、排序 picker 和全量事件列表。
 - 将现有 `event-scoring` mock 映射为事件中心可消费的 page model。
 - 稳定 `/events` -> `/events/:eventId` 的“查看分析”入口。
 - `components/page/` 只做页面组合。
