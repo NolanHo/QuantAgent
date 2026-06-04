@@ -107,6 +107,27 @@ class PluginRuntimeServiceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.code, "PLUGIN_LOAD_FAILED")
         self.assertEqual(error.details["error_type"], "ModuleNotFoundError")
 
+    async def test_loads_entrypoint_from_plugin_src_directory(self) -> None:
+        plugin_root = Path(tempfile.mkdtemp())
+        src_dir = plugin_root / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / "plugin_impl.py").write_text(
+            "from quantagent.plugin_sdk import BasePlugin, PluginInvokeResult\n"
+            "\n"
+            "class LocalPlugin(BasePlugin):\n"
+            "    async def invoke(self, request):\n"
+            "        return PluginInvokeResult(output={'loaded_from': 'plugin_src'})\n"
+            "\n"
+            "plugin = LocalPlugin\n",
+            encoding="utf-8",
+        )
+        record = self._record(entrypoint="plugin_impl:plugin", path=plugin_root)
+
+        invocation = await PluginRuntimeService().invoke(record, capability="source.fetch", request_id="req-plugin-path")
+
+        self.assertTrue(invocation.ok)
+        self.assertEqual(invocation.result.output["loaded_from"], "plugin_src")
+
     async def test_missing_capability_returns_invoke_error(self) -> None:
         self._install_module("test_runtime_capability", PlainRuntimePlugin)
         record = self._record(entrypoint="test_runtime_capability:plugin")
@@ -395,11 +416,12 @@ class PluginRuntimeServiceTestCase(unittest.IsolatedAsyncioTestCase):
         *,
         entrypoint: str = "test_runtime_plugin:plugin",
         status: PluginStatus = PluginStatus.VALID,
+        path: Path | None = None,
     ) -> PluginRecord:
         return PluginRecord(
             id="quantagent.test.runtime",
             source=PluginSource.OFFICIAL,
-            path=Path(tempfile.gettempdir()),
+            path=path or Path(tempfile.gettempdir()),
             status=status,
             manifest=PluginManifest(
                 id="quantagent.test.runtime",

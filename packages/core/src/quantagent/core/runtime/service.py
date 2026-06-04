@@ -4,8 +4,11 @@ import importlib
 import inspect
 import logging
 import re
+import sys
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from quantagent.core.registry.models import PluginError, PluginRecord, PluginStatus
@@ -124,7 +127,7 @@ class PluginRuntimeService:
 
         assert record.manifest is not None
         try:
-            plugin = self._load_entrypoint(record.manifest.entrypoint)
+            plugin = self._load_entrypoint(record.manifest.entrypoint, plugin_path=record.path)
             if not _has_runtime_shape(plugin):
                 return None, PluginError(
                     code="PLUGIN_RUNTIME_PROTOCOL_INVALID",
@@ -174,7 +177,7 @@ class PluginRuntimeService:
             return _to_plugin_error(exc, stage="stop", plugin_id=plugin_id)
         return None
 
-    def _load_entrypoint(self, entrypoint: str) -> Any:
+    def _load_entrypoint(self, entrypoint: str, *, plugin_path: Path | None = None) -> Any:
         module_name, separator, attribute_name = entrypoint.partition(":")
         if not separator or not module_name or not attribute_name:
             raise PluginRuntimeError(
@@ -183,7 +186,8 @@ class PluginRuntimeService:
                 stage="load",
             )
 
-        module = self._import_module(module_name)
+        with _plugin_import_paths(plugin_path):
+            module = self._import_module(module_name)
         entrypoint_object = module
         for attribute in attribute_name.split("."):
             entrypoint_object = getattr(entrypoint_object, attribute)
@@ -298,3 +302,26 @@ def _sanitize_detail_value(key: str, value: Any) -> Any:
 def _is_sensitive_key(key: str) -> bool:
     normalized_key = key.lower().replace("-", "_")
     return any(keyword in normalized_key for keyword in SENSITIVE_KEYWORDS)
+
+
+@contextmanager
+def _plugin_import_paths(plugin_path: Path | None):
+    if plugin_path is None:
+        yield
+        return
+
+    candidates = [plugin_path, plugin_path / "src"]
+    inserted: list[str] = []
+    try:
+        for candidate in candidates:
+            candidate_str = str(candidate)
+            if candidate.is_dir() and candidate_str not in sys.path:
+                sys.path.insert(0, candidate_str)
+                inserted.append(candidate_str)
+        yield
+    finally:
+        for candidate_str in reversed(inserted):
+            try:
+                sys.path.remove(candidate_str)
+            except ValueError:
+                continue

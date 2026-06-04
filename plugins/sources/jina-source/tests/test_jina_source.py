@@ -177,6 +177,24 @@ class JinaSourcePluginTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(raised.exception.retryable)
         self.assertEqual(raised.exception.details["status_code"], 429)
 
+    async def test_call_jina_reader_marks_server_http_error_retryable(self) -> None:
+        self._patch_urlopen_with_error(
+            HTTPError(
+                url=JINA_READER_URL,
+                code=503,
+                msg="Service Unavailable",
+                hdrs=None,
+                fp=self._BytesFile(b'{"error":"temporary outage"}'),
+            )
+        )
+
+        with self.assertRaises(PluginRuntimeError) as raised:
+            self.plugin._call_jina_reader("https://example.com/article", "fake-key", 5)
+
+        self.assertEqual(raised.exception.code, "PLUGIN_EXTERNAL_READER_FAILED")
+        self.assertTrue(raised.exception.retryable)
+        self.assertEqual(raised.exception.details["status_code"], 503)
+
     async def test_call_jina_reader_handles_url_error(self) -> None:
         self._patch_urlopen_with_error(URLError("timed out"))
 

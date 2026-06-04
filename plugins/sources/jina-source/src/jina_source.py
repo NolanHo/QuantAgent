@@ -151,6 +151,7 @@ class JinaSourcePlugin(BasePlugin):
         except HTTPError as exc:
             body = exc.read() if hasattr(exc, "read") else b""
             message = body.decode("utf-8", errors="replace").strip()
+            status_code = exc.code if isinstance(exc.code, int) else None
             raise PluginRuntimeError(
                 code="PLUGIN_EXTERNAL_READER_FAILED",
                 message=(
@@ -158,7 +159,7 @@ class JinaSourcePlugin(BasePlugin):
                     f"{message}"
                 ).strip(),
                 stage="invoke",
-                retryable=False,
+                retryable=bool(status_code is not None and 500 <= status_code < 600),
                 details={"status_code": exc.code},
             ) from exc
         except URLError as exc:
@@ -293,4 +294,4 @@ class JinaSourcePlugin(BasePlugin):
         return None
 
 
-plugin = JinaSourcePlugin()
+plugin = JinaSourcePlugin
