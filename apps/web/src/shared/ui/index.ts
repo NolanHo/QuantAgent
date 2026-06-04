@@ -1,1 +1,6 @@
+export * from './detail-facts'
+export * from './info-tag'
 export * from './link-button'
+export * from './page-header'
+export * from './page-section-card'
+export * from './section-header'

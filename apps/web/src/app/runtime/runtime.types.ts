@@ -4,6 +4,7 @@ import type { PluginDetailApi } from "@/features/plugins/detail/api/plugin-detai
 import type { SourceBindingsApi } from "@/features/plugins/source-bindings/api/source-bindings.api";
 import type { AuthApi } from "@/shared/auth/api";
 import type { ModelProviderApi } from "@/features/models/api";
+import type { RuntimeAuditApi } from "@/features/runtime/api";
 
 export type RealtimeStatus = "connected" | "disabled" | "reconnecting";
 
@@ -19,6 +20,7 @@ export interface RuntimeApis {
   sourceBindings: SourceBindingsApi;
   models: ModelProviderApi;
   modelProviders: ModelProviderApi;
+  runtimeAudit: RuntimeAuditApi;
 }
 
 export interface AppRuntime {

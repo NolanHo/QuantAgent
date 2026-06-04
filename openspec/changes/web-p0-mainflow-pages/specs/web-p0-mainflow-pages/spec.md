@@ -56,16 +56,46 @@
 - **AND** 不取代事件事实、行业影响分析和最佳动作建议的首屏判断位置
 - **AND** 不展示完整模型推理链作为页面必备内容
 
+#### Scenario: Event detail shows lightweight runtime and audit summaries before jump-out
+- **WHEN** `/events/:eventId` 需要承接运行摘要、审计入口或审批链路线索
+- **THEN** 页面展示最近一次相关摘要并提供进入 Runtime、审计页或审批详情的稳定入口
+- **AND** 这些摘要只用于帮助用户判断是否需要继续追踪
+- **AND** 页面不因此退化成完整运行时排障页或审计工作台
+
 #### Scenario: Event detail routes high-risk confirmation to approvals
 - **WHEN** 页面展示最佳动作建议
 - **THEN** 页面提供进入审批工作台或审批详情的入口
 - **AND** 不在详情页直接完成批准或真实执行
 - **AND** 支持观点、反方观点和关键不确定性保留在详情页语义中
 
+#### Scenario: Event detail implementation leaves event-center skeleton separate
+- **WHEN** 团队实现 issue #130 的事件详情 / 决策页
+- **THEN** `/events/:eventId` 与 `/events/:eventId/audit` 保持为薄 route 入口
+- **AND** 详情页与审计页的页面主体迁入独立事件详情 feature 边界
+- **AND** `/events` 事件中心不因为本轮详情页实现被迫与详情页一起做一次性目录大重构
+
+#### Scenario: Event detail feature owns page model and mock adapter
+- **WHEN** issue #130 在真实事件详情 API DTO 或 `packages/contracts` 尚未 ready 前实现页面主体
+- **THEN** 事件详情 feature 通过 page model / adapter 把当前 mock 输入映射为页面消费模型
+- **AND** route、business hook 和展示组件不得直接依赖原始 mock DTO shape
+- **AND** 后续接入真实 contract 时应替换 adapter / API 边界，而不是重写页面职责和阅读顺序
+
+#### Scenario: Event detail feature has explicit file responsibilities
+- **WHEN** 团队从 `features/mainflow` 迁出事件详情页面主体
+- **THEN** 目标 feature 至少包含 `README.md`、`components/`、`hooks/`、`types/` 和 `utils/`
+- **AND** README 说明 route 入口、公开 page component / hook、子目录职责、不负责的 API / query 范围
+- **AND** 若真实 API 尚未接入，`api/` 和 `queries/` 可以暂不创建，但不得把请求、query key 或 DTO envelope 预埋进 route 或展示组件
+
 #### Scenario: Event detail excludes related-history from the P0 contract
 - **WHEN** 实现者为 V1 主链路定义 `/events/:eventId` 的必备内容
 - **THEN** 相关历史事件展示不是 P0 必须能力
 - **AND** 不因缺少相关历史事件而阻塞事件详情 / 决策页首版交付
+
+#### Scenario: Event detail reading order keeps diagnostics secondary
+- **WHEN** `/events/:eventId` 同时展示事实、分析、最佳动作、支持 / 反方观点、运行摘要和审计入口
+- **THEN** 首屏阅读顺序保持为事件事实、行业影响分析 / 最佳动作、支持 / 反方观点与关键不确定性
+- **AND** 运行摘要、审计入口、trace_id 或 request_id 只作为辅助复核入口
+- **AND** 不把运行态诊断或审计线索抬成页面主对象
 
 ### Requirement: Approvals Remains a Dedicated Human Confirmation Workspace
 

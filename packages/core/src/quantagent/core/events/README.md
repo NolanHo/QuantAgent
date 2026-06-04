@@ -2,7 +2,7 @@
 
 `quantagent.core.events` 是 QuantAgent Event Bus V1 的共享基础设施边界。它的目标不是把业务流程塞进一个“总线工具箱”，而是统一消息 envelope、topic、backend、发布/订阅入口和平台侧转换边界，让 API、worker、scheduler 和后续 runtime service 能用同一套 contract 工作。
 
-如果你只使用默认 `memory` backend，不需要 Kafka 客户端依赖；只有在启用 Kafka backend 时才需要安装 `quantagent-core[kafka]` 或等价 workspace extra。
+运行态默认使用 Kafka backend，保证 `scheduler`、`worker` 等独立进程之间可以真实传递事件。`memory` backend 只用于单元测试或单进程 smoke；如果显式覆盖为 `memory`，不需要 Kafka broker。
 
 ## 职责
 
@@ -55,7 +55,7 @@ events/
 - `codec.py`
   定义 encode / decode、敏感字段脱敏和错误摘要转换。
 - `memory.py`
-  提供本地默认 backend 和 contract test backend。
+  提供单元测试和单进程 smoke backend。
 - `kafka.py`
   提供 Kafka producer / consumer adapter。
 - `config.py`
@@ -98,7 +98,9 @@ industry.analysis.requested
 industry.analysis.completed
 analysis.scored
 decision.created
+action.requested
 approval.requested
+approval.input_received
 approval.completed
 notification.requested
 notification.completed
@@ -108,15 +110,19 @@ runtime.failed
 ```
 
 调用方不应自行拼接未知 topic。新增 topic 需要先更新 spec / design / issue 真源，再进实现。
+`action.requested` 与 `approval.input_received` 属于 HITL approval 编排入口 topic；handler 只能做 envelope
+适配并调用 core approval service，不能直接创建 approved 状态或绕过 Policy Gate。
+
+`notification.requested` 只表示平台请求发送通知。`notification.completed` 只表示 notification dispatcher 调用插件后的发送尝试摘要，payload 不得包含审批 decision、broker 执行结果、secret、token、完整 prompt 或私有策略。
 
 ### `EventBusSettings`
 
 当前配置项：
 
 - `EVENT_BUS_BACKEND`
-  可选 `memory` 或 `kafka`，默认 `memory`
+  可选 `memory` 或 `kafka`，默认 `kafka`
 - `EVENT_BUS_KAFKA_BOOTSTRAP_SERVERS`
-  Kafka broker 地址，只有 backend=`kafka` 时需要
+  Kafka broker 地址，默认宿主机直跑使用 `127.0.0.1:19092`
 - `EVENT_BUS_KAFKA_CLIENT_ID`
   Kafka client id
 - `EVENT_BUS_KAFKA_DEFAULT_GROUP_ID`
@@ -141,10 +147,10 @@ consumer = runtime.consumer
 
 语义：
 
-- `memory`
-  适合本地开发、单元测试、无 Kafka 环境
 - `kafka`
-  适合跨进程 worker / scheduler / future runtime
+  默认运行态 backend，适合跨进程 worker / scheduler / future runtime
+- `memory`
+  只适合单元测试、单进程 smoke 或没有跨进程消息需求的临时诊断
 
 Kafka backend 依赖说明：
 

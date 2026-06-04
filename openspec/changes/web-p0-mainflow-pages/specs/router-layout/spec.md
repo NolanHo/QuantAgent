@@ -12,3 +12,4 @@
 - **WHEN** 用户访问根路径 `/`
 - **THEN** 根路径进入独立 Dashboard 首页流
 - **AND** 不直接把 `/events` 当作默认首页替代路径
+- **AND** 本 requirement 不重新定义 `/login`、会话恢复、CSRF、403 或 capability-limited forbidden 行为

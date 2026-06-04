@@ -32,6 +32,33 @@
   /* Info */
   --qa-color-info: #3b82f6;
 
+  /* Event scoring tones: 参考 HeroUI 的语义角色思路，但与主题 / 状态 / 交易色隔离。 */
+  --qa-score-on-strong: #181a20;
+  --qa-score-priority-strong: #dc2626;
+  --qa-score-priority-on-strong: #ffffff;
+  --qa-score-priority-panel: #fff1f2;
+  --qa-score-priority-bg: #fee2e2;
+  --qa-score-priority-border: #fca5a5;
+  --qa-score-priority-fg: #991b1b;
+  --qa-score-action-strong: #f5a524;
+  --qa-score-action-panel: #fff8ed;
+  --qa-score-action-bg: #fff1d8;
+  --qa-score-action-border: #f7c36b;
+  --qa-score-action-fg: #9a5b00;
+  --qa-score-attention-panel: #fffde8;
+  --qa-score-attention-bg: #fff8b5;
+  --qa-score-attention-border: #eadc5a;
+  --qa-score-attention-fg: #766600;
+  --qa-score-reliability-strong: #17c964;
+  --qa-score-reliability-panel: #f1fdf5;
+  --qa-score-reliability-bg: #dcfce7;
+  --qa-score-reliability-border: #86efac;
+  --qa-score-reliability-fg: #15803d;
+  --qa-score-neutral-panel: #fafafa;
+  --qa-score-neutral-bg: #f5f5f5;
+  --qa-score-neutral-border: #d1d5db;
+  --qa-score-neutral-fg: #4b5563;
+
   /* Elevation */
   --qa-shadow-card: 0 1px 3px rgb(0 0 0 / 0.06);
   --qa-shadow-elevated: 0 4px 12px rgb(0 0 0 / 0.08);

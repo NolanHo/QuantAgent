@@ -5,6 +5,7 @@ import { SourceBindingsApi } from "@/features/plugins/source-bindings/api/source
 import { AuthApi } from "@/shared/auth/api";
 import type { RuntimeConfig } from "@/shared/config";
 import { createModelProviderApi } from "@/features/models/api";
+import { createRuntimeAuditApi } from "@/features/runtime/api";
 
 import type { AppRuntime, AuthRuntimeBridge } from "./runtime.types";
 
@@ -22,6 +23,7 @@ export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): App
     withCredentials: true,
   });
   const modelProviderApi = createModelProviderApi(apiClient);
+  const runtimeAuditApi = createRuntimeAuditApi(apiClient);
 
   return {
     apiClient,
@@ -33,6 +35,7 @@ export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): App
       models: modelProviderApi,
       // 中文注释：兼容当前 PR 分支里仍在使用 `modelProviders` 的调用点，避免一次重构同时打断旧引用。
       modelProviders: modelProviderApi,
+      runtimeAudit: runtimeAuditApi,
     },
     realtime: {
       client: null,
