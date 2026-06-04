@@ -88,6 +88,13 @@ class ApprovalOrchestrationTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(gate.calls), 1)
         self.assertEqual(len(executor.calls), 1)
         self.assertIs(repository.latest_decision(approval.id), input_result.decision)
+        audit_records = repository.list_audit_records(approval.id)
+        self.assertEqual(len(audit_records), 1)
+        self.assertEqual(audit_records[0].action, "decision.execution_requested")
+        self.assertEqual(audit_records[0].before_status, ApprovalRequestStatus.PENDING)
+        self.assertEqual(audit_records[0].after_status, ApprovalRequestStatus.COMPLETED)
+        self.assertEqual(audit_records[0].actor_id, "test")
+        self.assertEqual(audit_records[0].actor_type, "user")
 
     async def test_reject_does_not_call_executor(self) -> None:
         service, gate, executor, _ = self._service()
@@ -106,6 +113,52 @@ class ApprovalOrchestrationTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.decision.status, ApprovalDecisionStatus.REJECTED)
         self.assertEqual(len(gate.calls), 0)
         self.assertEqual(len(executor.calls), 0)
+
+    async def test_duplicate_input_id_is_scoped_to_approval(self) -> None:
+        next_id = 0
+
+        def unique_id(prefix: str) -> str:
+            nonlocal next_id
+            next_id += 1
+            return f"{prefix}-{next_id}"
+
+        service, _, _, repository = self._service(id_factory=unique_id)
+        first = (await service.submit_action(_approval_required_action(action_id="act-approval-1"))).approval
+        second = (
+            await service.submit_action(
+                _approval_required_action(
+                    action_id="act-approval-2",
+                    target_id="strategy-2",
+                    action_side="reduce_risk",
+                )
+            )
+        ).approval
+
+        first_result = await service.submit_input(
+            ApprovalInput(
+                id="shared-input",
+                approval_id=first.id,
+                channel="web",
+                actor_ref="user:test",
+                structured_payload={"intent": "reject"},
+            )
+        )
+        second_result = await service.submit_input(
+            ApprovalInput(
+                id="shared-input",
+                approval_id=second.id,
+                channel="web",
+                actor_ref="user:test",
+                structured_payload={"intent": "request_reanalysis"},
+            )
+        )
+
+        self.assertEqual(first_result.decision.approval_id, first.id)
+        self.assertEqual(first_result.decision.status, ApprovalDecisionStatus.REJECTED)
+        self.assertEqual(second_result.decision.approval_id, second.id)
+        self.assertEqual(second_result.decision.status, ApprovalDecisionStatus.REANALYSIS_REQUESTED)
+        self.assertEqual(len(repository.list_inputs(first.id)), 1)
+        self.assertEqual(len(repository.list_inputs(second.id)), 1)
 
     async def test_request_reanalysis_does_not_call_executor(self) -> None:
         service, gate, executor, _ = self._service()
@@ -368,6 +421,10 @@ class ApprovalOrchestrationTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.decision.status, ApprovalDecisionStatus.IGNORED)
         self.assertEqual(len(executor.calls), 0)
         self.assertEqual(repository.latest_decision(approval.id).status, ApprovalDecisionStatus.REJECTED)
+        audit_records = repository.list_audit_records(approval.id)
+        self.assertEqual([record.action for record in audit_records], ["decision.rejected", "input_ignored"])
+        self.assertEqual(audit_records[-1].before_status, ApprovalRequestStatus.COMPLETED)
+        self.assertEqual(audit_records[-1].after_status, ApprovalRequestStatus.COMPLETED)
 
     async def test_timeout_actions(self) -> None:
         cases = {
@@ -470,17 +527,19 @@ class ApprovalOrchestrationTestCase(unittest.IsolatedAsyncioTestCase):
         *,
         gate_allowed: bool = True,
         include_gate: bool = True,
+        id_factory=None,
     ) -> tuple[ApprovalOrchestrationService, FakePolicyGate, FakeActionExecutor, InMemoryApprovalRepository]:
         repository = InMemoryApprovalRepository()
         gate = FakePolicyGate(allowed=gate_allowed, reason_summary="fake gate result")
         executor = FakeActionExecutor()
+        resolved_id_factory = id_factory or _fixed_id
         return (
             ApprovalOrchestrationService(
                 repository=repository,
                 event_publisher=ApprovalEventPublisher(self.bus),
                 policy_gate=gate if include_gate else None,
                 executor=executor,
-                id_factory=_fixed_id,
+                id_factory=resolved_id_factory,
             ),
             gate,
             executor,
@@ -488,13 +547,18 @@ class ApprovalOrchestrationTestCase(unittest.IsolatedAsyncioTestCase):
         )
 
 
-def _approval_required_action() -> ActionRequest:
+def _approval_required_action(
+    *,
+    action_id: str = "act-approval",
+    target_id: str = "strategy-1",
+    action_side: str = "increase_risk",
+) -> ActionRequest:
     return ActionRequest(
-        id="act-approval",
+        id=action_id,
         action_type="adjust_strategy",
-        action_side="increase_risk",
+        action_side=action_side,
         target_type="strategy",
-        target_id="strategy-1",
+        target_id=target_id,
     )
 
 

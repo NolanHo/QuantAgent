@@ -1,6 +1,6 @@
 # QuantAgent Plugins API 前端对接说明
 
-本文整理当前前端需要直接对接的插件管理接口，用于插件列表、单插件详情、配置 Schema 查看和插件目录重扫。
+本文整理当前前端需要直接对接的插件管理接口，用于插件列表、单插件详情、配置视图、依赖视图、健康视图、审计视图、配置 Schema 查看和插件目录重扫。
 
 ## 基本信息
 
@@ -58,7 +58,11 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/` | 获取当前 Registry 中的插件列表 |
-| GET | `/{plugin_id}` | 获取单个插件详情 |
+| GET | `/{plugin_id}` | 获取单个插件详情聚合视图 |
+| GET | `/{plugin_id}/config` | 获取插件配置只读视图 |
+| GET | `/{plugin_id}/dependencies` | 获取插件依赖视图 |
+| GET | `/{plugin_id}/health` | 获取插件健康视图 |
+| GET | `/{plugin_id}/audit` | 获取插件审计视图 |
 | GET | `/{plugin_id}/config-schema` | 获取插件配置 JSON Schema |
 | POST | `/actions/rescan` | 重新扫描官方插件目录和运行时插件目录 |
 
@@ -96,7 +100,8 @@
       "config_schema": "config.schema.json",
       "description": "Placeholder source plugin.",
       "permissions": [],
-      "dependencies": {}
+      "dependencies": {},
+      "source_bindings": []
     },
     "last_error": null
   }
@@ -113,15 +118,78 @@
 
 ### 2. `GET /api/v1/plugins/{plugin_id}`
 
-用途：查看单个插件详情，适合插件详情抽屉或详情页。
+用途：查看单个插件详情聚合视图，适合插件详情页首屏。
 
-成功返回结构与列表项一致，只是返回单条记录。
+成功返回 `data` 主要包含：
+
+- `overview`: 插件基础信息、状态、配置状态和错误摘要。
+- `config_summary`: 配置摘要、缺失项数量、敏感字段数量和 reload 状态。
+- `dependency_summary`: 依赖摘要。
+- `capabilities`: 声明能力、风险等级、是否需要 Policy Gate / Approval。
+- `health_summary`: 健康摘要和最近 runtime failure ref。
+- `audit_summary`: 最近变更摘要。
+- `ops_summary`: 可操作状态和 action blockers。
+- `allowed_actions`: 前端按钮状态提示。
+- `related_resources`: config / dependencies / health / audit / config_schema 路径。
 
 错误约定：
 
 - 插件不存在时返回 `404`
 
-### 3. `GET /api/v1/plugins/{plugin_id}/config-schema`
+### 3. `GET /api/v1/plugins/{plugin_id}/config`
+
+用途：查看插件配置只读视图，用于配置 tab。
+
+成功返回 `data` 主要包含：
+
+- `availability`: 当前配置视图是否可用。
+- `schema`: schema 标题、版本和引用。
+- `config_state`: `valid`、`invalid`、`missing_required`、`not_configured` 或 `unavailable`。
+- `entries`: 配置项展示值；敏感字段只返回 masked / reference / unset，不返回 secret 原文。
+- `reload_required`: 配置变更后是否需要 reload。
+
+### 4. `GET /api/v1/plugins/{plugin_id}/dependencies`
+
+用途：查看插件依赖视图。
+
+成功返回 `data` 主要包含：
+
+- `plugin_dependencies`
+- `python_dependencies`
+- `system_dependencies`
+- `reverse_dependencies`
+
+每条依赖包含 `name`、`kind`、`required`、`resolved_state`、`blocked_reason` 和 `version_range`。
+
+### 5. `GET /api/v1/plugins/{plugin_id}/health`
+
+用途：查看插件健康视图。
+
+成功返回 `data` 主要包含：
+
+- `availability`
+- `status`
+- `last_check_at`
+- `degraded_reason`
+- `last_error_summary`
+- `runtime_error_refs`
+- `recent_usage_summary`
+- `health_checks`
+
+### 6. `GET /api/v1/plugins/{plugin_id}/audit`
+
+用途：查看插件审计摘要。
+
+成功返回 `data.entries` 中每条记录包含：
+
+- `audit_id`
+- `action`
+- `actor`
+- `result`
+- `occurred_at`
+- `safe_details`
+
+### 7. `GET /api/v1/plugins/{plugin_id}/config-schema`
 
 用途：拉取插件配置 JSON Schema，用于前端动态生成配置表单或展示配置约束。
 
@@ -151,7 +219,7 @@
 - 当前返回的是原始 JSON Schema 对象，不再包额外 schema DTO
 - 如果插件状态异常，即使插件存在，也可能拿不到 schema
 
-### 4. `POST /api/v1/plugins/actions/rescan`
+### 8. `POST /api/v1/plugins/actions/rescan`
 
 用途：用户在管理台手动触发插件目录重扫，刷新插件注册表视图。
 
@@ -193,7 +261,8 @@
         "config_schema": "config.schema.json",
         "description": "Placeholder source plugin.",
         "permissions": [],
-        "dependencies": {}
+        "dependencies": {},
+        "source_bindings": []
       },
       "last_error": null
     }

@@ -57,7 +57,11 @@ async def run_demo() -> DemoResult:
             kafka_bootstrap_servers=None,
             kafka_client_id="quantagent-demo",
             kafka_default_group_id="quantagent-demo",
-            topic_prefix=None,
+            kafka_session_timeout_ms=120000,
+            kafka_heartbeat_interval_ms=3000,
+            kafka_max_poll_interval_ms=900000,
+            kafka_consumer_concurrency=1,
+            topic_prefix="",
         )
     )
     consumer = _RecordingConsumer()

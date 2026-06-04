@@ -259,6 +259,26 @@ curl -i http://127.0.0.1:8000/api/v1/ready
 - `/api/v1/ready` 继续是数据库 readiness probe；不要把 sample provider 和请求级 DB session dependency 混在一起。
 - 本包当前不生成 static OpenAPI artifact、generated client、TypeScript types 或 Zod schema。
 
+### Approval V1
+
+Approval V1 暴露受保护 REST 资源：
+
+```text
+GET  /api/v1/approvals
+GET  /api/v1/approvals/{approval_id}
+POST /api/v1/approvals/{approval_id}/actions/approve
+POST /api/v1/approvals/{approval_id}/actions/reject
+POST /api/v1/approvals/{approval_id}/actions/request-reanalysis
+```
+
+查询需要 `approval.read` capability；actions 复用 `approval.approve` capability，并要求有效 CSRF。`approval.amend` 不属于本轮能力。
+
+API router 只处理 query/body、capability、CSRF、request id、DTO、`ApiResponse[T]` envelope 和错误映射。Approval 当前状态、input/evaluation/decision 写入、Policy Gate、终态幂等和 scoped audit record 都在 `packages/core` 的 service/repository 边界内完成。
+
+Action request body 可以提供 `input_id`、`reason` / `comment` 和非敏感 `structured_payload`；path action 是 intent 真源。如果 body 中的 `structured_payload.intent` 与 path action 冲突，API 返回 400，并且不会写入 input、evaluation、decision 或 audit record。
+
+Approval response 和 audit refs 只返回脱敏摘要，不返回 secret、token、完整 prompt、私有策略、broker credential、真实账户凭证或完整敏感 proposed payload。`request-reanalysis` V1 只记录人工意图，不触发 AgentRuntime、worker、scheduler 或新的重分析事件桥接。
+
 ### Auth 基础闭环
 
 - 当前 API 初版采用本地单用户 Cookie Session 鉴权，不实现注册、RBAC、多用户、多租户、OAuth 或 SSO。

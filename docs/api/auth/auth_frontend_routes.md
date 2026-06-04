@@ -74,11 +74,14 @@
   "capabilities": [
     "approval.amend",
     "approval.approve",
+    "approval.read",
     "broker.dry_run",
     "plugin.configure",
     "plugin.install",
     "runtime.inspect",
-    "secret.manage"
+    "secret.manage",
+    "source_binding.control",
+    "source_binding.read"
   ],
   "csrf_token": "token-string"
 }
@@ -104,11 +107,14 @@
   "capabilities": [
     "approval.amend",
     "approval.approve",
+    "approval.read",
     "broker.dry_run",
     "plugin.configure",
     "plugin.install",
     "runtime.inspect",
-    "secret.manage"
+    "secret.manage",
+    "source_binding.control",
+    "source_binding.read"
   ],
   "csrf_token": "token-string"
 }
@@ -137,11 +143,14 @@
   "capabilities": [
     "approval.amend",
     "approval.approve",
+    "approval.read",
     "broker.dry_run",
     "plugin.configure",
     "plugin.install",
     "runtime.inspect",
-    "secret.manage"
+    "secret.manage",
+    "source_binding.control",
+    "source_binding.read"
   ],
   "csrf_token": "token-string",
   "expires_at": 1710000000,
