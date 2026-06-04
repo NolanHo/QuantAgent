@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -57,6 +58,12 @@ from quantagent.core.approval.models import (
     ConfirmationLevel as ApprovalConfirmationLevel,
     ExpirationAction as ApprovalExpirationAction,
 )
+from quantagent.core.approval import (
+    ActionRequestedHandler,
+    ApprovalEventPublisher,
+    ApprovalOrchestrationService,
+)
+from quantagent.core.events import EventEnvelope, InMemoryEventBus
 from quantagent.core.model_config import FixedModelCallClient, ModelConfigCrypto, ModelTokenUsage
 from quantagent.core.model_config.service import ModelCallResult
 from quantagent.core.registry import PluginRegistry, PluginStatus, RegistryScanner
@@ -1591,6 +1598,228 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(audit_records[-1].action, "decision.rejected")
         self.assertEqual(audit_records[-1].channel, "web")
         self.assertEqual(audit_records[-1].request_id, "req-approval-action")
+
+    def test_approval_full_chain_smoke_from_event_bus_to_routes(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        class RecordingHandler:
+            def __init__(self) -> None:
+                self.seen: list[EventEnvelope] = []
+
+            async def handle(self, envelope: EventEnvelope) -> None:
+                self.seen.append(envelope)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            action_bus = InMemoryEventBus()
+            approval_requested = RecordingHandler()
+            notification_requested = RecordingHandler()
+            asyncio.run(
+                action_bus.subscribe(
+                    topics=("approval.requested",),
+                    group_id="approval-smoke",
+                    handler=approval_requested,
+                )
+            )
+            asyncio.run(
+                action_bus.subscribe(
+                    topics=("notification.requested",),
+                    group_id="approval-smoke",
+                    handler=notification_requested,
+                )
+            )
+            with client.app.state.db_session_factory() as session:
+                repository = SQLAlchemyApprovalRepository(session)
+
+                next_id_by_prefix: dict[str, int] = {}
+
+                def smoke_id(prefix: str) -> str:
+                    next_id_by_prefix[prefix] = next_id_by_prefix.get(prefix, 0) + 1
+                    return f"{prefix}-smoke-{next_id_by_prefix[prefix]}"
+
+                service = ApprovalOrchestrationService(
+                    repository=repository,
+                    event_publisher=ApprovalEventPublisher(action_bus),
+                    id_factory=smoke_id,
+                )
+                asyncio.run(
+                    action_bus.subscribe(
+                        topics=("action.requested",),
+                        group_id="approval",
+                        handler=ActionRequestedHandler(service),
+                    )
+                )
+                for suffix in ("approve", "reject", "reanalysis"):
+                    action = ApprovalActionRequestModel(
+                        id=f"action-smoke-{suffix}",
+                        action_type="adjust_strategy",
+                        action_side="increase_risk",
+                        target_type="strategy",
+                        target_id=f"strategy-smoke-{suffix}",
+                        risk_flags=("high_risk",),
+                        proposed_payload={"summary": f"smoke masked payload {suffix}"},
+                        correlation_id=f"corr-approval-smoke-{suffix}",
+                    )
+                    asyncio.run(
+                        action_bus.publish(
+                            EventEnvelope(
+                                id=f"event-action-smoke-{suffix}",
+                                topic="action.requested",
+                                producer="api-test",
+                                created_at="2026-06-04T00:00:00+00:00",
+                                correlation_id=f"corr-approval-smoke-{suffix}",
+                                payload=action.to_mapping(),
+                            )
+                        )
+                    )
+                session.commit()
+
+            csrf_token = self._login_with_client(client, self.settings)
+            list_before = client.get("/api/v1/approvals")
+            approve_detail_before = client.get("/api/v1/approvals/approval-smoke-1")
+            reject_detail_before = client.get("/api/v1/approvals/approval-smoke-2")
+            reanalysis_detail_before = client.get("/api/v1/approvals/approval-smoke-3")
+            route_bus = InMemoryEventBus()
+            approval_completed = RecordingHandler()
+            asyncio.run(
+                route_bus.subscribe(
+                    topics=("approval.completed",),
+                    group_id="approval-smoke",
+                    handler=approval_completed,
+                )
+            )
+            with patch("quantagent.api.services.approval_api.InMemoryEventBus", return_value=route_bus):
+                approve_response = client.post(
+                    "/api/v1/approvals/approval-smoke-1/actions/approve",
+                    headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke-approve"},
+                    json={"input_id": "input-smoke-approve", "channel": "web", "reason": "approve via smoke"},
+                )
+                reject_response = client.post(
+                    "/api/v1/approvals/approval-smoke-2/actions/reject",
+                    headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke"},
+                    json={"input_id": "input-smoke", "channel": "web", "reason": "reject via smoke"},
+                )
+                reanalysis_response = client.post(
+                    "/api/v1/approvals/approval-smoke-3/actions/request-reanalysis",
+                    headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke-reanalysis"},
+                    json={
+                        "input_id": "input-smoke-reanalysis",
+                        "channel": "web",
+                        "comment": "reanalysis via smoke",
+                    },
+                )
+            approve_detail_after = client.get("/api/v1/approvals/approval-smoke-1")
+            reject_detail_after = client.get("/api/v1/approvals/approval-smoke-2")
+            reanalysis_detail_after = client.get("/api/v1/approvals/approval-smoke-3")
+            list_after = client.get("/api/v1/approvals")
+            with client.app.state.db_session_factory() as session:
+                repository = SQLAlchemyApprovalRepository(session)
+                approve_inputs = repository.list_inputs("approval-smoke-1")
+                approve_decisions = repository.list_decisions("approval-smoke-1")
+                approve_audit_records = repository.list_audit_records("approval-smoke-1")
+                reject_inputs = repository.list_inputs("approval-smoke-2")
+                reject_evaluations = repository.list_evaluations("approval-smoke-2")
+                reject_decisions = repository.list_decisions("approval-smoke-2")
+                reject_audit_records = repository.list_audit_records("approval-smoke-2")
+                reanalysis_inputs = repository.list_inputs("approval-smoke-3")
+                reanalysis_decisions = repository.list_decisions("approval-smoke-3")
+                reanalysis_audit_records = repository.list_audit_records("approval-smoke-3")
+
+        self.assertEqual(len(approval_requested.seen), 3)
+        self.assertEqual(
+            [event.payload["approval_id"] for event in approval_requested.seen],
+            ["approval-smoke-1", "approval-smoke-2", "approval-smoke-3"],
+        )
+        self.assertEqual(
+            [event.payload["action_request_id"] for event in approval_requested.seen],
+            ["action-smoke-approve", "action-smoke-reject", "action-smoke-reanalysis"],
+        )
+        self.assertEqual(len(notification_requested.seen), 3)
+        self.assertEqual(
+            [event.payload["approval_id"] for event in notification_requested.seen],
+            ["approval-smoke-1", "approval-smoke-2", "approval-smoke-3"],
+        )
+
+        self.assertEqual(list_before.status_code, 200)
+        self.assertEqual(
+            [item["id"] for item in list_before.json()["data"]["items"]],
+            ["approval-smoke-3", "approval-smoke-2", "approval-smoke-1"],
+        )
+        self.assertEqual({item["status"] for item in list_before.json()["data"]["items"]}, {"pending"})
+        self.assertEqual(approve_detail_before.status_code, 200)
+        self.assertEqual(approve_detail_before.json()["data"]["action_request_summary"]["id"], "action-smoke-approve")
+        self.assertEqual(approve_detail_before.json()["data"]["inputs"], [])
+        self.assertEqual(reject_detail_before.status_code, 200)
+        self.assertEqual(reject_detail_before.json()["data"]["action_request_summary"]["id"], "action-smoke-reject")
+        self.assertEqual(reanalysis_detail_before.status_code, 200)
+        self.assertEqual(
+            reanalysis_detail_before.json()["data"]["action_request_summary"]["id"],
+            "action-smoke-reanalysis",
+        )
+
+        self.assertEqual(approve_response.status_code, 200)
+        self.assertEqual(approve_response.json()["data"]["evaluation"]["interpreted_intent"], "approve")
+        self.assertEqual(approve_response.json()["data"]["decision"]["status"], "policy_gate_failed")
+        self.assertEqual(approve_response.json()["data"]["approval"]["status"], "blocked")
+        self.assertEqual(reject_response.status_code, 200)
+        self.assertEqual(reject_response.json()["data"]["evaluation"]["interpreted_intent"], "reject")
+        self.assertEqual(reject_response.json()["data"]["decision"]["status"], "rejected")
+        self.assertEqual(reject_response.json()["data"]["approval"]["status"], "completed")
+        self.assertEqual(reanalysis_response.status_code, 200)
+        self.assertEqual(reanalysis_response.json()["data"]["evaluation"]["interpreted_intent"], "request_reanalysis")
+        self.assertEqual(reanalysis_response.json()["data"]["decision"]["status"], "reanalysis_requested")
+        self.assertEqual(reanalysis_response.json()["data"]["approval"]["status"], "completed")
+        self.assertEqual(
+            [event.payload["status"] for event in approval_completed.seen],
+            ["policy_gate_failed", "rejected", "reanalysis_requested"],
+        )
+
+        approve_after_data = approve_detail_after.json()["data"]
+        reject_after_data = reject_detail_after.json()["data"]
+        reanalysis_after_data = reanalysis_detail_after.json()["data"]
+        self.assertEqual(approve_after_data["status"], "blocked")
+        self.assertEqual(approve_after_data["latest_decision_summary"]["status"], "policy_gate_failed")
+        self.assertEqual(approve_after_data["inputs"][0]["structured_payload"]["intent"], "approve")
+        self.assertEqual(approve_after_data["evaluations"][0]["interpreted_intent"], "approve")
+        self.assertEqual(approve_after_data["decisions"][0]["status"], "policy_gate_failed")
+        self.assertEqual(approve_after_data["audit_refs"][0]["action"], "decision.policy_gate_failed")
+        self.assertEqual(reject_after_data["status"], "completed")
+        self.assertEqual(reject_after_data["latest_decision_summary"]["status"], "rejected")
+        self.assertEqual(reject_after_data["inputs"][0]["structured_payload"]["intent"], "reject")
+        self.assertEqual(reject_after_data["evaluations"][0]["interpreted_intent"], "reject")
+        self.assertEqual(reject_after_data["decisions"][0]["status"], "rejected")
+        self.assertEqual(reject_after_data["audit_refs"][0]["action"], "decision.rejected")
+        self.assertEqual(reanalysis_after_data["status"], "completed")
+        self.assertEqual(reanalysis_after_data["latest_decision_summary"]["status"], "reanalysis_requested")
+        self.assertEqual(reanalysis_after_data["inputs"][0]["structured_payload"]["intent"], "request_reanalysis")
+        self.assertEqual(reanalysis_after_data["evaluations"][0]["interpreted_intent"], "request_reanalysis")
+        self.assertEqual(reanalysis_after_data["decisions"][0]["status"], "reanalysis_requested")
+        self.assertEqual(reanalysis_after_data["audit_refs"][0]["action"], "decision.reanalysis_requested")
+        self.assertEqual(
+            {item["id"]: item["latest_decision_summary"]["status"] for item in list_after.json()["data"]["items"]},
+            {
+                "approval-smoke-1": "policy_gate_failed",
+                "approval-smoke-2": "rejected",
+                "approval-smoke-3": "reanalysis_requested",
+            },
+        )
+
+        self.assertEqual(approve_inputs[0].id, "input-smoke-approve")
+        self.assertEqual(approve_inputs[0].structured_payload["request_id"], "req-approval-smoke-approve")
+        self.assertEqual(approve_decisions[-1].status.value, "policy_gate_failed")
+        self.assertEqual(approve_audit_records[-1].request_id, "req-approval-smoke-approve")
+        self.assertEqual(reject_inputs[0].id, "input-smoke")
+        self.assertEqual(reject_inputs[0].structured_payload["request_id"], "req-approval-smoke")
+        self.assertEqual(reject_evaluations[0].interpreted_intent.value, "reject")
+        self.assertEqual(reject_decisions[-1].status.value, "rejected")
+        self.assertEqual(reject_audit_records[-1].request_id, "req-approval-smoke")
+        self.assertEqual(reanalysis_inputs[0].id, "input-smoke-reanalysis")
+        self.assertEqual(reanalysis_inputs[0].structured_payload["request_id"], "req-approval-smoke-reanalysis")
+        self.assertEqual(reanalysis_decisions[-1].status.value, "reanalysis_requested")
+        self.assertEqual(reanalysis_audit_records[-1].request_id, "req-approval-smoke-reanalysis")
 
     def test_approval_routes_enforce_capability_not_found_and_body_intent_conflict(self) -> None:
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
