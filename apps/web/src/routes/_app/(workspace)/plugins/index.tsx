@@ -1,11 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-import { PluginsIndexPageContent } from '../../../../features/mainflow/MainflowSections'
+import { PluginsIndexPage } from "@/features/plugins/detail";
 
-export const Route = createFileRoute('/_app/(workspace)/plugins/')({
+export const Route = createFileRoute("/_app/(workspace)/plugins/")({
   component: PluginsPage,
-})
+});
 
 function PluginsPage() {
-  return <PluginsIndexPageContent />
+  return <PluginsIndexPage />;
 }

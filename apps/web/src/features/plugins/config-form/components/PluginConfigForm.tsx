@@ -76,8 +76,8 @@ export function PluginConfigForm({
   return (
     <div ref={formViewportRef} className="w-full">
       <Form className="grid w-full gap-4">
-        <Card className="overflow-visible">
-          <Card.Content className="overflow-visible">
+        <Card className="overflow-visible border border-hairline bg-surface shadow-sm">
+          <Card.Content className="overflow-visible p-0">
             <Tabs
               className="w-full"
               orientation={isCompactLayout ? "horizontal" : "vertical"}
@@ -90,14 +90,14 @@ export function PluginConfigForm({
                 className={
                   isCompactLayout
                     ? "grid gap-4"
-                    : "grid w-full items-start grid-cols-[180px_minmax(0,1fr)] gap-4"
+                    : "grid w-full items-start grid-cols-[184px_minmax(0,1fr)]"
                 }
               >
                 <div
                   className={
                     isCompactLayout
-                      ? "w-full overflow-x-auto"
-                      : "sticky top-4 self-start"
+                      ? "w-full overflow-x-auto border-b border-hairline px-3 pt-3"
+                      : "sticky top-4 self-start border-r border-hairline bg-surface-soft/80 p-3"
                   }
                 >
                   <Tabs.ListContainer>
@@ -106,7 +106,7 @@ export function PluginConfigForm({
                       className={
                         isCompactLayout
                           ? "flex w-max min-w-full gap-1"
-                          : "grid w-full gap-1"
+                          : "grid w-full gap-1.5"
                       }
                     >
                       {fieldGroups.map((group) => (
@@ -114,11 +114,11 @@ export function PluginConfigForm({
                           key={group.key}
                           id={group.key}
                           className={[
-                            "h-auto min-h-0 items-center py-2.5",
-                            isCompactLayout ? "min-w-[152px]" : "",
+                            "h-auto min-h-0 items-center rounded-md px-3 py-2.5",
+                            isCompactLayout ? "min-w-[152px]" : "justify-start",
                           ].join(" ")}
                         >
-                          <span className="text-left text-[15px] font-semibold leading-5">
+                          <span className="text-left text-body-sm font-semibold leading-5">
                             {group.title}
                           </span>
                           <Tabs.Indicator />
@@ -132,7 +132,7 @@ export function PluginConfigForm({
                 {selectedGroup ? (
                   <Tabs.Panel
                     id={selectedGroup.key}
-                    className={isCompactLayout ? "min-w-0 pt-0" : "min-w-0 pr-1"}
+                    className={isCompactLayout ? "min-w-0 p-3 pt-0" : "min-w-0 p-4"}
                   >
                     <SelectedGroupPanel
                       group={selectedGroup}
@@ -174,11 +174,11 @@ function SelectedGroupPanel({
   return (
     <section
       id={`plugin-group-${group.key}`}
-      className="grid w-full gap-2.5 rounded-[20px] border border-slate-200 bg-white p-3 shadow-sm"
+      className="grid w-full gap-3"
     >
       <Fieldset>
-        <div className="grid gap-2 rounded-[20px] border border-slate-200 bg-slate-50/70 p-3">
-          <Fieldset.Group className="grid gap-0 px-3">
+        <div className="grid gap-0 rounded-lg border border-hairline bg-surface">
+          <Fieldset.Group className="grid gap-0 px-4">
             {group.fields.map((definition) => (
               <PluginConfigField
                 key={definition.path}
@@ -222,9 +222,7 @@ function groupFields(fields: PluginConfigFieldDefinition[]) {
   const groups = new Map<string, PluginConfigFieldDefinition[]>();
 
   for (const field of fields) {
-    const groupKey = field.path.includes(".")
-      ? field.path.split(".")[0]
-      : "base";
+    const groupKey = inferFieldGroupKey(field);
     const current = groups.get(groupKey) ?? [];
     current.push(field);
     groups.set(groupKey, current);
@@ -237,6 +235,66 @@ function groupFields(fields: PluginConfigFieldDefinition[]) {
   }));
 }
 
+function inferFieldGroupKey(field: PluginConfigFieldDefinition) {
+  const path = field.path.toLowerCase();
+  const key = field.key.toLowerCase();
+
+  if (
+    field.sensitive ||
+    key.includes("secret") ||
+    key.includes("token") ||
+    key.includes("api_key") ||
+    key.includes("public_key") ||
+    path.includes("auth.")
+  ) {
+    return "credentials";
+  }
+
+  if (
+    key === "url" ||
+    key === "feeds" ||
+    key === "query" ||
+    key.includes("watchlist") ||
+    key.includes("source")
+  ) {
+    return "input";
+  }
+
+  if (
+    key.includes("timeout") ||
+    key.includes("headers") ||
+    key.includes("user_agent") ||
+    key.includes("response_bytes")
+  ) {
+    return "network";
+  }
+
+  if (
+    key.includes("max_items") ||
+    key.includes("max_results") ||
+    key.includes("content") ||
+    key.includes("text_length") ||
+    key.includes("search_depth") ||
+    key.includes("favicon")
+  ) {
+    return "processing";
+  }
+
+  if (key.includes("allowlist") || key.includes("include_") || key.includes("exclude_")) {
+    return "scope";
+  }
+
+  if (key.includes("response_text") || key.includes("webhook") || key.includes("channel")) {
+    return "notification";
+  }
+
+  if (field.path.includes(".")) {
+    return field.path.split(".")[0];
+  }
+
+  return "base";
+}
+
 function groupTitle(groupKey: string) {
   if (groupKey === "base") {
     return "基础信息";
@@ -245,7 +303,13 @@ function groupTitle(groupKey: string) {
   const titleMap: Record<string, string> = {
     advancedMetrics: "高级监控",
     auth: "认证配置",
+    credentials: "凭证与密钥",
     deploymentZone: "部署配置",
+    input: "采集输入",
+    network: "请求与网络",
+    notification: "通知输出",
+    processing: "内容处理",
+    scope: "过滤范围",
     topology: "部署拓扑",
   };
 

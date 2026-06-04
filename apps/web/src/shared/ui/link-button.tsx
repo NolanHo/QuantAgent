@@ -1,6 +1,7 @@
-import { Button } from '@heroui/react'
+import { buttonVariants } from '@heroui/react'
 import { Link, type LinkProps } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
+import { twMerge } from 'tailwind-merge'
 
 interface LinkButtonProps extends Pick<LinkProps, 'to' | 'params'> {
   children: ReactNode
@@ -16,10 +17,12 @@ export function LinkButton({
   variant = 'primary',
 }: LinkButtonProps) {
   return (
-    <Link className="inline-flex" params={params} to={to}>
-      <Button className={className} size="sm" variant={variant}>
-        {children}
-      </Button>
+    <Link
+      className={twMerge(buttonVariants({ size: 'sm', variant }), className)}
+      params={params}
+      to={to}
+    >
+      {children}
     </Link>
   )
 }

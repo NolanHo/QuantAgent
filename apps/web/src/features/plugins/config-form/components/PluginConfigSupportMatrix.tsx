@@ -44,7 +44,7 @@ export function PluginConfigSupportMatrix({
                       size="sm"
                       variant="soft"
                     >
-                      {entry.level}
+                      {supportBadgeLabel(entry.level)}
                     </Chip>
                   </div>
                   <p className="m-0 text-sm leading-6 text-slate-500">
@@ -72,4 +72,16 @@ function supportBadgeColor(
   }
 
   return "danger";
+}
+
+function supportBadgeLabel(level: PluginConfigSupportLevel): string {
+  if (level === "supported") {
+    return "已支持";
+  }
+
+  if (level === "degraded") {
+    return "降级支持";
+  }
+
+  return "暂不支持";
 }

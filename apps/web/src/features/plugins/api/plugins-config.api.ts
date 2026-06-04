@@ -7,6 +7,7 @@ import type {
   PluginConfigUpdateResponse,
   PluginConfigValidateRequest,
   PluginConfigValidateResponse,
+  PluginRecordResponse,
 } from "./contracts";
 
 export class PluginConfigApi extends BaseApi {
@@ -23,6 +24,12 @@ export class PluginConfigApi extends BaseApi {
   fetchConfigSchema(pluginId: string): Promise<PluginConfigSchemaResponse> {
     return this.get<PluginConfigSchemaResponse>(`/${pluginId}/config-schema`, {
       dedupeKey: `plugin-config-schema:${pluginId}`,
+    });
+  }
+
+  listPlugins(): Promise<PluginRecordResponse[]> {
+    return this.get<PluginRecordResponse[]>("/", {
+      dedupeKey: "plugins:list",
     });
   }
 
@@ -52,6 +59,7 @@ export class PluginConfigApi extends BaseApi {
 export interface PluginConfigApiContract {
   fetchConfig(pluginId: string): Promise<PluginConfigSnapshotResponse>;
   fetchConfigSchema(pluginId: string): Promise<PluginConfigSchemaResponse>;
+  listPlugins(): Promise<PluginRecordResponse[]>;
   updateConfig(
     pluginId: string,
     payload: PluginConfigUpdateRequest,

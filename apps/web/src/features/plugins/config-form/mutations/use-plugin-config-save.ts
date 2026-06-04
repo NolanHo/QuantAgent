@@ -15,7 +15,7 @@ export function usePluginConfigSaveMutation<TSaveResult>(
   return useMutation({
     mutationFn: (values: PluginConfigValueMap) => {
       if (!schema) {
-        throw new Error('Schema is required before save.')
+        throw new Error('保存前需要先加载配置结构。')
       }
 
       return saveDraft(schema, values)

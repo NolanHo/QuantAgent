@@ -337,7 +337,7 @@ describe('fetchPluginConfigSchema', () => {
         expect.objectContaining({
           path: 'dynamicRules',
           type: 'record',
-          recordValueShape: 'Record<string, object>',
+          recordValueShape: '键值对象：对象值',
         }),
       ]),
     )
