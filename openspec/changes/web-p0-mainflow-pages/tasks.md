@@ -25,7 +25,7 @@
 - [x] 2.10 #132 前端 API 只预留事件审计读取边界；后端事件审计 contract、generated client、数据库和真实 audit_logs 持久化必须后续另开窄范围 change。
 - [x] 2.11 #132 降级态必须明确标识接口未接通、无记录或权限不足，mock fallback 不能写成真实后端审计事实。
 
-## 3. 验证
+## 3. issue #131 审批工作台 V1 结构与行为
 
 - [x] 3.1 运行 `openspec validate web-p0-mainflow-pages --type change --strict --json`。
 - [x] 3.2 人工核对 OpenSpec artifacts、PRD 真源映射和 `apps/web` 页面骨架已经同步到同一主链路语义。
@@ -34,3 +34,25 @@
 - [x] 3.5 运行 `cd apps/web && bun run build`，确认当前页面骨架、路由和导航收口可以正常构建。
 - [x] 3.6 文档 PR 只包含本 change 的 OpenSpec artifacts 和 `docs/prd/08-frontend-pages-overview.md` 真源映射更新，不包含 `apps/web` 实现、依赖升级、生成物或无关 PRD 修改。
 - [x] 3.7 #132 实现 PR 需要运行 `bun run --cwd apps/web test:unit` 和 `bun run --cwd apps/web build`，并人工走读 `/events/:eventId`、`/approvals/:approvalId`、`/events/:eventId/audit` 的入口与返回链路。
+- [x] 3.1 在 `apps/web/src/features/approvals/` 下建立独立 feature 目录，至少拆分 `README.md`、`mock/`、`hooks/`、`components/`、`types/`、`utils/`，不继续把审批列表、详情、授权页和动作状态堆在 `features/mainflow/pages/ApprovalPages.tsx`。
+- [x] 3.2 `src/routes/_app/(workspace)/approvals/index.tsx` 只负责 `validateSearch`、search 默认值、读取 `Route.useSearch()` 和装配审批工作台页面；业务筛选、排序、批量选择和动作状态进入 feature hook。
+- [x] 3.3 `src/routes/_app/(workspace)/approvals/$approvalId.tsx` 与 `src/routes/(public)/approval-link/$token.tsx` 只负责 params 读取和页面装配；详情与授权页主体进入审批 feature 组件。
+- [x] 3.4 固定 mock 驱动边界：审批列表与动作反馈由 `features/approvals/mock/` 提供，不伪造真实执行成功、broker 下单结果或后端 endpoint contract。
+- [x] 3.5 审批工作台首屏必须展示队列概览、筛选/排序工具条、审批列表和受限批量操作区；列表字段至少包含关联事件、建议动作、推荐度、风险摘要、触发信息来源摘要、确认等级、到期策略和详情/事件入口。
+- [x] 3.6 默认排序为 AI 推荐度优先；同时提供即将过期优先、风险最高优先和最新创建优先的切换。
+- [x] 3.7 逐条动作至少支持 `approve`、`reject`、`request_reanalysis`；其中 `request_reanalysis` 要求简短原因输入，动作反馈文案必须强调“人工确认”而不是“真实执行完成”。
+- [x] 3.8 批量处理区只保留“受限批量边界说明 + disabled UI”；继续解释相同 `risk_direction`、相同 `confirmation_level`、非 `manual_only`、未过期、非即将自动过期等禁入条件，但不交付可执行批量动作。
+- [x] 3.9 审批工作台、审批详情和事件详情之间必须保持稳定回跳入口；审批详情还需补 Runtime / audit 入口；Dashboard 审批摘要可复用审批卡片，但审批 feature 拥有这些组件的业务语义。
+- [x] 3.10 审批详情动作区必须明确 `approve` / `reject` / `request_reanalysis` / `amend` 的边界，其中 `amend` 只作为后续 contract 边界说明，不伪造提交成功。
+- [x] 3.11 一次性授权页必须只表达 `link_confirm` 的最小上下文，不暴露完整 token 原文，不绕过 `manual_only` 或强确认边界。
+- [x] 3.12 页面状态至少覆盖空态、权限不足、部分动作失败、实时降级和已过期占位；错误反馈保留 `request_id` / `trace_id` 占位文案。
+
+## 4. 验证
+
+- [x] 4.1 运行 `openspec validate web-p0-mainflow-pages --type change --strict --json`。
+- [x] 4.2 人工核对 OpenSpec artifacts、PRD 真源映射和 `apps/web` 页面骨架已经同步到同一主链路语义。
+- [x] 4.3 人工核对 issue #129、#130、#131 可直接回链到本 change，而不再各自假设不同首页入口。
+- [x] 4.4 收敛 `docs/prd/08-frontend-pages-overview.md` 的 OpenSpec 真源映射，只保留 Dashboard、Events、Event Detail、Approvals 和 `/` 默认入口语义。
+- [x] 4.5 issue #131 实现完成后运行 `bun run --cwd apps/web build`，确认审批工作台 route、审批详情、授权页与主链路导航可构建。
+- [x] 4.6 issue #131 实现完成后运行与审批页相关的最小单测或组件测试，覆盖默认排序、批量 disabled 边界、`request_reanalysis` 原因输入和授权页强确认限制。
+- [ ] 4.7 #132 实现 PR 需要运行 `bun run --cwd apps/web test:unit` 和 `bun run --cwd apps/web build`，并人工走读 `/events/:eventId`、`/approvals/:approvalId`、`/events/:eventId/audit` 的入口与返回链路。

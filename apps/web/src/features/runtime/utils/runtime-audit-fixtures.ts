@@ -238,7 +238,7 @@ function routerAgentSuccessStage({
       confidence: outputJson.quality.confidence,
       is_spam: outputJson.quality.is_spam,
     },
-    output_json: outputJson,
+    output_json: sanitizeRuntimeAuditDetails(outputJson) ?? {},
     refs: [{ kind: 'raw_event', id: rawEventId, label: 'RawEvent' }],
     stage_id: 'router_agent',
     status: 'success',

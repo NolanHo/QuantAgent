@@ -30,6 +30,7 @@ describe('runtime audit fixtures', () => {
     expect(routerStage?.output_json?.routing).toEqual(expect.objectContaining({
       target_topics: ['advanced-packaging', 'memory'],
     }));
+    expect(JSON.stringify(routerStage?.output_json)).not.toContain('provider_raw_response');
   });
 
   it('filters news items by backend query params', () => {

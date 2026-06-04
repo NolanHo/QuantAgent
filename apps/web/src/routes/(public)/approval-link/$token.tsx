@@ -1,13 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { ApprovalLinkPageContent } from '../../../features/mainflow/MainflowSections'
+import { ApprovalLinkPage } from '../../../features/approvals'
 
 export const Route = createFileRoute('/(public)/approval-link/$token')({
-  component: ApprovalLinkPage,
+  component: ApprovalLinkRoute,
 })
 
-function ApprovalLinkPage() {
+function ApprovalLinkRoute() {
   const { token } = Route.useParams()
 
-  return <ApprovalLinkPageContent token={token} />
+  return <ApprovalLinkPage token={token} />
 }

@@ -2263,6 +2263,9 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(router_stage["key_fields"]["short_summary"], "HBM demand is directly relevant.")
         self.assertEqual(router_stage["output_json"]["decision"], "route")
         self.assertNotIn("full article body", json.dumps(router_stage["output_json"], ensure_ascii=False))
+        self.assertEqual(router_stage["output_json"]["structured_news"]["reasoning_prompt"], "[REDACTED]")
+        self.assertEqual(router_stage["output_json"]["routing"]["provider_raw_response"], "[REDACTED]")
+        self.assertEqual(router_stage["output_json"]["routing"]["api_token"], "[REDACTED]")
         routed_timeline = {step["step_id"]: step for step in routed_item["timeline"]}
         self.assertEqual(routed_timeline["ai_intake_routed"]["status"], "success")
         self.assertEqual(routed_timeline["route_decided"]["status"], "success")
@@ -3832,6 +3835,7 @@ class ApiAppTestCase(unittest.TestCase):
                             "numbers": [],
                             "time_horizon": "near_term",
                             "source_facts": ["HBM demand and advanced packaging capacity tighten."],
+                            "reasoning_prompt": "must redact prompt",
                             "uncertainties": [],
                         },
                         "routing": {
@@ -3841,6 +3845,8 @@ class ApiAppTestCase(unittest.TestCase):
                             "requires_deep_analysis": True,
                             "requires_human_review": False,
                             "dedupe_key_hint": "https://example.com/hbm",
+                            "provider_raw_response": "must redact raw response",
+                            "api_token": "secret-token",
                         },
                         "audit": {
                             "reason_summary": "Direct semiconductor memory relevance.",

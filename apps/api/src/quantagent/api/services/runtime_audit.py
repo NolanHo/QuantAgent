@@ -24,6 +24,7 @@ from quantagent.core.db.models.raw_event_capture import RawEventCaptureORM
 from quantagent.core.db.models.scheduler_run import SchedulerRunORM
 from quantagent.core.db.repositories.event_intake_repository import EventIntakeRoutedEventRepository
 from quantagent.core.db.models.event_intake import EventIntakeRoutedEventORM
+from quantagent.core.events.codec import sanitize_mapping
 
 
 class RuntimeAuditNewsQueryService:
@@ -443,7 +444,8 @@ def _build_agent_stages(
             status="success" if routed_event.status == "success" else "failed",
             summary=routed_event.summary or _route_decision_summary(routed_event),
             key_fields=dict(routed_event.key_fields or {}),
-            output_json=dict(routed_event.output_json or {}),
+            # 中文注释：Router output 允许展示结构化摘要，但必须先脱敏，避免未来新增字段把 secret / prompt / raw response 直接带到前端。
+            output_json=_safe_output_json(routed_event.output_json),
             refs=[
                 raw_event_ref,
                 RuntimeAuditNewsRefResponse(kind="event_routed", id=routed_event.event_id, label="event.routed"),
@@ -554,6 +556,12 @@ def _safe_details(
             "duration_ms": run.duration_ms,
         }
     return details
+
+
+def _safe_output_json(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return dict(sanitize_mapping(value))
 
 
 def _content_preview(content: str | None) -> str | None:

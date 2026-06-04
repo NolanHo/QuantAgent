@@ -4,11 +4,6 @@ export {
   PluginsIndexPageContent,
 } from './pages/PluginPages'
 export {
-  ApprovalDetailPageContent,
-  ApprovalLinkPageContent,
-  ApprovalsIndexPageContent,
-} from './pages/ApprovalPages'
-export {
   RuntimeAgentRunDetailPageContent,
   RuntimeDashboardPageContent,
   RuntimeToolInvocationDetailPageContent,

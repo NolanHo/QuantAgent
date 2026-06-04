@@ -19,6 +19,7 @@
 - 把根路径 `/` 的默认首页语义从 `/events` 收口为 Dashboard。
 - 为 #129、#130、#131、#132 提供一个可复用的统一上游 change。
 - 让后续实现者能够在不重新做产品判断的情况下进入页面实现。
+- 为 #131 提供可直接进入 `apps/web` 实现的审批工作台蓝图，包括 route/search、feature 目录、mock 驱动边界、页面状态、详情/授权页入口和动作反馈。
 
 **Non-Goals:**
 
@@ -27,6 +28,8 @@
 - 不把“相关历史事件”“真实执行流程”“首页外独立系统健康页”“全局日志平台”“完整原始推理回放”拉进 V1 主链路。
 - 不把事件审计页扩展成 audit_logs 后端查询 contract、不可篡改存证设计或完整 payload diff 工具。
 - 不修改登录、会话、CSRF 或 capability guard 的既有行为契约，除非它们与默认首页入口直接相关。
+- 不在审批工作台首版中定义真实后端 ApprovalRequest DTO、批量 action endpoint、多人会签流、外部消息渠道审批或 live trading 放行。
+- 不在本轮交付可执行的真实批量 approve / reject / request_reanalysis；若保留批量区，只能承载风险边界说明、eligibility 解释和 disabled UI。
 
 ## Decisions
 
@@ -257,6 +260,146 @@ route eventId
 - `git diff --check`
 - `bun run --cwd apps/web build`
 - 按实现范围补充 unit / component / e2e 测试，至少覆盖根路径进入 Dashboard、事件详情薄 route、事件详情 feature page model、审批入口不表达真实执行。
+### 12. 审批工作台实现应拆入独立 `features/approvals/`，而不是继续堆在 `mainflow`
+
+现有 `features/mainflow/` 适合作为 P0 主链路页面骨架与 mock 展示集合，但 issue #131 的实现范围已经超过“页面占位文案”。审批页需要承接：
+
+- URL search 驱动的筛选、排序和视图切换。
+- 列表、详情、一次性授权页之间的稳定跳转。
+- 逐条动作与受限批量动作的局部 UI 状态。
+- 空态、错误态、权限态、即将过期和部分失败的反馈。
+- 对 Dashboard 审批摘要卡片的复用。
+
+按 `apps/web` 架构 gate，这些职责不能继续混在一个 `pages/ApprovalPages.tsx` 占位文件内。因此实现阶段 SHALL 使用独立目录，例如：
+
+```text
+apps/web/src/features/approvals/
+  README.md
+  mock/
+    approval-workbench.mock.ts
+  hooks/
+    use-approval-workbench-page.ts
+  components/
+    page/
+      ApprovalWorkbenchPage.tsx
+      ApprovalDetailPage.tsx
+      ApprovalLinkPage.tsx
+    overview/
+      ApprovalQueueOverview.tsx
+    filters/
+      ApprovalWorkbenchToolbar.tsx
+    list/
+      ApprovalListCard.tsx
+      ApprovalList.tsx
+    detail/
+      ApprovalDetailSummary.tsx
+      ApprovalAuditTimeline.tsx
+    batch/
+      ApprovalBatchActionPanel.tsx
+    dialogs/
+      ApprovalActionDialog.tsx
+    states/
+      ApprovalEmptyState.tsx
+      ApprovalErrorState.tsx
+      ApprovalPermissionState.tsx
+  types/
+    approval-workbench.types.ts
+  utils/
+    approval-formatters.ts
+    approval-rules.ts
+```
+
+Route 侧只负责入口和 search/params 解析：
+
+- `src/routes/_app/(workspace)/approvals/index.tsx`：`validateSearch`、读取 `Route.useSearch()`、组装 `ApprovalWorkbenchPage`。
+- `src/routes/_app/(workspace)/approvals/$approvalId.tsx`：读取 `approvalId` param，装配详情页。
+- `src/routes/(public)/approval-link/$token.tsx`：装配受限授权页。
+
+Dashboard 里的审批摘要仍可复用审批卡片，但它是审批 feature 暴露的展示组件，而不是继续从 `mainflow` 反向拥有审批业务。
+
+### 13. 审批工作台首版允许 mock 驱动，但必须保持 REST 真源边界
+
+`docs/design/08-api-and-websocket-design.md` 已经定义审批对象的真源在 `/approvals` REST 资源与 `actions` endpoint。当前 issue #131 只要求先做 Web 工作台，并未要求本轮同步实现 API contract。因此前端首版可使用 feature 内部 mock store / mock repository 驱动列表与动作反馈，用于固定：
+
+- 默认排序和筛选行为。
+- 批量处理 eligibility 规则。
+- 行内和弹窗反馈文案。
+- 详情、事件、授权页之间的导航关系。
+
+但必须保持以下边界：
+
+- mock 数据只能放在 `features/approvals/mock/`，不能继续散落在 route 或 shared UI。
+- mock action 只模拟“审批请求状态变化”，不模拟真实下单、成交或 broker 执行成功。
+- 所有批准相关 UI 都必须明确“人工确认”而非“真实执行完成”。
+- 一旦后端 contract 落地，route / component 不应改动 ownership，只把 mock 读写替换成 query / mutation 即可。
+
+### 14. `/approvals` 默认按推荐度优先，同时保留即将过期的高亮信号
+
+issue #131 明确要求默认按 AI 推荐度最高优先。PRD 又要求即将过期审批需要高亮。因此列表排序规则采用：
+
+1. 默认主排序：`recommendation_score` 降序。
+2. 同分或近似分时：`expires_at` 更近者优先。
+3. 再次排序：`risk_level` 更高者优先。
+4. 最后：`created_at` 更新者优先。
+
+UI 可以提供切换到“即将过期优先”“风险最高优先”“最新创建优先”，但默认入口必须回到推荐度优先。Dashboard 摘要也应沿用相同主排序，避免首页摘要与工作台排序语义分叉。
+
+### 15. 首版批量区只做保守边界说明，不交付可执行批量动作
+
+issue #131 最新版本已经把“本轮不交付真实可执行的批量 approve / reject”写成明确非目标，只允许保留“受限批量边界说明 + disabled UI”的保守实现。为避免在后端 contract、风险规则和审计落地前出现误触发，首版批量区 SHALL 固定以下边界：
+
+- 页面可以解释哪些项在未来可能满足同类批量资格。
+- 同一资格集合仍要求相同 `confirmation_level`、相同 `risk_direction`、非 `manual_only`、未过期且非即将自动过期。
+- UI 必须把批量动作按钮保持 disabled，直到真实批量 contract 和风险规则被单独评审。
+- 不允许以 mock mutation 或前端本地状态伪造“批量批准已成功”。
+
+列表和批量面板都必须展示“为什么某些项不能进入批量处理”的理由标签，避免把不可批量的风控边界藏在弹窗里。
+
+### 16. `request_reanalysis` 要求最小原因输入，其他动作保留确认摘要
+
+issue #131 的待确认问题包含“request_reanalysis 是否要求输入原因”。本 change 直接固定首版边界：`request_reanalysis` SHALL 要求简短原因输入，以便用户表达当前证据缺口或时效变化。`approve`、`reject` 和受限批量动作可不强制自由文本，但确认弹窗需要展示：
+
+- 影响条数或目标审批项。
+- 当前动作只是人工确认，不代表真实执行。
+- 对 `increase_risk` 或 `strong_confirm` 类项的额外风险提示。
+- 失败反馈中可展示 `request_id` / `trace_id` 占位。
+
+### 17. 审批详情与事件详情必须双向协同，并暴露 Runtime / Audit 回跳入口
+
+事件详情是建议和证据的首屏判断页，审批详情是人工确认上下文页。二者的协同方式固定为：
+
+- `/events/:eventId` 提供进入 `/approvals` 或 `/approvals/:approvalId` 的入口。
+- `/approvals` 列表和 `/approvals/:approvalId` 提供回到 `/events/:eventId` 的入口。
+- `/approvals/:approvalId` 还应提供回到 Runtime 摘要或关联 audit 入口的稳定跳转。
+- 审批详情可以展示运行态或授权页入口，但不能在事件详情页直接完成批准动作。
+
+### 18. 审批详情必须区分可提交动作与仅说明边界的动作
+
+issue #131 要求审批详情明确 `approve` / `reject` / `request_reanalysis` / `amend` 的动作边界，但本轮并未要求在 mock 首版中发明新的 amend contract。因此详情页 SHALL：
+
+- 允许 `approve`、`reject`、`request_reanalysis` 维持受控首版交互。
+- 将 `amend` 表达为需要后端审批 payload contract、审计 diff 和更细风险规则支持的后续动作边界。
+- 不允许以前端本地 patch 假装完成 `amend` 成功。
+- 对 `manual_only` 和 `strong_confirm` 明确只保留强确认路径，不让 link 入口或弱确认入口替代。
+
+### 19. 一次性授权页只暴露最小上下文，不能绕过强确认或 `manual_only`
+
+`/approval-link/:token` 是公开受限入口，不属于 workspace 壳。首版 SHALL：
+
+- 只展示 token 校验后的最小审批上下文，不展示完整后台详情或敏感字段。
+- 只允许 `link_confirm` 语义下的受限 approve / reject 入口占位。
+- 对 `manual_only` 或需要 `strong_confirm` 的审批明确拒绝在 link 页处理，并引导回后台详情。
+- 不在前端长期保存 token，也不以“展示完整 token”作为调试能力暴露给终端用户。
+
+### 20. 页面状态必须覆盖空态、权限态、部分失败和实时降级
+
+审批工作台不是静态列表页，首版即便使用 mock，也必须设计清楚以下状态：
+
+- 空态：当前筛选无待处理项时，展示返回事件中心或 Dashboard 的入口。
+- 权限态：用户无审批能力时，说明 capability 缺失并展示 `request_id` 占位。
+- 部分失败：单条或批量动作失败只影响目标项，不阻断其他项继续处理。
+- 实时降级：若实时提醒不可用，文案说明状态可能延迟，但 REST/手动刷新仍可用。
+- 已过期：禁用动作，展示 `expiration_action` 结果或等待同步中的占位文案。
 
 ## Risks / Trade-offs
 
@@ -277,3 +420,9 @@ route eventId
 
 - [Risk] mock fallback 容易被误读成真实历史记录。
   -> Mitigation：实现任务要求页面显式标识接口未接通 / 降级来源，PR 说明中列为未接通风险，不允许把 fallback 文案写成真实审计事实。
+
+- [Risk] 审批页如果继续复用 `mainflow` 占位文件实现，会把 route、状态、动作、详情和授权页耦合进一个大文件，偏离 `apps/web` gate。
+  -> Mitigation：在本 change 中直接写入 `features/approvals/` 目录蓝图，并在 tasks 中把 route / hook / component / states 拆分列成独立实现项。
+
+- [Risk] 当前没有后端 `/approvals` contract，前端若直接捏造 API shape 或批量 contract，后续容易和真源冲突。
+  -> Mitigation：首版以 feature 内 mock store 固定交互边界，不发明 OpenAPI DTO，不伪造可执行批量 mutation；未来只替换读写层，不重写页面 ownership。
