@@ -232,6 +232,8 @@ class ApprovalRequest:
     policy_source: str = "system_default"
     status: ApprovalRequestStatus = ApprovalRequestStatus.PENDING
     allowed_channels: tuple[str, ...] = field(default_factory=tuple)
+    created_at: str | None = None
+    updated_at: str | None = None
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -271,6 +273,8 @@ class ApprovalRequest:
             policy_source=self.policy_source,
             status=status,
             allowed_channels=self.allowed_channels,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
         )
 
     def to_mapping(self) -> dict[str, Any]:
@@ -291,6 +295,8 @@ class ApprovalRequest:
             "policy_source": self.policy_source,
             "status": self.status.value,
             "allowed_channels": list(self.allowed_channels),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
         }
 
 
@@ -404,6 +410,54 @@ class ApprovalDecision:
             "execution_status": self.execution_status.value,
             "reason_summary": self.reason_summary,
             "correlation_id": self.correlation_id,
+        }
+
+
+@dataclass(frozen=True)
+class ApprovalAuditRecord:
+    record_id: str
+    approval_id: str
+    action: str
+    resource_id: str
+    reason_summary: str
+    actor_id: str | None = None
+    actor_type: str | None = None
+    resource_type: str = "approval"
+    before_status: ApprovalRequestStatus | None = None
+    after_status: ApprovalRequestStatus | None = None
+    request_id: str | None = None
+    channel: str | None = None
+    record_refs: JsonObject = field(default_factory=dict)
+    payload_summary: JsonObject = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def __post_init__(self) -> None:
+        for field_name in ("record_id", "approval_id", "action", "resource_id", "reason_summary", "created_at"):
+            _require_non_empty(field_name, getattr(self, field_name))
+        if self.before_status is not None:
+            object.__setattr__(self, "before_status", ApprovalRequestStatus(self.before_status))
+        if self.after_status is not None:
+            object.__setattr__(self, "after_status", ApprovalRequestStatus(self.after_status))
+        object.__setattr__(self, "record_refs", freeze_json_mapping(self.record_refs, stage="approval_audit_refs"))
+        object.__setattr__(self, "payload_summary", freeze_json_mapping(self.payload_summary, stage="approval_audit_payload"))
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "record_id": self.record_id,
+            "approval_id": self.approval_id,
+            "actor_id": self.actor_id,
+            "actor_type": self.actor_type,
+            "action": self.action,
+            "resource_type": self.resource_type,
+            "resource_id": self.resource_id,
+            "before_status": self.before_status.value if self.before_status else None,
+            "after_status": self.after_status.value if self.after_status else None,
+            "request_id": self.request_id,
+            "channel": self.channel,
+            "reason_summary": self.reason_summary,
+            "record_refs": to_json_value(self.record_refs),
+            "payload_summary": to_json_value(self.payload_summary),
+            "created_at": self.created_at,
         }
 
 

@@ -11,6 +11,7 @@ from quantagent.core.approval.harness import (
 )
 from quantagent.core.approval.models import (
     ActionRequest,
+    ApprovalAuditRecord,
     ApprovalDecision,
     ApprovalDecisionStatus,
     ApprovalEvaluation,
@@ -30,6 +31,14 @@ from quantagent.core.approval.notification_handoff import ApprovalNotificationHa
 from quantagent.core.approval.policies import ApprovalPolicyResolver
 from quantagent.core.approval.ports import ActionExecutionResult, ActionExecutor, PolicyGate, PolicyGateResult
 from quantagent.core.approval.publishers import ApprovalEventPublisher
+from quantagent.core.approval.query_service import (
+    ApprovalDetailView,
+    ApprovalListQuery,
+    ApprovalPage,
+    ApprovalQueryNotFoundError,
+    ApprovalQueryService,
+    ApprovalSummaryView,
+)
 from quantagent.core.approval.repository import ApprovalRepository, InMemoryApprovalRepository
 from quantagent.core.approval.service import ApprovalOrchestrationService, ApprovalServiceResult
 
@@ -39,21 +48,28 @@ __all__ = [
     "ActionRequest",
     "ActionRequestedHandler",
     "ApprovalDecision",
+    "ApprovalAuditRecord",
     "ApprovalDecisionStatus",
     "ApprovalEvaluation",
     "ApprovalEventPublisher",
     "ApprovalInput",
     "ApprovalInputReceivedHandler",
     "ApprovalIntent",
+    "ApprovalDetailView",
+    "ApprovalListQuery",
     "ApprovalMode",
     "ApprovalNotificationHandoffAdapter",
+    "ApprovalPage",
     "ApprovalOrchestrationService",
     "ApprovalPolicyResolver",
+    "ApprovalQueryNotFoundError",
+    "ApprovalQueryService",
     "ApprovalRepository",
     "ApprovalRequest",
     "ApprovalRequestStatus",
     "ApprovalRuleEvaluator",
     "ApprovalServiceResult",
+    "ApprovalSummaryView",
     "ConfirmationLevel",
     "ExecutionStatus",
     "ExpirationAction",

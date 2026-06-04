@@ -6,6 +6,7 @@ from typing import Protocol
 
 from quantagent.core.approval.models import (
     ActionRequest,
+    ApprovalAuditRecord,
     ApprovalDecision,
     ApprovalEvaluation,
     ApprovalInput,
@@ -22,17 +23,19 @@ class ApprovalRepository(Protocol):
 
     def get_approval_request(self, approval_id: str) -> ApprovalRequest | None: ...
 
+    def get_approval_request_for_update(self, approval_id: str) -> ApprovalRequest | None: ...
+
     def get_approval_request_by_action_id(self, action_request_id: str) -> ApprovalRequest | None: ...
 
     def save_input(self, user_input: ApprovalInput) -> ApprovalInput: ...
 
-    def get_input(self, input_id: str) -> ApprovalInput | None: ...
+    def get_input(self, input_id: str, *, approval_id: str | None = None) -> ApprovalInput | None: ...
 
     def list_inputs(self, approval_id: str) -> tuple[ApprovalInput, ...]: ...
 
     def save_evaluation(self, evaluation: ApprovalEvaluation) -> None: ...
 
-    def get_evaluation_by_input_id(self, input_id: str) -> ApprovalEvaluation | None: ...
+    def get_evaluation_by_input_id(self, input_id: str, *, approval_id: str | None = None) -> ApprovalEvaluation | None: ...
 
     def list_evaluations(self, approval_id: str) -> tuple[ApprovalEvaluation, ...]: ...
 
@@ -40,11 +43,15 @@ class ApprovalRepository(Protocol):
 
     def link_decision_to_input(self, input_id: str, decision: ApprovalDecision) -> None: ...
 
-    def get_decision_by_input_id(self, input_id: str) -> ApprovalDecision | None: ...
+    def get_decision_by_input_id(self, input_id: str, *, approval_id: str | None = None) -> ApprovalDecision | None: ...
 
     def latest_decision(self, approval_id: str) -> ApprovalDecision | None: ...
 
     def list_decisions(self, approval_id: str) -> tuple[ApprovalDecision, ...]: ...
+
+    def save_audit_record(self, record: ApprovalAuditRecord) -> None: ...
+
+    def list_audit_records(self, approval_id: str) -> tuple[ApprovalAuditRecord, ...]: ...
 
 
 class InMemoryApprovalRepository:
@@ -53,12 +60,13 @@ class InMemoryApprovalRepository:
         self._actions: dict[str, ActionRequest] = {}
         self._approvals: dict[str, ApprovalRequest] = {}
         self._approval_by_action: dict[str, str] = {}
-        self._inputs: dict[str, ApprovalInput] = {}
+        self._inputs: dict[tuple[str, str], ApprovalInput] = {}
         self._inputs_by_approval: dict[str, list[str]] = defaultdict(list)
-        self._evaluations_by_input: dict[str, ApprovalEvaluation] = {}
+        self._evaluations_by_input: dict[tuple[str, str], ApprovalEvaluation] = {}
         self._evaluations_by_approval: dict[str, list[ApprovalEvaluation]] = defaultdict(list)
         self._decisions_by_approval: dict[str, list[ApprovalDecision]] = defaultdict(list)
-        self._decision_by_input: dict[str, ApprovalDecision] = {}
+        self._decision_by_input: dict[tuple[str, str], ApprovalDecision] = {}
+        self._audit_by_approval: dict[str, list[ApprovalAuditRecord]] = defaultdict(list)
 
     def save_action_request(self, action: ActionRequest) -> None:
         with self._lock:
@@ -77,6 +85,10 @@ class InMemoryApprovalRepository:
         with self._lock:
             return self._approvals.get(approval_id)
 
+    def get_approval_request_for_update(self, approval_id: str) -> ApprovalRequest | None:
+        with self._lock:
+            return self._approvals.get(approval_id)
+
     def get_approval_request_by_action_id(self, action_request_id: str) -> ApprovalRequest | None:
         with self._lock:
             approval_id = self._approval_by_action.get(action_request_id)
@@ -86,31 +98,43 @@ class InMemoryApprovalRepository:
 
     def save_input(self, user_input: ApprovalInput) -> ApprovalInput:
         with self._lock:
-            existing = self._inputs.get(user_input.id)
+            key = (user_input.approval_id, user_input.id)
+            existing = self._inputs.get(key)
             if existing is not None:
                 return existing
-            self._inputs[user_input.id] = user_input
+            self._inputs[key] = user_input
             self._inputs_by_approval[user_input.approval_id].append(user_input.id)
             return user_input
 
-    def get_input(self, input_id: str) -> ApprovalInput | None:
+    def get_input(self, input_id: str, *, approval_id: str | None = None) -> ApprovalInput | None:
         with self._lock:
-            return self._inputs.get(input_id)
+            if approval_id is not None:
+                return self._inputs.get((approval_id, input_id))
+            for (candidate_approval_id, candidate_input_id), user_input in self._inputs.items():
+                if candidate_input_id == input_id:
+                    return user_input
+            return None
 
     def list_inputs(self, approval_id: str) -> tuple[ApprovalInput, ...]:
         with self._lock:
-            return tuple(self._inputs[input_id] for input_id in self._inputs_by_approval.get(approval_id, ()))
+            return tuple(self._inputs[(approval_id, input_id)] for input_id in self._inputs_by_approval.get(approval_id, ()))
 
     def save_evaluation(self, evaluation: ApprovalEvaluation) -> None:
         with self._lock:
-            if evaluation.input_id in self._evaluations_by_input:
+            key = (evaluation.approval_id, evaluation.input_id)
+            if key in self._evaluations_by_input:
                 return
-            self._evaluations_by_input[evaluation.input_id] = evaluation
+            self._evaluations_by_input[key] = evaluation
             self._evaluations_by_approval[evaluation.approval_id].append(evaluation)
 
-    def get_evaluation_by_input_id(self, input_id: str) -> ApprovalEvaluation | None:
+    def get_evaluation_by_input_id(self, input_id: str, *, approval_id: str | None = None) -> ApprovalEvaluation | None:
         with self._lock:
-            return self._evaluations_by_input.get(input_id)
+            if approval_id is not None:
+                return self._evaluations_by_input.get((approval_id, input_id))
+            for (candidate_approval_id, candidate_input_id), evaluation in self._evaluations_by_input.items():
+                if candidate_input_id == input_id:
+                    return evaluation
+            return None
 
     def list_evaluations(self, approval_id: str) -> tuple[ApprovalEvaluation, ...]:
         with self._lock:
@@ -122,11 +146,16 @@ class InMemoryApprovalRepository:
 
     def link_decision_to_input(self, input_id: str, decision: ApprovalDecision) -> None:
         with self._lock:
-            self._decision_by_input.setdefault(input_id, decision)
+            self._decision_by_input.setdefault((decision.approval_id, input_id), decision)
 
-    def get_decision_by_input_id(self, input_id: str) -> ApprovalDecision | None:
+    def get_decision_by_input_id(self, input_id: str, *, approval_id: str | None = None) -> ApprovalDecision | None:
         with self._lock:
-            return self._decision_by_input.get(input_id)
+            if approval_id is not None:
+                return self._decision_by_input.get((approval_id, input_id))
+            for (candidate_approval_id, candidate_input_id), decision in self._decision_by_input.items():
+                if candidate_input_id == input_id:
+                    return decision
+            return None
 
     def latest_decision(self, approval_id: str) -> ApprovalDecision | None:
         with self._lock:
@@ -138,3 +167,11 @@ class InMemoryApprovalRepository:
     def list_decisions(self, approval_id: str) -> tuple[ApprovalDecision, ...]:
         with self._lock:
             return tuple(self._decisions_by_approval.get(approval_id, ()))
+
+    def save_audit_record(self, record: ApprovalAuditRecord) -> None:
+        with self._lock:
+            self._audit_by_approval[record.approval_id].append(record)
+
+    def list_audit_records(self, approval_id: str) -> tuple[ApprovalAuditRecord, ...]:
+        with self._lock:
+            return tuple(self._audit_by_approval.get(approval_id, ()))

@@ -7,6 +7,7 @@ from quantagent.core.approval.evaluator import ApprovalRuleEvaluator
 from quantagent.core.approval.models import (
     TERMINAL_REQUEST_STATUSES,
     ActionRequest,
+    ApprovalAuditRecord,
     ApprovalDecision,
     ApprovalDecisionStatus,
     ApprovalEvaluation,
@@ -76,6 +77,14 @@ class ApprovalOrchestrationService:
                     correlation_id=action.correlation_id,
                 )
             )
+            self._record_decision_audit(
+                approval=approval,
+                final_approval=blocked,
+                decision=decision,
+                input_id=None,
+                channel="system",
+                actor_ref=None,
+            )
             await self._event_publisher.publish_approval_completed(decision)
             return ApprovalServiceResult(approval=blocked, decision=decision)
 
@@ -98,6 +107,14 @@ class ApprovalOrchestrationService:
                     correlation_id=action.correlation_id,
                 )
             )
+            self._record_decision_audit(
+                approval=approval,
+                final_approval=completed,
+                decision=decision,
+                input_id=None,
+                channel="system",
+                actor_ref=None,
+            )
             await self._event_publisher.publish_approval_completed(decision)
             return ApprovalServiceResult(approval=completed, decision=decision)
 
@@ -115,6 +132,14 @@ class ApprovalOrchestrationService:
             )
             completed = approval.with_status(_status_from_decision(decision))
             self._repository.save_approval_request(completed)
+            self._record_decision_audit(
+                approval=approval,
+                final_approval=completed,
+                decision=decision,
+                input_id=None,
+                channel="system",
+                actor_ref=None,
+            )
             await self._event_publisher.publish_approval_completed(decision)
             return ApprovalServiceResult(approval=completed, decision=decision)
 
@@ -138,7 +163,7 @@ class ApprovalOrchestrationService:
         )
 
     async def submit_input(self, user_input: ApprovalInput) -> ApprovalServiceResult:
-        approval = self._repository.get_approval_request(user_input.approval_id)
+        approval = self._repository.get_approval_request_for_update(user_input.approval_id)
         if approval is None:
             return ApprovalServiceResult(
                 approval=None,
@@ -152,12 +177,12 @@ class ApprovalOrchestrationService:
                 ),
             )
 
-        existing_decision = self._repository.get_decision_by_input_id(user_input.id)
+        existing_decision = self._repository.get_decision_by_input_id(user_input.id, approval_id=approval.id)
         if existing_decision is not None:
             return ApprovalServiceResult(
                 approval=approval,
                 decision=existing_decision,
-                evaluation=self._repository.get_evaluation_by_input_id(user_input.id),
+                evaluation=self._repository.get_evaluation_by_input_id(user_input.id, approval_id=approval.id),
             )
 
         if approval.status in TERMINAL_REQUEST_STATUSES:
@@ -170,12 +195,24 @@ class ApprovalOrchestrationService:
                 execution_status=ExecutionStatus.NOT_REQUESTED,
                 reason_summary="Approval is already terminal; input ignored.",
             )
+            self._record_audit(
+                approval=approval,
+                action="input_ignored",
+                before_status=approval.status,
+                after_status=approval.status,
+                reason_summary=decision.reason_summary,
+                channel=user_input.channel,
+                actor_ref=user_input.actor_ref,
+                request_id=_request_id_from_input(user_input),
+                record_refs={"input_id": user_input.id},
+                payload_summary={"status": decision.status.value},
+            )
             return ApprovalServiceResult(approval=approval, decision=decision)
 
         stored_input = self._repository.save_input(user_input)
-        existing_evaluation = self._repository.get_evaluation_by_input_id(stored_input.id)
+        existing_evaluation = self._repository.get_evaluation_by_input_id(stored_input.id, approval_id=approval.id)
         if existing_evaluation is not None:
-            existing_decision = self._repository.get_decision_by_input_id(stored_input.id)
+            existing_decision = self._repository.get_decision_by_input_id(stored_input.id, approval_id=approval.id)
             return ApprovalServiceResult(approval=approval, evaluation=existing_evaluation, decision=existing_decision)
 
         evaluation = self._evaluator.evaluate(approval, stored_input)
@@ -196,6 +233,15 @@ class ApprovalOrchestrationService:
             self._link_decision(stored_input.id, decision)
             final_approval = approval.with_status(_status_from_decision(decision))
             self._repository.save_approval_request(final_approval)
+            self._record_decision_audit(
+                approval=approval,
+                final_approval=final_approval,
+                decision=decision,
+                input_id=stored_input.id,
+                channel=stored_input.channel,
+                actor_ref=stored_input.actor_ref,
+                request_id=_request_id_from_input(stored_input),
+            )
             await self._event_publisher.publish_approval_completed(decision)
             return ApprovalServiceResult(approval=final_approval, evaluation=evaluation, decision=decision)
 
@@ -203,11 +249,20 @@ class ApprovalOrchestrationService:
         self._link_decision(stored_input.id, decision)
         final_approval = approval.with_status(_status_from_decision(decision))
         self._repository.save_approval_request(final_approval)
+        self._record_decision_audit(
+            approval=approval,
+            final_approval=final_approval,
+            decision=decision,
+            input_id=stored_input.id,
+            channel=stored_input.channel,
+            actor_ref=stored_input.actor_ref,
+            request_id=_request_id_from_input(stored_input),
+        )
         await self._event_publisher.publish_approval_completed(decision)
         return ApprovalServiceResult(approval=final_approval, evaluation=evaluation, decision=decision)
 
     async def expire_approval(self, approval_id: str) -> ApprovalServiceResult:
-        approval = self._repository.get_approval_request(approval_id)
+        approval = self._repository.get_approval_request_for_update(approval_id)
         if approval is None:
             return ApprovalServiceResult(
                 approval=None,
@@ -234,6 +289,14 @@ class ApprovalOrchestrationService:
             )
             final_approval = approval.with_status(_status_from_decision(decision))
             self._repository.save_approval_request(final_approval)
+            self._record_decision_audit(
+                approval=approval,
+                final_approval=final_approval,
+                decision=decision,
+                input_id=None,
+                channel="system",
+                actor_ref=None,
+            )
             await self._event_publisher.publish_approval_completed(decision)
             return ApprovalServiceResult(approval=final_approval, decision=decision)
 
@@ -300,6 +363,14 @@ class ApprovalOrchestrationService:
 
         final_approval = approval.with_status(_status_from_decision(decision, expired=True))
         self._repository.save_approval_request(final_approval)
+        self._record_decision_audit(
+            approval=approval,
+            final_approval=final_approval,
+            decision=decision,
+            input_id=None,
+            channel="system",
+            actor_ref=None,
+        )
         await self._event_publisher.publish_approval_completed(decision)
         return ApprovalServiceResult(approval=final_approval, decision=decision)
 
@@ -453,6 +524,71 @@ class ApprovalOrchestrationService:
     def _link_decision(self, input_id: str, decision: ApprovalDecision) -> None:
         self._repository.link_decision_to_input(input_id, decision)
 
+    def _record_decision_audit(
+        self,
+        *,
+        approval: ApprovalRequest,
+        final_approval: ApprovalRequest,
+        decision: ApprovalDecision,
+        input_id: str | None,
+        channel: str | None,
+        actor_ref: str | None,
+        request_id: str | None = None,
+    ) -> None:
+        self._record_audit(
+            approval=approval,
+            action=f"decision.{decision.status.value}",
+            before_status=approval.status,
+            after_status=final_approval.status,
+            reason_summary=decision.reason_summary,
+            channel=channel,
+            actor_ref=actor_ref,
+            request_id=request_id,
+            record_refs={
+                "input_id": input_id,
+                "action_request_id": decision.action_request_id,
+            },
+            payload_summary={
+                "decision_status": decision.status.value,
+                "intent": decision.intent.value if decision.intent else None,
+                "policy_gate_status": decision.policy_gate_status.value,
+                "execution_status": decision.execution_status.value,
+            },
+        )
+
+    def _record_audit(
+        self,
+        *,
+        approval: ApprovalRequest,
+        action: str,
+        before_status: ApprovalRequestStatus | None,
+        after_status: ApprovalRequestStatus | None,
+        reason_summary: str,
+        channel: str | None,
+        actor_ref: str | None,
+        request_id: str | None = None,
+        record_refs: dict[str, object],
+        payload_summary: dict[str, object],
+    ) -> None:
+        actor_type, actor_id = _split_actor_ref(actor_ref)
+        self._repository.save_audit_record(
+            ApprovalAuditRecord(
+                record_id=self._id_factory("approval_audit"),
+                approval_id=approval.id,
+                actor_id=actor_id,
+                actor_type=actor_type,
+                action=action,
+                resource_id=approval.id,
+                before_status=before_status,
+                after_status=after_status,
+                request_id=request_id,
+                channel=channel,
+                reason_summary=reason_summary,
+                record_refs=record_refs,
+                payload_summary=payload_summary,
+            )
+        )
+
 
 def _approval_from_action(action: ActionRequest, policy: object, *, approval_id: str) -> ApprovalRequest:
     return ApprovalRequest(
@@ -513,3 +649,17 @@ def _status_from_decision(decision: ApprovalDecision, *, expired: bool = False) 
 
 def _default_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex}"
+
+
+def _split_actor_ref(actor_ref: str | None) -> tuple[str | None, str | None]:
+    if actor_ref is None:
+        return None, None
+    actor_type, separator, actor_id = actor_ref.partition(":")
+    if not separator:
+        return None, actor_ref
+    return actor_type or None, actor_id or None
+
+
+def _request_id_from_input(user_input: ApprovalInput) -> str | None:
+    request_id = user_input.structured_payload.get("request_id")
+    return request_id if isinstance(request_id, str) and request_id.strip() else None
