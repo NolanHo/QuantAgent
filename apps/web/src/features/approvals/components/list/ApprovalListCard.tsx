@@ -1,4 +1,5 @@
-import { Button, Card, Checkbox } from '@heroui/react'
+import { Button, Card } from '@heroui/react'
+import { Check, Plus } from 'lucide-react'
 
 import type { ApprovalWorkbenchItem } from '../../types/approval-workbench.types'
 import {
@@ -6,6 +7,7 @@ import {
   toSafeApprovalErrorMessage,
 } from '../../utils/approval-error-display'
 import { formatExpirationActionLabel } from '../../utils/approval-formatters'
+import { ApprovalActionButton } from '../shared/ApprovalActionButton'
 import {
   ApprovalConfirmationBadge,
   ApprovalRiskBadge,
@@ -49,22 +51,25 @@ export function ApprovalListCard({
             </div>
           </div>
 
-          <Checkbox
-            className="inline-flex items-center gap-2 rounded-lg border border-hairline bg-canvas px-3 py-2 text-[13px] text-muted"
+          <Button
+            isIconOnly
+            aria-label={isSelected ? '移出批量处理' : '加入批量处理'}
+            className={isSelected ? 'bg-info text-white hover:bg-info/90' : 'text-info'}
             isDisabled={actionDisabled}
-            isSelected={isSelected}
-            onChange={() => onToggleSelected(approval.id)}
+            size="sm"
+            type="button"
+            variant={isSelected ? 'primary' : 'outline'}
+            onPress={() => onToggleSelected(approval.id)}
           >
-            加入批量处理
-          </Checkbox>
+            {isSelected ? <Check size={16} /> : <Plus size={16} />}
+          </Button>
         </div>
 
         <div className="grid gap-2 text-body-sm text-muted lg:grid-cols-2">
           <p className="m-0">推荐度：{approval.recommendationLabel}</p>
-          <p className="m-0">事件可信度：{approval.eventCredibility}</p>
-          <p className="m-0">分析置信度：{approval.analysisConfidence}</p>
           <p className="m-0">到期策略：{formatExpirationActionLabel(approval.expirationAction)}</p>
           <p className="m-0">到期时间：{approval.expiresAtLabel} · {approval.expiresInLabel}</p>
+          <p className="m-0">可信度：{approval.eventCredibility} · 分析置信度：{approval.analysisConfidence}</p>
           <p className="m-0">触发摘要：{approval.triggerSummary}</p>
         </div>
 
@@ -83,19 +88,13 @@ export function ApprovalListCard({
         ) : null}
 
         <div className="flex flex-wrap gap-2">
-          <Button isDisabled={actionDisabled} size="sm" variant="primary" onPress={() => onOpenApprove(approval)}>
-            批准
-          </Button>
-          <Button isDisabled={actionDisabled} size="sm" variant="danger-soft" onPress={() => onOpenReject(approval)}>
-            拒绝
-          </Button>
-          <Button isDisabled={actionDisabled} size="sm" variant="outline" onPress={() => onOpenReanalysis(approval)}>
-            请求重分析
-          </Button>
-          <ApprovalLinkButton to="/approvals/$approvalId" params={{ approvalId: approval.id }} variant="outline">
+          <ApprovalActionButton isDisabled={actionDisabled} type="approve" onPress={() => onOpenApprove(approval)} />
+          <ApprovalActionButton isDisabled={actionDisabled} type="reject" onPress={() => onOpenReject(approval)} />
+          <ApprovalActionButton isDisabled={actionDisabled} type="request_reanalysis" onPress={() => onOpenReanalysis(approval)} />
+          <ApprovalLinkButton to="/approvals/$approvalId" params={{ approvalId: approval.id }} variant="ghost">
             查看审批详情
           </ApprovalLinkButton>
-          <ApprovalLinkButton to="/events/$eventId" params={{ eventId: approval.eventId }} variant="outline">
+          <ApprovalLinkButton to="/events/$eventId" params={{ eventId: approval.eventId }} variant="ghost">
             查看关联事件
           </ApprovalLinkButton>
         </div>

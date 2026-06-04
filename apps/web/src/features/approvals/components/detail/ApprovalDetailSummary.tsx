@@ -28,11 +28,9 @@ export function ApprovalDetailSummary({ approval }: { approval: ApprovalWorkbenc
       <div className="grid gap-3 p-4">
         <div className="grid gap-1">
           <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-info">
-            审批上下文
+            当前项
           </p>
-          <h2 className="m-0 text-title-sm font-bold text-ink">
-            事件、建议、风险方向和证据摘要
-          </h2>
+          <h2 className="m-0 text-title-sm font-bold text-ink">关键信息</h2>
         </div>
 
         <div className="grid gap-2">

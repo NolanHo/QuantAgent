@@ -35,9 +35,8 @@ export function ApprovalWorkbenchPage({
   return (
     <div className="grid gap-5">
       <ApprovalPageHeader
-        kicker="人工确认"
         title="审批工作台"
-        description="审批页是独立的人类确认工作台。批准只代表人工确认，不代表真实执行完成。默认按 AI 推荐度优先排序，批量处理保持更保守的边界。"
+        description="默认按推荐度排序。批准仅表示人工确认。"
       />
 
       <ApprovalQueueOverview overview={page.overview} />

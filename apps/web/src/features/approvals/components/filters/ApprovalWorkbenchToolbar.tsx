@@ -1,4 +1,5 @@
 import { Button, ListBox, Select } from '@heroui/react'
+import { RotateCcw } from 'lucide-react'
 
 import type {
   ApprovalConfirmationLevel,
@@ -49,18 +50,24 @@ export function ApprovalWorkbenchToolbar({
 }) {
   return (
     <section className="rounded-xl border border-hairline bg-canvas p-4">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div className="grid gap-2">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="grid gap-1">
           <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-info">
-            筛选与排序
+            工作台筛选
           </p>
-          <h2 className="m-0 text-title-sm font-bold text-ink">
-            默认按 AI 推荐度优先，必要时切到即将过期或高风险视角
-          </h2>
+          <h2 className="m-0 text-title-sm font-bold text-ink">按状态、风险、确认等级和排序查看</h2>
         </div>
 
-        <Button size="sm" type="button" variant="outline" onPress={onReset}>
-          恢复默认筛选
+        <Button
+          isIconOnly
+          aria-label="恢复默认筛选"
+          className="text-info"
+          size="sm"
+          type="button"
+          variant="outline"
+          onPress={onReset}
+        >
+          <RotateCcw size={16} />
         </Button>
       </div>
 
@@ -89,10 +96,6 @@ export function ApprovalWorkbenchToolbar({
           onChange={(value) => onUpdateSearch({ sort: value as ApprovalWorkbenchSearch['sort'] })}
           selectedKey={search.sort ?? 'recommendation'}
         />
-      </div>
-
-      <div className="mt-3 rounded-lg border border-hairline bg-surface-soft px-3 py-2 text-[12px] text-muted">
-        批量处理默认不会纳入 `manual_only`、已过期或即将自动过期的审批项；批准始终只代表人工确认，不代表真实执行完成。
       </div>
     </section>
   )
