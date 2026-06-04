@@ -219,6 +219,7 @@ class ApprovalOrchestrationService:
         self._repository.save_evaluation(evaluation)
         action = self._repository.get_action_request(approval.action_request_id)
         if action is None:
+            request_id = _request_id_from_input(stored_input)
             decision = self._record_decision(
                 ApprovalDecision(
                     approval_id=approval.id,
@@ -228,6 +229,7 @@ class ApprovalOrchestrationService:
                     policy_gate_status=PolicyGateStatus.NOT_REQUIRED,
                     execution_status=ExecutionStatus.NOT_REQUESTED,
                     reason_summary="Original action request was not found.",
+                    request_id=request_id,
                 )
             )
             self._link_decision(stored_input.id, decision)
@@ -240,12 +242,13 @@ class ApprovalOrchestrationService:
                 input_id=stored_input.id,
                 channel=stored_input.channel,
                 actor_ref=stored_input.actor_ref,
-                request_id=_request_id_from_input(stored_input),
+                request_id=request_id,
             )
             await self._event_publisher.publish_approval_completed(decision)
             return ApprovalServiceResult(approval=final_approval, evaluation=evaluation, decision=decision)
 
-        decision = await self._decision_from_evaluation(approval, action, evaluation)
+        request_id = _request_id_from_input(stored_input)
+        decision = await self._decision_from_evaluation(approval, action, evaluation, request_id=request_id)
         self._link_decision(stored_input.id, decision)
         final_approval = approval.with_status(_status_from_decision(decision))
         self._repository.save_approval_request(final_approval)
@@ -256,7 +259,7 @@ class ApprovalOrchestrationService:
             input_id=stored_input.id,
             channel=stored_input.channel,
             actor_ref=stored_input.actor_ref,
-            request_id=_request_id_from_input(stored_input),
+            request_id=request_id,
         )
         await self._event_publisher.publish_approval_completed(decision)
         return ApprovalServiceResult(approval=final_approval, evaluation=evaluation, decision=decision)
@@ -379,6 +382,8 @@ class ApprovalOrchestrationService:
         approval: ApprovalRequest,
         action: ActionRequest,
         evaluation: ApprovalEvaluation,
+        *,
+        request_id: str | None = None,
     ) -> ApprovalDecision:
         intent = evaluation.interpreted_intent
         if intent == ApprovalIntent.APPROVE:
@@ -387,6 +392,7 @@ class ApprovalOrchestrationService:
                 action,
                 intent=intent,
                 reason_summary=evaluation.reason_summary,
+                request_id=request_id,
             )
         if intent == ApprovalIntent.REJECT:
             return self._record_decision(
@@ -399,6 +405,7 @@ class ApprovalOrchestrationService:
                     execution_status=ExecutionStatus.NOT_REQUESTED,
                     reason_summary=evaluation.reason_summary,
                     correlation_id=action.correlation_id,
+                    request_id=request_id,
                 )
             )
         if intent == ApprovalIntent.REQUEST_REANALYSIS:
@@ -412,6 +419,7 @@ class ApprovalOrchestrationService:
                     execution_status=ExecutionStatus.NOT_REQUESTED,
                     reason_summary=evaluation.reason_summary,
                     correlation_id=action.correlation_id,
+                    request_id=request_id,
                 )
             )
         return self._record_decision(
@@ -424,6 +432,7 @@ class ApprovalOrchestrationService:
                 execution_status=ExecutionStatus.NOT_REQUESTED,
                 reason_summary=evaluation.reason_summary,
                 correlation_id=action.correlation_id,
+                request_id=request_id,
             )
         )
 
@@ -434,6 +443,7 @@ class ApprovalOrchestrationService:
         *,
         intent: ApprovalIntent,
         reason_summary: str,
+        request_id: str | None = None,
     ) -> ApprovalDecision:
         if self._policy_gate is None:
             # Policy Gate 是执行前强制边界；未注入时保守阻断，避免测试 fake 以外路径误执行。
@@ -447,6 +457,7 @@ class ApprovalOrchestrationService:
                     execution_status=ExecutionStatus.NOT_REQUESTED,
                     reason_summary="Policy Gate is unavailable; execution was blocked.",
                     correlation_id=action.correlation_id,
+                    request_id=request_id,
                 )
             )
 
@@ -463,6 +474,7 @@ class ApprovalOrchestrationService:
                     execution_status=ExecutionStatus.NOT_REQUESTED,
                     reason_summary="Policy Gate failed; execution was blocked.",
                     correlation_id=action.correlation_id,
+                    request_id=request_id,
                 )
             )
 
@@ -477,6 +489,7 @@ class ApprovalOrchestrationService:
                     execution_status=ExecutionStatus.NOT_REQUESTED,
                     reason_summary=gate_result.reason_summary,
                     correlation_id=action.correlation_id,
+                    request_id=request_id,
                 )
             )
 
@@ -491,6 +504,7 @@ class ApprovalOrchestrationService:
                     execution_status=ExecutionStatus.REQUEST_FAILED,
                     reason_summary="Action executor is unavailable after Policy Gate allowed.",
                     correlation_id=action.correlation_id,
+                    request_id=request_id,
                 )
             )
 
@@ -514,6 +528,7 @@ class ApprovalOrchestrationService:
                 execution_status=execution_status,
                 reason_summary=final_reason or reason_summary,
                 correlation_id=action.correlation_id,
+                request_id=request_id,
             )
         )
 

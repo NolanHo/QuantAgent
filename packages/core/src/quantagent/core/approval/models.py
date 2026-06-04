@@ -389,6 +389,7 @@ class ApprovalDecision:
     execution_status: ExecutionStatus = ExecutionStatus.NOT_REQUESTED
     reason_summary: str = ""
     correlation_id: str | None = None
+    request_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty("approval_id", self.approval_id)
@@ -410,6 +411,7 @@ class ApprovalDecision:
             "execution_status": self.execution_status.value,
             "reason_summary": self.reason_summary,
             "correlation_id": self.correlation_id,
+            "request_id": self.request_id,
         }
 
 

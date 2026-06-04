@@ -47,6 +47,8 @@ class ApprovalRepository(Protocol):
 
     def latest_decision(self, approval_id: str) -> ApprovalDecision | None: ...
 
+    def list_latest_decisions(self, approval_ids: tuple[str, ...]) -> dict[str, ApprovalDecision]: ...
+
     def list_decisions(self, approval_id: str) -> tuple[ApprovalDecision, ...]: ...
 
     def save_audit_record(self, record: ApprovalAuditRecord) -> None: ...
@@ -163,6 +165,15 @@ class InMemoryApprovalRepository:
             if not decisions:
                 return None
             return decisions[-1]
+
+    def list_latest_decisions(self, approval_ids: tuple[str, ...]) -> dict[str, ApprovalDecision]:
+        with self._lock:
+            latest: dict[str, ApprovalDecision] = {}
+            for approval_id in approval_ids:
+                decisions = self._decisions_by_approval.get(approval_id, ())
+                if decisions:
+                    latest[approval_id] = decisions[-1]
+            return latest
 
     def list_decisions(self, approval_id: str) -> tuple[ApprovalDecision, ...]:
         with self._lock:

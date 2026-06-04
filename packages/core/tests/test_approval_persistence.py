@@ -41,7 +41,7 @@ class SQLAlchemyApprovalRepositoryTestCase(unittest.TestCase):
         approval = _approval()
         user_input = _input()
         evaluation = _evaluation()
-        decision = _decision(status=ApprovalDecisionStatus.REJECTED)
+        decision = _decision(status=ApprovalDecisionStatus.REJECTED, request_id="req-decision-1")
 
         self.repository.save_action_request(action)
         self.repository.save_approval_request(approval)
@@ -60,6 +60,7 @@ class SQLAlchemyApprovalRepositoryTestCase(unittest.TestCase):
         self.assertEqual(self.repository.get_input(user_input.id), user_input)
         self.assertEqual(self.repository.get_evaluation_by_input_id(user_input.id), evaluation)
         self.assertEqual(self.repository.get_decision_by_input_id(user_input.id), decision)
+        self.assertEqual(self.repository.get_decision_by_input_id(user_input.id).request_id, "req-decision-1")
         self.assertEqual(self.repository.latest_decision(approval.id), decision)
         self.assertEqual(self.repository.list_inputs(approval.id), (user_input,))
         self.assertEqual(self.repository.list_evaluations(approval.id), (evaluation,))
@@ -118,6 +119,45 @@ class SQLAlchemyApprovalRepositoryTestCase(unittest.TestCase):
         self.assertEqual(self.repository.latest_decision("approval-1"), second)
         approval_row = self.session.get(ApprovalRequestORM, "approval-1")
         self.assertIsNotNone(approval_row.latest_decision_record_id)
+
+    def test_query_service_batches_latest_decisions_for_list(self) -> None:
+        class CountingApprovalRepository(SQLAlchemyApprovalRepository):
+            def __init__(self, session: Session) -> None:
+                super().__init__(session)
+                self.latest_decision_calls = 0
+                self.list_latest_decisions_calls = 0
+
+            def latest_decision(self, approval_id: str) -> ApprovalDecision | None:
+                self.latest_decision_calls += 1
+                return super().latest_decision(approval_id)
+
+            def list_latest_decisions(self, approval_ids: tuple[str, ...]) -> dict[str, ApprovalDecision]:
+                self.list_latest_decisions_calls += 1
+                return super().list_latest_decisions(approval_ids)
+
+        repository = CountingApprovalRepository(self.session)
+        repository.save_action_request(_action(action_id="action-1"))
+        repository.save_approval_request(_approval(approval_id="approval-1", action_id="action-1"))
+        repository.save_decision(_decision(status=ApprovalDecisionStatus.REJECTED, approval_id="approval-1", action_id="action-1"))
+        repository.save_action_request(_action(action_id="action-2"))
+        repository.save_approval_request(_approval(approval_id="approval-2", action_id="action-2"))
+        repository.save_decision(
+            _decision(
+                status=ApprovalDecisionStatus.REANALYSIS_REQUESTED,
+                approval_id="approval-2",
+                action_id="action-2",
+            )
+        )
+        self.session.commit()
+
+        page = ApprovalQueryService(repository).list_approvals(ApprovalListQuery(limit=10))
+
+        self.assertEqual(repository.list_latest_decisions_calls, 1)
+        self.assertEqual(repository.latest_decision_calls, 0)
+        self.assertEqual(
+            {item.id: item.latest_decision_summary.status for item in page.items},
+            {"approval-1": "rejected", "approval-2": "reanalysis_requested"},
+        )
 
     def test_list_approval_requests_filters_and_returns_cursor(self) -> None:
         self.repository.save_action_request(_action(action_id="action-1"))
@@ -321,6 +361,7 @@ def _decision(
     reason_summary: str = "decision recorded",
     approval_id: str = "approval-1",
     action_id: str = "action-1",
+    request_id: str | None = None,
 ) -> ApprovalDecision:
     return ApprovalDecision(
         approval_id=approval_id,
@@ -331,6 +372,7 @@ def _decision(
         execution_status=ExecutionStatus.NOT_REQUESTED,
         reason_summary=reason_summary,
         correlation_id="corr-1",
+        request_id=request_id,
     )
 
 

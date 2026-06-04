@@ -193,6 +193,31 @@ class SQLAlchemyApprovalRepository:
         row = self._latest_decision_row(approval_id)
         return _decision_from_orm(row) if row is not None else None
 
+    def list_latest_decisions(self, approval_ids: tuple[str, ...]) -> dict[str, ApprovalDecision]:
+        if not approval_ids:
+            return {}
+        approval_rows = self._session.scalars(
+            select(ApprovalRequestORM).where(ApprovalRequestORM.approval_id.in_(approval_ids))
+        ).all()
+        latest_record_by_approval = {
+            row.approval_id: row.latest_decision_record_id
+            for row in approval_rows
+            if row.latest_decision_record_id
+        }
+        if not latest_record_by_approval:
+            return {}
+        decision_rows = self._session.scalars(
+            select(ApprovalDecisionORM).where(
+                ApprovalDecisionORM.record_id.in_(latest_record_by_approval.values())
+            )
+        ).all()
+        decisions_by_record_id = {row.record_id: _decision_from_orm(row) for row in decision_rows}
+        return {
+            approval_id: decisions_by_record_id[record_id]
+            for approval_id, record_id in latest_record_by_approval.items()
+            if record_id in decisions_by_record_id
+        }
+
     def list_decisions(self, approval_id: str) -> tuple[ApprovalDecision, ...]:
         statement = (
             select(ApprovalDecisionORM)
@@ -430,7 +455,7 @@ def _decision_to_orm(decision: ApprovalDecision) -> ApprovalDecisionORM:
         execution_status=decision.execution_status.value,
         reason_summary=decision.reason_summary,
         correlation_id=decision.correlation_id,
-        request_id=None,
+        request_id=decision.request_id,
         created_at=_utcnow(),
     )
 
@@ -445,6 +470,7 @@ def _decision_from_orm(row: ApprovalDecisionORM) -> ApprovalDecision:
         execution_status=row.execution_status,
         reason_summary=row.reason_summary,
         correlation_id=row.correlation_id,
+        request_id=row.request_id,
     )
 
 

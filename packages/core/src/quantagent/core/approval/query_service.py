@@ -31,6 +31,7 @@ _SENSITIVE_KEYWORDS = (
     "secret",
     "token",
 )
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -116,8 +117,12 @@ class ApprovalQueryService:
         else:
             approvals = []
             next_cursor_payload = None
+        latest_decisions = self._repository.list_latest_decisions(tuple(approval.id for approval in approvals))
         return ApprovalPage(
-            items=tuple(self._summary(approval) for approval in approvals),
+            items=tuple(
+                self._summary(approval, latest_decision=latest_decisions.get(approval.id))
+                for approval in approvals
+            ),
             next_cursor=_encode_cursor(next_cursor_payload),
         )
 
@@ -137,8 +142,14 @@ class ApprovalQueryService:
             audit_refs=tuple(_audit_ref(item) for item in self._repository.list_audit_records(approval.id)),
         )
 
-    def _summary(self, approval: ApprovalRequest) -> ApprovalSummaryView:
-        latest_decision = self._repository.latest_decision(approval.id)
+    def _summary(
+        self,
+        approval: ApprovalRequest,
+        *,
+        latest_decision: ApprovalDecision | None | object = _UNSET,
+    ) -> ApprovalSummaryView:
+        if latest_decision is _UNSET:
+            latest_decision = self._repository.latest_decision(approval.id)
         return ApprovalSummaryView(
             id=approval.id,
             status=approval.status.value,
@@ -233,6 +244,7 @@ def _decision_view(item: ApprovalDecision) -> dict[str, object | None]:
         "execution_status": item.execution_status.value,
         "reason_summary": item.reason_summary,
         "correlation_id": item.correlation_id,
+        "request_id": item.request_id,
     }
 
 
