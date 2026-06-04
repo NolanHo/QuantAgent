@@ -22,6 +22,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from quantagent.api.auth import (
     ALL_CAPABILITIES,
+    APPROVAL_APPROVE_CAPABILITY,
+    APPROVAL_READ_CAPABILITY,
     CurrentActor,
     RUNTIME_INSPECT_CAPABILITY,
     build_actor_audit_context,
@@ -48,6 +50,13 @@ from quantagent.core.db.models.raw_event import RawEventORM
 from quantagent.core.db.models.raw_event_capture import RawEventCaptureORM
 from quantagent.core.db.models.source_binding import SourceBindingORM
 from quantagent.core.db.models.event_intake import EventIntakeRoutedEventORM
+from quantagent.core.db.repositories.approval_repository import SQLAlchemyApprovalRepository
+from quantagent.core.approval.models import (
+    ActionRequest as ApprovalActionRequestModel,
+    ApprovalRequest as ApprovalRequestModel,
+    ConfirmationLevel as ApprovalConfirmationLevel,
+    ExpirationAction as ApprovalExpirationAction,
+)
 from quantagent.core.model_config import FixedModelCallClient, ModelConfigCrypto, ModelTokenUsage
 from quantagent.core.model_config.service import ModelCallResult
 from quantagent.core.registry import PluginRegistry, PluginStatus, RegistryScanner
@@ -1544,6 +1553,112 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(health_response.json()["data"]["availability"]["state"], "forbidden")
         self.assertEqual(audit_response.status_code, 200)
         self.assertEqual(audit_response.json()["data"]["availability"]["state"], "forbidden")
+
+    def test_approval_list_detail_and_action_use_persistent_source(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            csrf_token = self._login_with_client(client, self.settings)
+            self._seed_approval(client, "approval-api-1")
+            list_response = client.get("/api/v1/approvals")
+            detail_response = client.get("/api/v1/approvals/approval-api-1")
+            action_response = client.post(
+                "/api/v1/approvals/approval-api-1/actions/reject",
+                headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-action"},
+                json={"input_id": "input-api-1", "channel": "web", "reason": "reject from api"},
+            )
+            with client.app.state.db_session_factory() as session:
+                repository = SQLAlchemyApprovalRepository(session)
+                audit_records = repository.list_audit_records("approval-api-1")
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["data"]["items"][0]["id"], "approval-api-1")
+        self.assertIsNotNone(list_response.json()["data"]["items"][0]["created_at"])
+        self.assertIsNotNone(list_response.json()["data"]["items"][0]["updated_at"])
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.json()["data"]["action_request_summary"]["id"], "action-api-1")
+        self.assertIsNotNone(detail_response.json()["data"]["created_at"])
+        self.assertIsNotNone(detail_response.json()["data"]["updated_at"])
+        self.assertEqual(action_response.status_code, 200)
+        action_body = action_response.json()
+        self.assertEqual(action_body["data"]["decision"]["status"], "rejected")
+        self.assertEqual(action_body["data"]["approval"]["status"], "completed")
+
+        self.assertEqual(audit_records[-1].action, "decision.rejected")
+        self.assertEqual(audit_records[-1].channel, "web")
+        self.assertEqual(audit_records[-1].request_id, "req-approval-action")
+
+    def test_approval_routes_enforce_capability_not_found_and_body_intent_conflict(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            self._seed_approval(client, "approval-api-1")
+            issued_session = issue_session("local_admin", self.settings, capabilities=frozenset({APPROVAL_APPROVE_CAPABILITY}))
+            client.cookies.set(self.settings.AUTH_COOKIE_NAME, issued_session.value)
+            forbidden_response = client.get("/api/v1/approvals")
+            csrf_token = issued_session.data.csrf_token
+            conflict_response = client.post(
+                "/api/v1/approvals/approval-api-1/actions/approve",
+                headers={"X-CSRF-Token": csrf_token},
+                json={"input_id": "input-conflict", "channel": "web", "structured_payload": {"intent": "reject"}},
+            )
+            with client.app.state.db_session_factory() as session:
+                repository = SQLAlchemyApprovalRepository(session)
+                conflict_inputs = repository.list_inputs("approval-api-1")
+            action_missing_response = client.post(
+                "/api/v1/approvals/missing-approval/actions/reject",
+                headers={"X-CSRF-Token": csrf_token},
+                json={"input_id": "input-missing", "channel": "web", "reason": "reject missing approval"},
+            )
+            read_session = issue_session("local_admin", self.settings, capabilities=frozenset({APPROVAL_READ_CAPABILITY}))
+            client.cookies.set(self.settings.AUTH_COOKIE_NAME, read_session.value)
+            missing_response = client.get("/api/v1/approvals/missing-approval")
+
+        self.assertEqual(forbidden_response.status_code, 403)
+        self.assertEqual(forbidden_response.json()["error"]["request_id"], forbidden_response.headers["X-Request-ID"])
+        self.assertEqual(conflict_response.status_code, 400)
+        self.assertEqual(conflict_response.json()["error"]["code"], "BAD_REQUEST")
+        self.assertEqual(conflict_inputs, ())
+        self.assertEqual(missing_response.status_code, 404)
+        self.assertEqual(missing_response.json()["error"]["details"]["approval_id"], "missing-approval")
+        self.assertEqual(action_missing_response.status_code, 404)
+        self.assertEqual(action_missing_response.json()["error"]["details"]["approval_id"], "missing-approval")
+
+    def test_approval_request_reanalysis_records_intent_without_runtime_side_effect(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            csrf_token = self._login_with_client(client, self.settings)
+            self._seed_approval(client, "approval-api-1")
+            response = client.post(
+                "/api/v1/approvals/approval-api-1/actions/request-reanalysis",
+                headers={"X-CSRF-Token": csrf_token},
+                json={"input_id": "input-reanalysis", "channel": "web", "comment": "please re-check"},
+            )
+            with client.app.state.db_session_factory() as session:
+                repository = SQLAlchemyApprovalRepository(session)
+                decision = repository.latest_decision("approval-api-1")
+                inputs = repository.list_inputs("approval-api-1")
+
+            self.assertFalse(hasattr(client.app.state, "agent_runtime"))
+            self.assertFalse(hasattr(client.app.state, "scheduler"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["decision"]["status"], "reanalysis_requested")
+        self.assertEqual(decision.status.value, "reanalysis_requested")
+        self.assertEqual(inputs[0].structured_payload["intent"], "request_reanalysis")
 
     def test_plugin_list_uses_repo_root_even_when_api_runtime_directory_exists(self) -> None:
         self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
@@ -3570,6 +3685,41 @@ class ApiAppTestCase(unittest.TestCase):
                 ),
             ]
         )
+
+    def _seed_approval(self, client: TestClient, approval_id: str) -> None:
+        Base.metadata.create_all(client.app.state.db_engine)
+        with client.app.state.db_session_factory() as session:
+            repository = SQLAlchemyApprovalRepository(session)
+            repository.save_action_request(
+                ApprovalActionRequestModel(
+                    id="action-api-1",
+                    action_type="adjust_strategy",
+                    action_side="increase_risk",
+                    target_type="strategy",
+                    target_id="strategy-api-1",
+                    risk_flags=("high_risk",),
+                    proposed_payload={"summary": "masked"},
+                )
+            )
+            repository.save_approval_request(
+                ApprovalRequestModel(
+                    id=approval_id,
+                    action_request_id="action-api-1",
+                    target_type="strategy",
+                    target_id="strategy-api-1",
+                    action_type="adjust_strategy",
+                    action_side="increase_risk",
+                    risk_level="high",
+                    urgency="normal",
+                    summary="adjust_strategy increase_risk for strategy:strategy-api-1",
+                    proposed_payload={"summary": "masked"},
+                    required_confirmation_level=ApprovalConfirmationLevel.SOFT_CONFIRM,
+                    expiration_action=ApprovalExpirationAction.EXPIRE_REJECT,
+                    policy_source="api_test",
+                    allowed_channels=("web",),
+                )
+            )
+            session.commit()
 
     def _login(self) -> None:
         response = self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
