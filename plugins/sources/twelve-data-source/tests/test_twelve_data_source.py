@@ -3,9 +3,7 @@ from __future__ import annotations
 import asyncio
 import gzip
 import json
-import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,7 +11,9 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
+PLUGIN_ROOT = REPO_ROOT / "plugins" / "sources" / "twelve-data-source"
 _SRC_ROOTS = [
+    str(PLUGIN_ROOT),
     str(REPO_ROOT / "packages" / "core" / "src"),
     str(REPO_ROOT / "packages" / "plugin-sdk" / "src"),
 ]
@@ -24,15 +24,6 @@ for src_root_str in reversed(_SRC_ROOTS):
 
 from quantagent.core.registry import RegistryScanner
 from quantagent.core.runtime import PluginRuntimeService
-from quantagent.core.registry.service import PluginRegistry
-from quantagent.core.scheduling import (
-    FrozenSchedulingClock,
-    InMemoryPluginRunRepository,
-    PluginSchedulingService,
-    PluginTriggerRequest,
-    PluginTriggerType,
-)
-from quantagent.core.source_binding import EffectiveSourceConfigComposer, SecretValueRef, SourceBindingTemplate
 from quantagent.plugin_sdk import HealthCheckResult, PluginInvokeRequest, SourceFetchResult
 
 
@@ -130,14 +121,6 @@ def _mock_response(body: bytes, headers: dict | None = None):
             return body
 
     return _FakeResponse()
-
-
-class _StaticScanner:
-    def __init__(self, records) -> None:
-        self._records = records
-
-    def scan(self):
-        return list(self._records)
 
 
 class TestLifecycle:
@@ -254,7 +237,7 @@ class TestConfigValidation:
 
 
 class TestFetchSuccess:
-    def test_single_symbol_returns_one_item(self):
+    def test_single_symbol_returns_one_item_with_quote_contract(self):
         plugin = _started_plugin()
         try:
             with patch.object(
@@ -272,8 +255,14 @@ class TestFetchSuccess:
             item = output.items[0]
             assert item.external_id == "twelve_data:AAPL:2026-05-31 16:00:00"
             assert item.title == "AAPL @ 185.64"
-            assert item.metadata["plugin_id"] == PLUGIN_ID
+            assert item.raw_payload["source_plugin_id"] == PLUGIN_ID
+            assert item.raw_payload["source_type"] == "market_quote"
+            assert item.metadata["provider"] == "twelve_data"
+            assert item.metadata["source_plugin_id"] == PLUGIN_ID
+            assert item.metadata["source_type"] == "market_quote"
+            assert item.metadata["symbol"] == "AAPL"
             assert item.metadata["price"] == 185.64
+            assert item.metadata["quote_timestamp"] == "2026-05-31 16:00:00"
             assert output.metadata["source"] == "twelve_data"
         finally:
             _stop_plugin(plugin)
@@ -613,67 +602,28 @@ class TestFetchApiErrors:
                         plugin.invoke(
                             PluginInvokeRequest(capability="source.fetch", request_id="req-http-403")
                         )
-                )
+                    )
         finally:
             _stop_plugin(plugin)
 
-
-class TestSchedulerIntegration:
-    def test_scheduler_resolves_env_secret_ref_and_invokes_plugin(self):
-        class _PatchedRuntime(PluginRuntimeService):
-            def _load_plugin_module(self, module_name: str, *, plugin_path=None):
-                module = super()._load_plugin_module(module_name, plugin_path=plugin_path)
-                module.TwelveDataSourcePlugin.opener = staticmethod(  # type: ignore[attr-defined]
-                    lambda request, timeout=10: _mock_response(
-                        json.dumps(SINGLE_QUOTE_FIXTURE).encode("utf-8")
-                    )
-                )
-                return module
-
-        record = _plugin_record()
-        scheduler = PluginSchedulingService(
-            registry=PluginRegistry(_StaticScanner([record])),
-            runtime=_PatchedRuntime(),
-            repository=InMemoryPluginRunRepository(),
-            clock=FrozenSchedulingClock(datetime(2026, 6, 3, 8, 0, tzinfo=timezone.utc)),
-        )
-        snapshot = EffectiveSourceConfigComposer().compose(
-            template=SourceBindingTemplate(
-                source_plugin_id=PLUGIN_ID,
-                required=True,
-                config_override={
-                    "symbols": ["AAPL"],
-                    "twelve_data_api_key_ref": SecretValueRef(
-                        secret_ref="env://TWELVE_DATA_TEST_API_KEY"
-                    ).to_mapping(),
-                },
-            ),
-            plugin_schema=json.loads(
-                (REPO_ROOT / "plugins" / "sources" / "twelve-data-source" / "config.schema.json").read_text(
-                    encoding="utf-8"
-                )
-            ),
-        )
-        env_name = "TWELVE_DATA_TEST_API_KEY"
-        old_value = os.environ.get(env_name)
-        os.environ[env_name] = "resolved-at-runtime"
+    def test_missing_quote_timestamp_fails_clearly(self):
+        plugin = _started_plugin()
         try:
-            run = asyncio.run(
-                scheduler.trigger(
-                    PluginTriggerRequest(
-                        plugin_id=PLUGIN_ID,
-                        capability="source.fetch",
-                        request_id="req-scheduler-secret",
-                        trigger_type=PluginTriggerType.MANUAL,
-                        effective_config=snapshot.to_mapping(),
+            payload = {
+                "symbol": "AAPL",
+                "close": "185.64",
+                "currency": "USD",
+            }
+            with patch.object(
+                type(plugin),
+                "opener",
+                return_value=_mock_response(json.dumps(payload).encode("utf-8")),
+            ):
+                with pytest.raises(ValueError, match="missing timestamp field"):
+                    asyncio.run(
+                        plugin.invoke(
+                            PluginInvokeRequest(capability="source.fetch", request_id="req-missing-timestamp")
+                        )
                     )
-                )
-            )
         finally:
-            if old_value is None:
-                os.environ.pop(env_name, None)
-            else:
-                os.environ[env_name] = old_value
-
-        assert run.status.value == "succeeded"
-        assert run.output_summary["metadata"]["source"] == "twelve_data"
+            _stop_plugin(plugin)

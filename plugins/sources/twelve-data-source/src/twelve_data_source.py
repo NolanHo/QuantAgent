@@ -252,12 +252,16 @@ class TwelveDataSourcePlugin(BasePlugin):
             content=json.dumps(data, ensure_ascii=False),
             captured_at=captured_at,
             raw_payload={
+                "source_plugin_id": self.id,
+                "source_type": "market_quote",
                 "symbol": symbol,
                 "response": data,
             },
             metadata={
                 "provider": "twelve_data",
                 "plugin_id": self.id,
+                "source_plugin_id": self.id,
+                "source_type": "market_quote",
                 "symbol": symbol,
                 "price": price,
                 "currency": currency,
