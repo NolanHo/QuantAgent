@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
+import time
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from nacl.encoding import HexEncoder
+from nacl.signing import SigningKey
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -24,18 +30,30 @@ from quantagent.api.auth import (
     require_csrf,
 )
 from quantagent.api.auth.session import SESSION_V2, _deserialize_session, _issue_v1_session, _serialize_session
-from quantagent.api.config.settings import Settings
+from quantagent.api.config.settings import Settings, _build_env_file_paths
 from quantagent.api.db import get_db_session
 from quantagent.api.http.errors import ServiceUnavailableError
-from quantagent.api.main import create_app
 from quantagent.api.http.responses import ApiResponse
+from quantagent.api.main import create_app
+from quantagent.api.observability.logging import InMemoryStructuredHandler, shutdown_api_logging
 from quantagent.api.routers.v1.register import (
     API_V1_PUBLIC_ROUTE_ALLOWLIST,
     STANDARD_API_V1_ROUTER_REGISTRATIONS,
     build_api_v1_public_route_allowlist,
     register_api_v1_protected_router,
 )
-from quantagent.core.registry import PluginRegistry, RegistryScanner
+from quantagent.core.db.base import Base
+from quantagent.core.db.models.scheduler_run import SchedulerRunORM
+from quantagent.core.db.models.raw_event import RawEventORM
+from quantagent.core.db.models.raw_event_capture import RawEventCaptureORM
+from quantagent.core.db.models.source_binding import SourceBindingORM
+from quantagent.core.db.models.event_intake import EventIntakeRoutedEventORM
+from quantagent.core.model_config import FixedModelCallClient, ModelConfigCrypto, ModelTokenUsage
+from quantagent.core.model_config.service import ModelCallResult
+from quantagent.core.registry import PluginRegistry, PluginStatus, RegistryScanner
+from quantagent.core.registry.models import PluginManifest, PluginRecord, PluginSource, PluginType
+from quantagent.core.db.repositories.scheduler_run_repository import SchedulerRunRepository
+from quantagent.core.scheduling import PluginRunStatus, PluginTriggerType, SchedulerRunService
 from quantagent.core.wallet import (
     AccountMode,
     CashBalanceSnapshot,
@@ -51,6 +69,29 @@ from quantagent.core.wallet import (
     WalletLedgerEntryType,
     WalletLedgerSourceType,
 )
+
+
+class FakeModelClient(FixedModelCallClient):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str | None]] = []
+
+    def run_fixed_smoke(
+        self,
+        *,
+        base_url: str | None,
+        model: str,
+        api_key: str,
+        request_id: str | None,
+    ) -> ModelCallResult:
+        self.calls.append(
+            {
+                "base_url": base_url,
+                "model": model,
+                "api_key": api_key,
+                "request_id": request_id,
+            }
+        )
+        return ModelCallResult(token_usage=ModelTokenUsage(prompt_tokens=2, completion_tokens=1, total_tokens=3))
 
 
 class FakeSession:
@@ -166,6 +207,7 @@ class ApiAppTestCase(unittest.TestCase):
         response = self.client.get("/api/v1/health", headers={"X-Request-ID": "req-123"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["X-Request-ID"], "req-123")
+        self.assertRegex(response.headers["X-Trace-ID"], r"^[0-9a-f]{32}$")
         self.assertEqual(response.json(), {"code": 0, "data": {"status": "ok"}, "msg": "ok", "error": None})
 
     def test_version_uses_explicit_envelope_contract(self) -> None:
@@ -494,6 +536,45 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertNotIn("postgresql+psycopg://", str(body))
         self.assertNotIn("traceback", str(body).lower())
 
+    def test_app_lifespan_closes_event_bus_runtime_on_shutdown(self) -> None:
+        closed = {"value": False}
+
+        class FakeRuntime:
+            async def close(self) -> None:
+                closed["value"] = True
+
+        with patch("quantagent.api.main.build_event_bus_runtime", return_value=FakeRuntime()):
+            app = create_app(self._settings())
+            with TestClient(app):
+                self.assertFalse(closed["value"])
+
+        self.assertTrue(closed["value"])
+
+    def test_app_lifespan_still_cleans_up_when_event_bus_close_fails(self) -> None:
+        close_attempted = {"value": False}
+        shutdown_called = {"value": False}
+
+        class FakeRuntime:
+            async def close(self) -> None:
+                close_attempted["value"] = True
+                raise RuntimeError("close failed")
+
+        def fake_shutdown_database(app) -> None:
+            shutdown_called["value"] = True
+
+        with (
+            patch("quantagent.api.main.build_event_bus_runtime", return_value=FakeRuntime()),
+            patch("quantagent.api.main.shutdown_database", side_effect=fake_shutdown_database),
+        ):
+            app = create_app(self._settings())
+            with self.assertRaisesRegex(RuntimeError, "close failed"):
+                with TestClient(app):
+                    self.assertIsNotNone(app.state.event_bus_runtime)
+
+        self.assertTrue(close_attempted["value"])
+        self.assertTrue(shutdown_called["value"])
+        self.assertIsNone(app.state.event_bus_runtime)
+
     def test_invalid_database_url_fails_app_startup(self) -> None:
         app = create_app(self._settings(DATABASE_URL="not-a-valid-database-url"))
 
@@ -510,10 +591,41 @@ class ApiAppTestCase(unittest.TestCase):
         body = response.json()
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.headers["X-Request-ID"], body["error"]["request_id"])
+        self.assertEqual(response.headers["X-Trace-ID"], body["error"]["trace_id"])
         self.assertEqual(body["code"], 40000)
         self.assertEqual(body["error"]["code"], "BAD_REQUEST")
-        self.assertIsNone(body["error"]["trace_id"])
+        self.assertRegex(body["error"]["trace_id"], r"^[0-9a-f]{32}$")
         self.assertEqual(body["msg"], "参数错误")
+
+    def test_traceparent_sets_trace_id_for_error_envelope_and_response_header(self) -> None:
+        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+        response = self.client.get(
+            "/api/v1/debug/error",
+            headers={"traceparent": "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"},
+        )
+        body = response.json()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers["X-Trace-ID"], "1234567890abcdef1234567890abcdef")
+        self.assertEqual(body["error"]["trace_id"], "1234567890abcdef1234567890abcdef")
+
+    def test_unhandled_error_response_includes_trace_headers(self) -> None:
+        router = APIRouter(prefix="/api/v1/test-unhandled")
+
+        @router.get("/error")
+        def unhandled_error() -> None:
+            raise RuntimeError("boom")
+
+        app = create_app(self._settings(AUTH_ENABLED=False))
+        app.include_router(router)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/api/v1/test-unhandled/error", headers={"X-Request-ID": "req-unhandled"})
+
+        body = response.json()
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.headers["X-Request-ID"], "req-unhandled")
+        self.assertEqual(response.headers["X-Request-ID"], body["error"]["request_id"])
+        self.assertEqual(response.headers["X-Trace-ID"], body["error"]["trace_id"])
 
     def test_validation_error_sanitizes_fields(self) -> None:
         self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
@@ -567,20 +679,20 @@ class ApiAppTestCase(unittest.TestCase):
             self._settings(
                 APP_ENV="production",
                 AUTH_ENABLED=False,
-                AUTH_ADMIN_PASSWORD="prod-password",
-                AUTH_SESSION_SECRET="prod-secret",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
+                AUTH_SESSION_SECRET="production-session-secret-0123456789abcdef",
             )
 
     def test_production_login_uses_secure_cookie(self) -> None:
         production_app = create_app(
             self._settings(
                 APP_ENV="production",
-                AUTH_ADMIN_PASSWORD="prod-password",
-                AUTH_SESSION_SECRET="prod-secret",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
+                AUTH_SESSION_SECRET="production-session-secret-0123456789abcdef",
             )
         )
         with TestClient(production_app) as client:
-            response = client.post("/api/v1/auth/login", json={"password": "prod-password"})
+            response = client.post("/api/v1/auth/login", json={"password": "prod-admin-password"})
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Secure", response.headers["set-cookie"])
@@ -588,31 +700,309 @@ class ApiAppTestCase(unittest.TestCase):
 
     def test_non_development_env_requires_explicit_auth_credentials(self) -> None:
         with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET is required when APP_ENV is not development/test/local"):
-            Settings(APP_ENV="staging", AUTH_ADMIN_PASSWORD="local-password")
+            Settings(_env_file=None, APP_ENV="staging", AUTH_ADMIN_PASSWORD="local-password")
 
     def test_production_rejects_whitespace_only_auth_credentials(self) -> None:
         with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD is required in production"):
             Settings(
+                _env_file=None,
                 APP_ENV="production",
                 AUTH_ADMIN_PASSWORD="   ",
-                AUTH_SESSION_SECRET="prod-secret",
+                AUTH_SESSION_SECRET="prod-session-secret-0123456789abcdef",
             )
 
         with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET is required in production"):
             Settings(
+                _env_file=None,
                 APP_ENV="production",
-                AUTH_ADMIN_PASSWORD="prod-password",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
                 AUTH_SESSION_SECRET="   ",
             )
 
+    def test_staging_and_production_reject_placeholder_auth_credentials(self) -> None:
+        with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD must not use a placeholder"):
+            Settings(
+                _env_file=None,
+                APP_ENV="staging",
+                AUTH_ADMIN_PASSWORD="change-me",
+                AUTH_SESSION_SECRET="staging-session-secret-0123456789abcdef",
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET must not use a placeholder"):
+            Settings(
+                _env_file=None,
+                APP_ENV="production",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
+                AUTH_SESSION_SECRET="change-me",
+                AUTH_COOKIE_SECURE=True,
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD must not use a placeholder"):
+            Settings(
+                _env_file=None,
+                APP_ENV="staging",
+                AUTH_ADMIN_PASSWORD="12345678",
+                AUTH_SESSION_SECRET="staging-session-secret-0123456789abcdef",
+            )
+
+    def test_staging_and_production_reject_weak_auth_credentials(self) -> None:
+        with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD must be at least 12 characters"):
+            Settings(
+                _env_file=None,
+                APP_ENV="staging",
+                AUTH_ADMIN_PASSWORD="short",
+                AUTH_SESSION_SECRET="staging-session-secret-0123456789abcdef",
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_ADMIN_PASSWORD must be at least 12 characters"):
+            Settings(
+                _env_file=None,
+                APP_ENV="production",
+                AUTH_ADMIN_PASSWORD="short-prod",
+                AUTH_SESSION_SECRET="production-session-secret-0123456789abcdef",
+                AUTH_COOKIE_SECURE=True,
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET must be at least 32 characters"):
+            Settings(
+                _env_file=None,
+                APP_ENV="production",
+                AUTH_ADMIN_PASSWORD="prod-admin-password",
+                AUTH_SESSION_SECRET="too-short-secret",
+                AUTH_COOKIE_SECURE=True,
+            )
+
+        with self.assertRaisesRegex(ValueError, "AUTH_SESSION_SECRET must be at least 32 characters"):
+            Settings(
+                _env_file=None,
+                APP_ENV="staging",
+                AUTH_ADMIN_PASSWORD="staging-admin-password",
+                AUTH_SESSION_SECRET="stage-short-secret",
+            )
+
+    def test_non_dev_session_secret_allows_non_placeholder_words(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            APP_ENV="staging",
+            AUTH_ADMIN_PASSWORD="staging-admin-password",
+            AUTH_SESSION_SECRET="device-session-secret-0123456789abcdef",
+        )
+        self.assertEqual(settings.AUTH_SESSION_SECRET, "device-session-secret-0123456789abcdef")
+
     def test_test_env_still_receives_weak_auth_defaults(self) -> None:
-        settings = Settings(APP_ENV="test")
+        settings = Settings(_env_file=None, APP_ENV="test")
         self.assertEqual(settings.AUTH_ADMIN_PASSWORD, "12345678")
         self.assertEqual(settings.AUTH_SESSION_SECRET, "dev-session-secret-change-me")
+
+    def test_api_host_and_port_use_prefixed_names(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            API_HOST="0.0.0.0",
+            API_PORT=9000,
+            AUTH_ADMIN_PASSWORD="test-admin-password",
+            AUTH_SESSION_SECRET="test-session-secret",
+        )
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+        self.assertEqual(settings.API_PORT, 9000)
+
+    def test_legacy_host_and_port_env_names_still_work(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            HOST="0.0.0.0",
+            PORT=9100,
+            AUTH_ADMIN_PASSWORD="test-admin-password",
+            AUTH_SESSION_SECRET="test-session-secret",
+        )
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+        self.assertEqual(settings.API_PORT, 9100)
+
+    def test_api_host_and_port_env_names_are_loaded_from_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"API_HOST": "0.0.0.0", "API_PORT": "9200", "AUTH_ADMIN_PASSWORD": "test-admin-password", "AUTH_SESSION_SECRET": "test-session-secret"},
+            clear=False,
+        ):
+            settings = Settings(_env_file=None)
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+        self.assertEqual(settings.API_PORT, 9200)
+
+    def test_legacy_host_and_port_env_names_are_still_loaded_from_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"HOST": "0.0.0.0", "PORT": "9300", "AUTH_ADMIN_PASSWORD": "test-admin-password", "AUTH_SESSION_SECRET": "test-session-secret"},
+            clear=False,
+        ):
+            settings = Settings(_env_file=None)
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+        self.assertEqual(settings.API_PORT, 9300)
+
+    def test_api_dotenv_overrides_duplicate_root_variable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (workspace / ".env").write_text(
+                "DATABASE_URL=postgresql+psycopg://root:root@localhost:15432/rootdb\n",
+                encoding="utf-8",
+            )
+            (api_dir / ".env").write_text(
+                "DATABASE_URL=postgresql+psycopg://api:api@localhost:15432/apidb\n",
+                encoding="utf-8",
+            )
+
+            env_files = _build_env_file_paths(cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+            with patch.dict(os.environ, {"DATABASE_URL": "", "APP_ENV": ""}, clear=False):
+                os.environ.pop("DATABASE_URL", None)
+                os.environ.pop("APP_ENV", None)
+                settings = Settings(_env_file=tuple(str(path) for path in env_files))
+
+        self.assertEqual(settings.DATABASE_URL, "postgresql+psycopg://api:api@localhost:15432/apidb")
+
+    def test_process_environment_overrides_api_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (workspace / ".env").write_text("LOG_LEVEL=INFO\n", encoding="utf-8")
+            (api_dir / ".env").write_text("LOG_LEVEL=DEBUG\n", encoding="utf-8")
+            env_files = _build_env_file_paths(cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+
+            with patch.dict(os.environ, {"LOG_LEVEL": "ERROR"}, clear=False):
+                settings = Settings(_env_file=tuple(str(path) for path in env_files))
+
+        self.assertEqual(settings.LOG_LEVEL, "ERROR")
+
+    def test_notification_ingress_plugin_config_accepts_json_object_string(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env").write_text(
+                'NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key":"abc","guild_allowlist":["guild-1","guild-2"]}\n',
+                encoding="utf-8",
+            )
+            env_files = _build_env_file_paths(cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+
+            settings = Settings(_env_file=tuple(str(path) for path in env_files))
+
+        self.assertEqual(settings.NOTIFICATION_INGRESS_PLUGIN_CONFIG["public_key"], "abc")
+        self.assertEqual(settings.NOTIFICATION_INGRESS_PLUGIN_CONFIG["guild_allowlist"], ["guild-1", "guild-2"])
+
+    def test_app_env_selects_only_matching_api_environment_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env").write_text("AUTH_ENABLED=true\n", encoding="utf-8")
+            (api_dir / ".env.test").write_text("AUTH_ENABLED=false\n", encoding="utf-8")
+            (api_dir / ".env.production").write_text("AUTH_ENABLED=true\nLOG_LEVEL=ERROR\n", encoding="utf-8")
+            env_files = _build_env_file_paths(app_env="test", cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+
+            settings = Settings(_env_file=tuple(str(path) for path in env_files), APP_ENV="test")
+
+        self.assertFalse(settings.AUTH_ENABLED)
+        self.assertEqual(settings.LOG_LEVEL, "INFO")
+        self.assertIn(api_dir / ".env.test", env_files)
+        self.assertNotIn(api_dir / ".env.production", env_files)
+
+    def test_api_local_dotenv_can_select_environment_specific_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env.local").write_text("APP_ENV=staging\n", encoding="utf-8")
+            (api_dir / ".env.staging").write_text(
+                "LOG_LEVEL=WARNING\nAUTH_ADMIN_PASSWORD=staging-admin-password\nAUTH_SESSION_SECRET=staging-session-secret-0123456789abcdef\n",
+                encoding="utf-8",
+            )
+
+            env_files = _build_env_file_paths(cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+            settings = Settings(_env_file=tuple(str(path) for path in env_files))
+
+        self.assertEqual(settings.APP_ENV, "staging")
+        self.assertEqual(settings.LOG_LEVEL, "WARNING")
+
+    def test_selected_environment_local_dotenv_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env.staging").write_text(
+                "API_HOST=127.0.0.1\nAUTH_ADMIN_PASSWORD=staging-admin-password\nAUTH_SESSION_SECRET=staging-session-secret-0123456789abcdef\n",
+                encoding="utf-8",
+            )
+            (api_dir / ".env.staging.local").write_text("API_HOST=0.0.0.0\n", encoding="utf-8")
+
+            env_files = _build_env_file_paths(app_env="staging", cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+            settings = Settings(_env_file=tuple(str(path) for path in env_files), APP_ENV="staging")
+
+        self.assertEqual(settings.API_HOST, "0.0.0.0")
+
+    def test_app_env_uses_lowercase_when_selecting_environment_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+            (api_dir / ".env.production").write_text(
+                "LOG_LEVEL=ERROR\nAUTH_ADMIN_PASSWORD=prod-admin-password\nAUTH_SESSION_SECRET=production-session-secret-0123456789abcdef\n",
+                encoding="utf-8",
+            )
+
+            env_files = _build_env_file_paths(app_env="Production", cwd=workspace, source_repo_root=workspace, source_api_app_dir=api_dir)
+            settings = Settings(_env_file=tuple(str(path) for path in env_files), APP_ENV="Production")
+
+        self.assertIn(api_dir / ".env.production", env_files)
+        self.assertNotIn(api_dir / ".env.Production", env_files)
+        self.assertEqual(settings.LOG_LEVEL, "ERROR")
+        self.assertEqual(settings.APP_ENV, "Production")
+
+    def test_blank_runtime_dir_uses_default_before_log_dir_resolution(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            APP_ENV="test",
+            RUNTIME_DIR="",
+            LOG_DIR="",
+            AUTH_ENABLED=False,
+        )
+
+        self.assertEqual(settings.LOG_DIR, (settings.RUNTIME_DIR / "logs" / "api").resolve())
+
+    def test_env_file_paths_do_not_assume_repo_root_when_source_layout_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            env_files = _build_env_file_paths(
+                cwd=workspace,
+                source_repo_root=None,
+                source_api_app_dir=None,
+            )
+
+        self.assertEqual(env_files, (workspace / ".env",))
+
+    def test_env_file_paths_from_apps_api_cwd_include_repo_root_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            api_dir = workspace / "apps/api"
+            api_dir.mkdir(parents=True)
+
+            env_files = _build_env_file_paths(
+                cwd=api_dir,
+                source_repo_root=workspace,
+                source_api_app_dir=api_dir,
+            )
+
+        self.assertEqual(
+            env_files,
+            (
+                workspace / ".env",
+                api_dir / ".env",
+                api_dir / ".env.local",
+            ),
+        )
 
     def test_same_site_none_requires_secure_cookie(self) -> None:
         with self.assertRaisesRegex(ValueError, "AUTH_COOKIE_SAME_SITE=none requires AUTH_COOKIE_SECURE=true"):
             Settings(
+                _env_file=None,
                 APP_ENV="development",
                 AUTH_ADMIN_PASSWORD="test-admin-password",
                 AUTH_SESSION_SECRET="test-session-secret",
@@ -652,6 +1042,7 @@ class ApiAppTestCase(unittest.TestCase):
                     ("GET", "/health"),
                     ("GET", "/ready"),
                     ("GET", "/version"),
+                    ("POST", "/integrations/notifications/ingress"),
                     ("POST", "/auth/login"),
                 }
             ),
@@ -674,6 +1065,7 @@ class ApiAppTestCase(unittest.TestCase):
                     ("GET", "/health"),
                     ("GET", "/ready"),
                     ("GET", "/version"),
+                    ("POST", "/integrations/notifications/ingress"),
                     ("POST", "/auth/login"),
                 }
             ),
@@ -688,6 +1080,7 @@ class ApiAppTestCase(unittest.TestCase):
                     ("GET", f"{custom_prefix}/health"),
                     ("GET", f"{custom_prefix}/ready"),
                     ("GET", f"{custom_prefix}/version"),
+                    ("POST", f"{custom_prefix}/integrations/notifications/ingress"),
                     ("POST", f"{custom_prefix}/auth/login"),
                 }
             ),
@@ -1072,14 +1465,114 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(placeholder["manifest"]["type"], "source")
         self.assertEqual(placeholder["path"], "plugins/sources/placeholder-source")
 
+        example_industry = next(
+            plugin for plugin in plugins if plugin["id"] == "quantagent.official.industry.example"
+        )
+        self.assertEqual(example_industry["manifest"]["type"], "industry")
+        self.assertEqual(example_industry["path"], "plugins/industries/example-industry")
+        self.assertEqual(
+            example_industry["manifest"]["source_bindings"],
+            [
+                {
+                    "source_plugin_id": "quantagent.official.source.rss",
+                    "required": True,
+                    "config_template": "templates/source_bindings/rss.default.yaml",
+                },
+                {
+                    "source_plugin_id": "quantagent.official.source.readability",
+                    "required": False,
+                    "config_template": "templates/source_bindings/readability.fallback.yaml",
+                },
+            ],
+        )
+
         detail_response = self.client.get("/api/v1/plugins/quantagent.official.source.placeholder")
+        detail_body = detail_response.json()
         self.assertEqual(detail_response.status_code, 200)
-        self.assertEqual(detail_response.json()["data"]["id"], "quantagent.official.source.placeholder")
+        self.assertEqual(detail_body["data"]["overview"]["plugin_id"], "quantagent.official.source.placeholder")
+        self.assertEqual(detail_body["data"]["overview"]["type"], "source")
+        self.assertEqual(detail_body["data"]["config_summary"]["availability"]["state"], "not_configured")
+        self.assertEqual(detail_body["data"]["dependency_summary"]["availability"]["state"], "ready")
+        self.assertEqual(detail_body["data"]["health_summary"]["availability"]["state"], "not_collected")
+        self.assertEqual(
+            {item["action"] for item in detail_body["data"]["allowed_actions"]},
+            {"enable", "disable", "reload", "rescan", "uninstall"},
+        )
+        self.assertNotIn("plugins/sources/placeholder-source", str(detail_body))
+        self.assertNotIn("entrypoint", str(detail_body))
 
         schema_response = self.client.get("/api/v1/plugins/quantagent.official.source.placeholder/config-schema")
         schema_body = schema_response.json()
         self.assertEqual(schema_response.status_code, 200)
-        self.assertEqual(schema_body["data"]["title"], "Placeholder Source Plugin Config")
+        self.assertEqual(schema_body["data"]["title"], "Demo Placeholder Source Plugin Config")
+
+    def test_plugin_detail_config_view_masks_secret_grade_fields(self) -> None:
+        self._login()
+
+        response = self.client.get("/api/v1/plugins/quantagent.official.notification.discord/config")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["data"]["availability"]["state"], "not_configured")
+        entries_by_key = {item["key"]: item for item in body["data"]["entries"]}
+        self.assertEqual(entries_by_key["webhook_secret_ref"]["display_mode"], "unset")
+        self.assertTrue(entries_by_key["webhook_secret_ref"]["is_sensitive"])
+        self.assertEqual(entries_by_key["public_key"]["display_mode"], "unset")
+        self.assertTrue(entries_by_key["public_key"]["is_sensitive"])
+        self.assertNotIn("Discord webhook URL", str(body))
+
+    def test_plugin_detail_section_visibility_uses_forbidden_availability(self) -> None:
+        reduced_capabilities = frozenset({"plugin.configure"})
+        issued_session = issue_session("local_admin", self.settings, capabilities=reduced_capabilities)
+        self.client.cookies.set(self.settings.AUTH_COOKIE_NAME, issued_session.value)
+
+        detail_response = self.client.get("/api/v1/plugins/quantagent.official.source.placeholder")
+        detail_body = detail_response.json()
+        health_response = self.client.get("/api/v1/plugins/quantagent.official.source.placeholder/health")
+        audit_response = self.client.get("/api/v1/plugins/quantagent.official.source.placeholder/audit")
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_body["data"]["overview"]["plugin_id"], "quantagent.official.source.placeholder")
+        self.assertEqual(detail_body["data"]["config_summary"]["availability"]["state"], "not_configured")
+        self.assertEqual(detail_body["data"]["health_summary"]["availability"]["state"], "forbidden")
+        self.assertEqual(detail_body["data"]["audit_summary"]["availability"]["state"], "forbidden")
+        self.assertTrue(
+            all(item["disabled_reason"] == "permission_denied" for item in detail_body["data"]["allowed_actions"])
+        )
+
+        self.assertEqual(health_response.status_code, 200)
+        self.assertEqual(health_response.json()["data"]["availability"]["state"], "forbidden")
+        self.assertEqual(audit_response.status_code, 200)
+        self.assertEqual(audit_response.json()["data"]["availability"]["state"], "forbidden")
+
+    def test_plugin_list_uses_repo_root_even_when_api_runtime_directory_exists(self) -> None:
+        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+
+        from quantagent.api.services import plugin_registry as plugin_registry_service
+
+        repo_root = next(
+            parent
+            for parent in Path(__file__).resolve().parents
+            if (parent / "pyproject.toml").is_file()
+            and (parent / "apps" / "api").is_dir()
+            and (parent / "plugins").is_dir()
+        )
+        api_runtime_dir = repo_root / "apps" / "api" / "runtime"
+        api_runtime_dir.mkdir(parents=True, exist_ok=True)
+
+        plugin_registry_service.find_repo_root.cache_clear()
+        self.addCleanup(plugin_registry_service.find_repo_root.cache_clear)
+
+        with patch("pathlib.Path.cwd", return_value=api_runtime_dir):
+            response = self.client.get("/api/v1/plugins")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["code"], 0)
+        self.assertIn(
+            "quantagent.official.source.placeholder",
+            {plugin["id"] for plugin in body["data"]},
+        )
 
     def test_plugin_detail_unknown_id_uses_not_found_envelope(self) -> None:
         self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
@@ -1148,6 +1641,1393 @@ class ApiAppTestCase(unittest.TestCase):
             "PLUGIN_CONFIG_SCHEMA_NOT_FOUND",
         )
 
+    def test_model_providers_require_session(self) -> None:
+        response = self.client.get("/api/v1/models/providers")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(body["error"]["code"], "UNAUTHORIZED")
+
+    def test_runtime_health_reports_degraded_when_runtime_read_models_are_partial(self) -> None:
+        self._login()
+
+        response = self.client.get("/api/v1/runtime/health")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["data"]["partial_status"], "degraded")
+        self.assertEqual(body["data"]["backend_status"]["api"], "healthy")
+        self.assertEqual(body["data"]["backend_status"]["scheduler"], "unavailable")
+        self.assertEqual(body["data"]["backend_status"]["worker"], "not_configured")
+        reasons = {item["reason"] for item in body["data"]["unavailable_resources"]}
+        self.assertIn("agent_runs:agent_runs_read_model_missing", reasons)
+        self.assertIn("tool_invocations:tool_invocations_read_model_missing", reasons)
+        self.assertIn("runtime_errors:runtime_errors_read_model_missing", reasons)
+
+    def test_runtime_list_resources_require_session(self) -> None:
+        response = self.client.get("/api/v1/scheduler-runs")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(body["error"]["code"], "UNAUTHORIZED")
+
+    def test_runtime_unavailable_resources_return_controlled_unavailable_meta(self) -> None:
+        self._login()
+
+        response = self.client.get("/api/v1/agents/runs")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["data"]["items"], [])
+        self.assertEqual(body["data"]["meta"]["state"], "unavailable")
+        self.assertEqual(body["data"]["meta"]["unavailable"]["status"], "unavailable")
+        self.assertIn("agent_runs_read_model_missing", body["data"]["meta"]["unavailable"]["reason"])
+
+    def test_runtime_unavailable_detail_uses_not_found_envelope(self) -> None:
+        self._login()
+
+        response = self.client.get("/api/v1/tools/invocations/invoke-001")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(body["error"]["code"], "NOT_FOUND")
+        self.assertEqual(body["error"]["details"]["reason"], "tool_invocations_read_model_missing")
+
+    def test_scheduler_runs_list_and_detail_follow_runtime_contract(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            seed_session = client.app.state.db_session_factory()
+            try:
+                repository = SchedulerRunRepository(seed_session)
+                service = SchedulerRunService(repository)
+                run = service.create_run(
+                    run_id="run-runtime-001",
+                    binding_id="binding-runtime-001",
+                    source_plugin_id="quantagent.official.source.rss",
+                    source_plugin_version="1.0.0",
+                    trigger_mode=PluginTriggerType.INTERVAL,
+                    request_id="req-runtime-001",
+                    status=PluginRunStatus.RUNNING,
+                    started_at=datetime(2026, 6, 1, 8, 0, 0, tzinfo=UTC),
+                    timeout_ms=30000,
+                )
+                service.finish_run(
+                    run_id=run.run_id,
+                    status=PluginRunStatus.FAILED,
+                    finished_at=datetime(2026, 6, 1, 8, 0, 3, tzinfo=UTC),
+                    duration_ms=3000,
+                    failure_code="PLUGIN_TIMEOUT",
+                    failure_message="token=secret123 /Users/me/project failed",
+                    failure_stage="invoke",
+                    retryable=True,
+                    captured_count=2,
+                )
+                seed_session.commit()
+            finally:
+                seed_session.close()
+            login_response = client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+            self.assertEqual(login_response.status_code, 200)
+
+            list_response = client.get("/api/v1/scheduler-runs", params={"plugin_id": "quantagent.official.source.rss"})
+            detail_response = client.get("/api/v1/scheduler-runs/run-runtime-001")
+
+        list_body = list_response.json()
+        detail_body = detail_response.json()
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_body["data"]["meta"]["state"], "ready")
+        self.assertEqual(list_body["data"]["meta"]["page"]["returned"], 1)
+        self.assertEqual(list_body["data"]["items"][0]["run_id"], "run-runtime-001")
+        self.assertEqual(list_body["data"]["items"][0]["plugin_id"], "quantagent.official.source.rss")
+        self.assertEqual(list_body["data"]["items"][0]["trigger_type"], "interval")
+        self.assertEqual(list_body["data"]["items"][0]["error_summary"]["error_code"], "PLUGIN_TIMEOUT")
+        self.assertNotIn("secret123", list_body["data"]["items"][0]["error_summary"]["error_message_summary"])
+        self.assertNotIn("/Users/me/project", list_body["data"]["items"][0]["error_summary"]["error_message_summary"])
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_body["data"]["run_id"], "run-runtime-001")
+        self.assertEqual(detail_body["data"]["captured_count_summary"], {"captured_count": 2})
+
+    def test_scheduler_runs_detail_returns_not_found_for_unknown_run(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+            response = client.get("/api/v1/scheduler-runs/missing-run")
+
+        body = response.json()
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(body["error"]["code"], "NOT_FOUND")
+        self.assertEqual(body["error"]["details"]["run_id"], "missing-run")
+
+    def test_scheduler_runs_without_database_return_service_unavailable(self) -> None:
+        self._login()
+
+        response = self.client.get("/api/v1/scheduler-runs")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(body["error"]["code"], "SERVICE_UNAVAILABLE")
+        self.assertEqual(body["error"]["details"]["resource"], "scheduler_runs")
+
+    def test_scheduler_runs_reject_unsupported_trace_filter(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+            response = client.get("/api/v1/scheduler-runs", params={"trace_id": "trace-1"})
+
+        body = response.json()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(body["error"]["code"], "BAD_REQUEST")
+        self.assertEqual(body["error"]["details"]["filter"], "trace_id")
+
+    def test_raw_events_list_and_detail_split_summary_and_full_content(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            seed_session = client.app.state.db_session_factory()
+            try:
+                seed_session.add(
+                    RawEventORM(
+                        raw_event_id="rawevt-api-001",
+                        source_plugin_id="quantagent.official.source.rss",
+                        external_id="rss-entry-001",
+                        canonical_url="https://example.com/articles/1",
+                        title="HBM market moves",
+                        content="full body " * 80,
+                        author="Reporter",
+                        published_at=datetime(2026, 6, 2, 8, 0, 0, tzinfo=UTC),
+                        first_captured_at=datetime(2026, 6, 2, 8, 1, 0, tzinfo=UTC),
+                        last_captured_at=datetime(2026, 6, 2, 8, 2, 0, tzinfo=UTC),
+                        raw_payload={"body": "very large body", "url": "https://example.com/articles/1"},
+                        metadata_json={"source": "rss", "feed": "semiconductor"},
+                        canonical_dedupe_key="dedupe-001",
+                        dedupe_strategy="external_id",
+                        content_hash="hash-001",
+                        first_binding_id="binding-api-001",
+                        first_run_id="run-api-001",
+                        duplicate_capture_count=2,
+                    )
+                )
+                seed_session.commit()
+            finally:
+                seed_session.close()
+            client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+
+            list_response = client.get("/api/v1/raw-events", params={"source_plugin_id": "quantagent.official.source.rss"})
+            detail_response = client.get("/api/v1/raw-events/rawevt-api-001")
+
+        list_body = list_response.json()
+        detail_body = detail_response.json()
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_body["data"]["items"][0]["raw_event_id"], "rawevt-api-001")
+        self.assertEqual(list_body["data"]["items"][0]["source_plugin_id"], "quantagent.official.source.rss")
+        self.assertIn("content_preview", list_body["data"]["items"][0])
+        self.assertNotIn("content", list_body["data"]["items"][0])
+        self.assertNotIn("raw_payload", list_body["data"]["items"][0])
+        self.assertIsNone(list_body["data"]["next_cursor"])
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_body["data"]["raw_event_id"], "rawevt-api-001")
+        self.assertIn("content", detail_body["data"])
+        self.assertIn("raw_payload", detail_body["data"])
+        self.assertEqual(detail_body["data"]["raw_payload"]["url"], "https://example.com/articles/1")
+
+    def test_runtime_audit_news_returns_sanitized_raw_event_read_model(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                self._seed_runtime_audit_news(session)
+                session.commit()
+            finally:
+                session.close()
+            self._login_with_client(client, settings)
+            response = client.get("/api/v1/runtime/audit/news", params={"limit": 20})
+
+        body = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["code"], 0)
+        items = body["data"]["items"]
+        self.assertGreaterEqual(len(items), 2)
+        first_item = items[0]
+        serialized_item = json.dumps(first_item, ensure_ascii=False)
+        self.assertEqual(first_item["raw_event_id"], "rawevt-runtime-002")
+        self.assertEqual(first_item["title"], "Advanced packaging capacity expands")
+        self.assertEqual(first_item["url_host"], "news.example.com")
+        self.assertEqual(first_item["status"], "captured")
+        self.assertEqual(first_item["current_stage"], "persisted")
+        self.assertEqual(first_item["focus_stage"], "ai_intake_unavailable")
+        self.assertIn("content_preview", first_item)
+        self.assertNotIn("content", first_item)
+        self.assertNotIn("raw_payload", first_item)
+        self.assertNotIn("very large full article body", serialized_item)
+        self.assertNotIn("secret-token", serialized_item)
+        self.assertIn("agent_stages", first_item)
+        router_stage = next(stage for stage in first_item["agent_stages"] if stage["stage_id"] == "router_agent")
+        self.assertEqual(router_stage["status"], "unavailable")
+        self.assertIsNone(router_stage["output_json"])
+        self.assertIn("尚未提供 Router Agent", router_stage["unavailable_reason"])
+        main_agent_stage = next(stage for stage in first_item["agent_stages"] if stage["stage_id"] == "industry_main_agent")
+        self.assertEqual(main_agent_stage["agent_type"], "industry_main_agent")
+        self.assertIsNone(main_agent_stage["output_json"])
+
+        timeline_by_step = {step["step_id"]: step for step in first_item["timeline"]}
+        self.assertEqual(timeline_by_step["ai_intake_unavailable"]["status"], "unavailable")
+        self.assertEqual(timeline_by_step["route_unavailable"]["status"], "unavailable")
+        self.assertIn("不展示伪造", timeline_by_step["ai_intake_unavailable"]["summary"])
+        self.assertNotIn("review", first_item)
+        self.assertNotIn("discard", first_item)
+
+        routed_item = next(item for item in items if item["raw_event_id"] == "rawevt-runtime-001")
+        self.assertEqual(routed_item["status"], "routed")
+        self.assertEqual(routed_item["current_stage"], "route_decided")
+        self.assertEqual(routed_item["focus_stage"], "route_decided")
+        router_stage = next(stage for stage in routed_item["agent_stages"] if stage["stage_id"] == "router_agent")
+        self.assertEqual(router_stage["status"], "success")
+        self.assertEqual(router_stage["key_fields"]["decision"], "route")
+        self.assertEqual(router_stage["key_fields"]["short_summary"], "HBM demand is directly relevant.")
+        self.assertEqual(router_stage["output_json"]["decision"], "route")
+        self.assertNotIn("full article body", json.dumps(router_stage["output_json"], ensure_ascii=False))
+        routed_timeline = {step["step_id"]: step for step in routed_item["timeline"]}
+        self.assertEqual(routed_timeline["ai_intake_routed"]["status"], "success")
+        self.assertEqual(routed_timeline["route_decided"]["status"], "success")
+        self.assertIn("已路由", routed_timeline["route_decided"]["summary"])
+
+    def test_runtime_audit_news_filters_by_backend_refs_and_time_range(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                self._seed_runtime_audit_news(session)
+                session.commit()
+            finally:
+                session.close()
+            self._login_with_client(client, settings)
+            binding_response = client.get("/api/v1/runtime/audit/news", params={"binding_id": "binding-runtime-001"})
+            plugin_response = client.get(
+                "/api/v1/runtime/audit/news",
+                params={"source_plugin_id": "quantagent.official.source.rss"},
+            )
+            trace_response = client.get("/api/v1/runtime/audit/news", params={"trace_id": "trace-runtime-001"})
+            request_response = client.get("/api/v1/runtime/audit/news", params={"request_id": "req-capture-001"})
+            time_response = client.get(
+                "/api/v1/runtime/audit/news",
+                params={
+                    "time_from": "2026-06-02T00:00:00Z",
+                    "time_to": "2026-06-02T23:59:59Z",
+                },
+            )
+            stage_response = client.get("/api/v1/runtime/audit/news", params={"current_stage": "route_decided"})
+
+        self.assertEqual(binding_response.status_code, 200)
+        self.assertEqual(
+            [item["raw_event_id"] for item in binding_response.json()["data"]["items"]],
+            ["rawevt-runtime-001"],
+        )
+        self.assertEqual(plugin_response.status_code, 200)
+        self.assertEqual(len(plugin_response.json()["data"]["items"]), 2)
+        self.assertEqual(trace_response.status_code, 200)
+        self.assertEqual(trace_response.json()["data"]["items"][0]["trace"]["trace_id"], "trace-runtime-001")
+        self.assertEqual(request_response.status_code, 200)
+        self.assertEqual(request_response.json()["data"]["items"][0]["trace"]["request_id"], "req-capture-001")
+        self.assertEqual(time_response.status_code, 200)
+        self.assertEqual(
+            [item["raw_event_id"] for item in time_response.json()["data"]["items"]],
+            ["rawevt-runtime-002"],
+        )
+        self.assertEqual(stage_response.status_code, 200)
+        self.assertEqual(
+            [item["raw_event_id"] for item in stage_response.json()["data"]["items"]],
+            ["rawevt-runtime-001"],
+        )
+
+    def test_runtime_audit_news_requires_runtime_inspect_session(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            response = client.get("/api/v1/runtime/audit/news")
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"]["code"], "UNAUTHORIZED")
+
+    def test_model_provider_create_masks_key_and_test_connection_records_usage(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        fake_client = FakeModelClient()
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            MODEL_CONFIG_ENCRYPTION_KEY=ModelConfigCrypto.generate_key(),
+        )
+        app = create_app(settings)
+        app.state.model_call_client = fake_client
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+
+            save_response = client.post(
+                "/api/v1/models/providers",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "provider_type": "openai_compatible",
+                    "name": "Local Gateway",
+                    "base_url": "http://127.0.0.1:11434/v1",
+                    "api_key": "sk-api-secret",
+                    "enabled": True,
+                    "is_default": True,
+                },
+            )
+            provider_id = save_response.json()["data"]["id"]
+            create_model_response = client.post(
+                f"/api/v1/models/providers/{provider_id}/models",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "model_name": "qwen-test",
+                    "enabled": True,
+                    "supports_vision": False,
+                    "is_global_default": True,
+                },
+            )
+            providers_response = client.get("/api/v1/models/providers")
+            detail_response = client.get(f"/api/v1/models/providers/{provider_id}")
+            presets_response = client.get("/api/v1/models/presets")
+            test_response = client.post(
+                f"/api/v1/models/providers/{provider_id}/actions/test-connection",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token, "X-Request-ID": "req-model"},
+            )
+            invocations_response = client.get(
+                f"/api/v1/models/invocations?provider_id={provider_id}&preset_key=global_default"
+            )
+
+            session = client.app.state.db_session_factory()
+            try:
+                encrypted_value = session.execute(
+                    Base.metadata.tables["model_providers"].select()
+                ).mappings().one()["encrypted_api_key"]
+            finally:
+                session.close()
+
+        save_body = save_response.json()
+        self.assertEqual(save_response.status_code, 200)
+        self.assertEqual(save_body["data"]["masked_key"], "********")
+        self.assertTrue(save_body["data"]["is_default"])
+        self.assertNotIn("sk-api-secret", str(save_body))
+        self.assertNotEqual(encrypted_value, "sk-api-secret")
+        self.assertEqual(save_body["data"]["model_count"], 0)
+
+        create_model_body = create_model_response.json()
+        self.assertEqual(create_model_response.status_code, 200)
+        self.assertEqual(create_model_body["data"]["model_name"], "qwen-test")
+        self.assertTrue(create_model_body["data"]["is_global_default"])
+
+        providers_body = providers_response.json()
+        self.assertEqual(providers_response.status_code, 200)
+        self.assertEqual(providers_body["data"]["default_provider_id"], provider_id)
+        self.assertEqual(len(providers_body["data"]["providers"]), 1)
+        self.assertEqual(providers_body["data"]["providers"][0]["model_count"], 1)
+
+        detail_body = detail_response.json()
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_body["data"]["status"], "configured")
+        self.assertEqual(detail_body["data"]["key_status"], "configured")
+        self.assertNotIn("sk-api-secret", str(detail_body))
+        self.assertEqual(len(detail_body["data"]["models"]), 1)
+        self.assertEqual(detail_body["data"]["models"][0]["model_name"], "qwen-test")
+
+        presets_body = presets_response.json()
+        self.assertEqual(presets_response.status_code, 200)
+        self.assertEqual(len(presets_body["data"]), 5)
+        self.assertEqual(
+            {item["preset_key"] for item in presets_body["data"]},
+            {"global_default", "economy_text", "general_text", "reasoning_text", "multimodal"},
+        )
+
+        test_body = test_response.json()
+        self.assertEqual(test_response.status_code, 200)
+        self.assertTrue(test_body["data"]["success"])
+        self.assertEqual(test_body["data"]["invocation"]["provider_id"], provider_id)
+        self.assertEqual(test_body["data"]["invocation"]["preset_key"], "global_default")
+        self.assertEqual(test_body["data"]["invocation"]["token_usage"]["total_tokens"], 3)
+        self.assertEqual(fake_client.calls[0]["api_key"], "sk-api-secret")
+        self.assertEqual(fake_client.calls[0]["model"], "qwen-test")
+        self.assertNotIn("sk-api-secret", str(test_body))
+
+        invocations_body = invocations_response.json()
+        self.assertEqual(invocations_response.status_code, 200)
+        self.assertEqual(invocations_body["data"][0]["provider_id"], provider_id)
+        self.assertEqual(invocations_body["data"][0]["preset_key"], "global_default")
+        self.assertEqual(invocations_body["data"][0]["request_id"], "req-model")
+        self.assertEqual(invocations_body["data"][0]["token_usage"]["prompt_tokens"], 2)
+
+    def test_model_provider_save_requires_csrf_and_encryption_key(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            forbidden_response = client.post(
+                "/api/v1/models/providers",
+                json={
+                    "name": "OpenAI",
+                    "api_key": "sk-should-not-leak",
+                    "is_default": True,
+                },
+            )
+            csrf_token = login_response.json()["data"]["csrf_token"]
+            missing_key_response = client.post(
+                "/api/v1/models/providers",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "name": "OpenAI",
+                    "api_key": "sk-should-not-leak",
+                    "is_default": True,
+                },
+            )
+
+        self.assertEqual(forbidden_response.status_code, 403)
+        body = missing_key_response.json()
+        self.assertEqual(missing_key_response.status_code, 503)
+        self.assertEqual(body["error"]["code"], "SERVICE_UNAVAILABLE")
+        self.assertEqual(body["error"]["details"]["code"], "MODEL_CONFIG_ENCRYPTION_UNAVAILABLE")
+        self.assertNotIn("sk-should-not-leak", str(body))
+
+    def test_model_provider_test_connection_missing_key_records_safe_failure(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            MODEL_CONFIG_ENCRYPTION_KEY=ModelConfigCrypto.generate_key(),
+        )
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+            create_response = client.post(
+                "/api/v1/models/providers",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "name": "Missing Key Provider",
+                    "enabled": True,
+                    "is_default": True,
+                },
+            )
+            provider_id = create_response.json()["data"]["id"]
+            client.post(
+                f"/api/v1/models/providers/{provider_id}/models",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "model_name": "gpt-test",
+                    "enabled": True,
+                    "supports_vision": False,
+                    "is_global_default": True,
+                },
+            )
+            response = client.post(
+                f"/api/v1/models/providers/{provider_id}/actions/test-connection",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+            )
+            invocations_response = client.get(f"/api/v1/models/invocations?provider_id={provider_id}")
+
+        body = response.json()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(body["error"]["details"]["code"], "MODEL_PROVIDER_KEY_MISSING")
+        self.assertNotIn("api_key", str(body).lower())
+        invocation = invocations_response.json()["data"][0]
+        self.assertEqual(invocation["status"], "failed")
+        self.assertEqual(invocation["error_summary"], "MODEL_PROVIDER_KEY_MISSING")
+
+    def test_model_provider_models_and_presets_support_binding_and_validation(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            MODEL_CONFIG_ENCRYPTION_KEY=ModelConfigCrypto.generate_key(),
+        )
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+            create_provider_response = client.post(
+                "/api/v1/models/providers",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "name": "Preset Provider",
+                    "base_url": "https://api.example.com/v1",
+                    "api_key": "sk-preset",
+                    "enabled": True,
+                    "is_default": True,
+                },
+            )
+            provider_id = create_provider_response.json()["data"]["id"]
+            text_model_response = client.post(
+                f"/api/v1/models/providers/{provider_id}/models",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "model_name": "text-model",
+                    "enabled": True,
+                    "supports_vision": False,
+                    "is_global_default": True,
+                },
+            )
+            vision_model_response = client.post(
+                f"/api/v1/models/providers/{provider_id}/models",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "model_name": "vision-model",
+                    "enabled": True,
+                    "supports_vision": True,
+                    "is_global_default": False,
+                },
+            )
+            text_model_id = text_model_response.json()["data"]["id"]
+            vision_model_id = vision_model_response.json()["data"]["id"]
+
+            invalid_multimodal_response = client.put(
+                "/api/v1/models/presets/multimodal",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={"primary_model_id": text_model_id, "fallback_model_id": None},
+            )
+            valid_multimodal_response = client.put(
+                "/api/v1/models/presets/multimodal",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={"primary_model_id": vision_model_id, "fallback_model_id": None},
+            )
+            economy_response = client.put(
+                "/api/v1/models/presets/economy_text",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={"primary_model_id": text_model_id, "fallback_model_id": vision_model_id},
+            )
+            presets_response = client.get("/api/v1/models/presets")
+
+        invalid_body = invalid_multimodal_response.json()
+        self.assertEqual(invalid_multimodal_response.status_code, 400)
+        self.assertEqual(invalid_body["error"]["details"]["code"], "MODEL_PRESET_PRIMARY_INVALID")
+
+        valid_multimodal_body = valid_multimodal_response.json()
+        self.assertEqual(valid_multimodal_response.status_code, 200)
+        self.assertEqual(valid_multimodal_body["data"]["preset_key"], "multimodal")
+        self.assertEqual(valid_multimodal_body["data"]["primary_model"]["id"], vision_model_id)
+
+        economy_body = economy_response.json()
+        self.assertEqual(economy_response.status_code, 200)
+        self.assertEqual(economy_body["data"]["preset_key"], "economy_text")
+        self.assertEqual(economy_body["data"]["primary_model"]["id"], text_model_id)
+        self.assertEqual(economy_body["data"]["fallback_model"]["id"], vision_model_id)
+
+        presets_body = presets_response.json()
+        self.assertEqual(presets_response.status_code, 200)
+        by_key = {item["preset_key"]: item for item in presets_body["data"]}
+        self.assertEqual(by_key["multimodal"]["primary_model"]["id"], vision_model_id)
+        self.assertEqual(by_key["economy_text"]["primary_model"]["id"], text_model_id)
+        self.assertEqual(by_key["economy_text"]["fallback_model"]["id"], vision_model_id)
+
+    def test_source_binding_routes_return_envelope_and_mask_sensitive_config(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                session.add(
+                    SourceBindingORM(
+                        binding_id="binding-api-001",
+                        owner_type="industry",
+                        owner_id="semiconductor",
+                        source_plugin_id="quantagent.official.source.rss",
+                        effective_config_snapshot={
+                            "feed": "https://example.com/rss",
+                            "api_key": "should-not-leak",
+                            "keywords": ["chip", "fab"],
+                        },
+                        schedule_policy={"interval_seconds": 300},
+                        retry_policy={"max_attempts": 3},
+                        rate_limit_policy={"requests_per_minute": 10},
+                        status="active",
+                        created_by="issue-226",
+                        updated_by="issue-226",
+                    )
+                )
+                session.add(
+                    SchedulerRunORM(
+                        run_id="run-api-001",
+                        binding_id="binding-api-001",
+                        source_plugin_id="quantagent.official.source.rss",
+                        source_plugin_version=None,
+                        trigger_mode="manual",
+                        request_id="req-run-api-001",
+                        status="failed",
+                        failure_code="PLUGIN_FAILED",
+                        failure_message="sanitized failure",
+                        failure_stage="invoke",
+                        retryable=False,
+                        metadata_json={"actor": {"actor_id": "local_admin", "actor_type": "local_single_user"}},
+                    )
+                )
+                session.commit()
+            finally:
+                session.close()
+
+            self._login_with_client(client, settings)
+            list_response = client.get("/api/v1/source-bindings")
+            detail_response = client.get("/api/v1/source-bindings/binding-api-001")
+            binding_runs_response = client.get("/api/v1/source-bindings/binding-api-001/scheduler-runs")
+
+        list_body = list_response.json()
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_body["code"], 0)
+        self.assertEqual(list_body["data"]["items"][0]["id"], "binding-api-001")
+        self.assertIn("run-now", list_body["data"]["items"][0]["allowed_actions"])
+
+        detail_body = detail_response.json()
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertNotIn("api_key", detail_body["data"]["effective_config_summary"]["values"])
+        self.assertIn("api_key", detail_body["data"]["effective_config_summary"]["secret_fields_masked"])
+
+        binding_runs_body = binding_runs_response.json()
+        self.assertEqual(binding_runs_response.status_code, 200)
+        self.assertEqual(binding_runs_body["data"]["meta"]["state"], "ready")
+        self.assertIsNone(binding_runs_body["data"]["meta"]["page"]["cursor"])
+        self.assertIsNone(binding_runs_body["data"]["meta"]["page"]["next_cursor"])
+        self.assertEqual(binding_runs_body["data"]["items"][0]["binding_id"], "binding-api-001")
+        self.assertEqual(binding_runs_body["data"]["items"][0]["run_id"], "run-api-001")
+        self.assertEqual(binding_runs_body["data"]["items"][0]["plugin_id"], "quantagent.official.source.rss")
+        self.assertEqual(
+            binding_runs_body["data"]["items"][0]["error_summary"]["error_code"],
+            "PLUGIN_FAILED",
+        )
+
+    def test_source_binding_runs_meta_preserves_cursor_pagination(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                session.add(
+                    SourceBindingORM(
+                        binding_id="binding-page-001",
+                        owner_type="industry",
+                        owner_id="semiconductor",
+                        source_plugin_id="quantagent.official.source.rss",
+                        effective_config_snapshot={"feed": "https://example.com/rss"},
+                        schedule_policy={"interval_seconds": 300},
+                        retry_policy={"max_attempts": 3},
+                        rate_limit_policy={"requests_per_minute": 10},
+                        status="active",
+                        created_by="issue-226",
+                        updated_by="issue-226",
+                    )
+                )
+                session.add(
+                    SchedulerRunORM(
+                        run_id="run-page-002",
+                        binding_id="binding-page-001",
+                        source_plugin_id="quantagent.official.source.rss",
+                        source_plugin_version=None,
+                        trigger_mode="manual",
+                        request_id="req-page-002",
+                        status="failed",
+                        created_at=datetime(2026, 6, 1, 9, 1, tzinfo=UTC),
+                        failure_code="PLUGIN_FAILED",
+                        failure_message="latest",
+                        failure_stage="invoke",
+                        retryable=False,
+                    )
+                )
+                session.add(
+                    SchedulerRunORM(
+                        run_id="run-page-001",
+                        binding_id="binding-page-001",
+                        source_plugin_id="quantagent.official.source.rss",
+                        source_plugin_version=None,
+                        trigger_mode="manual",
+                        request_id="req-page-001",
+                        status="failed",
+                        created_at=datetime(2026, 6, 1, 9, 0, tzinfo=UTC),
+                        failure_code="PLUGIN_FAILED",
+                        failure_message="older",
+                        failure_stage="invoke",
+                        retryable=False,
+                    )
+                )
+                session.commit()
+            finally:
+                session.close()
+
+            self._login_with_client(client, settings)
+            first_response = client.get(
+                "/api/v1/source-bindings/binding-page-001/scheduler-runs",
+                params={"limit": 1},
+            )
+            first_body = first_response.json()
+            next_cursor = first_body["data"]["meta"]["page"]["next_cursor"]
+            second_response = client.get(
+                "/api/v1/source-bindings/binding-page-001/scheduler-runs",
+                params={"limit": 1, "cursor": next_cursor},
+            )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(first_body["data"]["meta"]["page"]["returned"], 1)
+        self.assertIsNotNone(next_cursor)
+        self.assertEqual(first_body["data"]["items"][0]["run_id"], "run-page-002")
+
+        second_body = second_response.json()
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_body["data"]["meta"]["page"]["cursor"], next_cursor)
+        self.assertIsNone(second_body["data"]["meta"]["page"]["next_cursor"])
+        self.assertEqual(second_body["data"]["meta"]["page"]["returned"], len(second_body["data"]["items"]))
+
+    def test_source_binding_runs_invalid_cursor_uses_bad_request_envelope(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                session.add(
+                    SourceBindingORM(
+                        binding_id="binding-bad-cursor-001",
+                        owner_type="industry",
+                        owner_id="semiconductor",
+                        source_plugin_id="quantagent.official.source.rss",
+                        effective_config_snapshot={"feed": "https://example.com/rss"},
+                        schedule_policy={"interval_seconds": 300},
+                        retry_policy={"max_attempts": 3},
+                        rate_limit_policy={"requests_per_minute": 10},
+                        status="active",
+                        created_by="issue-226",
+                        updated_by="issue-226",
+                    )
+                )
+                session.commit()
+            finally:
+                session.close()
+            self._login_with_client(client, settings)
+            response = client.get(
+                "/api/v1/source-bindings/binding-bad-cursor-001/scheduler-runs",
+                params={"cursor": "not-base64"},
+            )
+
+        body = response.json()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(body["error"]["code"], "BAD_REQUEST")
+        self.assertEqual(body["error"]["details"]["reason"], "invalid cursor")
+
+    def test_source_binding_actions_are_idempotent_and_run_now_is_accepted(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            LOG_USE_MEMORY_SINK=True,
+        )
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                session.add(
+                    SourceBindingORM(
+                        binding_id="binding-action-001",
+                        owner_type="industry",
+                        owner_id="oil",
+                        source_plugin_id="quantagent.official.source.rss",
+                        effective_config_snapshot={"feed": "https://example.com/oil"},
+                        schedule_policy={"interval_seconds": 600},
+                        retry_policy={},
+                        rate_limit_policy={},
+                        status="active",
+                        created_by="issue-226",
+                        updated_by="issue-226",
+                    )
+                )
+                session.commit()
+            finally:
+                session.close()
+
+            csrf_token = self._login_with_client(client, settings)
+            pause_response = client.post(
+                "/api/v1/source-bindings/binding-action-001/actions/pause",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+            )
+            repeat_pause_response = client.post(
+                "/api/v1/source-bindings/binding-action-001/actions/pause",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+            )
+            run_now_response = client.post(
+                "/api/v1/source-bindings/binding-action-001/actions/run-now",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token, "X-Request-ID": "req-run-now-api"},
+            )
+            invalid_binding_response = client.post(
+                "/api/v1/source-bindings/missing-binding/actions/pause",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+            )
+
+            audit_handler = next(
+                handler
+                for handler in logging.getLogger("quantagent.api").handlers
+                if isinstance(handler, InMemoryStructuredHandler)
+            )
+            session = client.app.state.db_session_factory()
+            try:
+                created_runs = session.query(SchedulerRunORM).filter(SchedulerRunORM.request_id == "req-run-now-api").all()
+            finally:
+                session.close()
+
+        pause_body = pause_response.json()
+        self.assertEqual(pause_response.status_code, 200)
+        self.assertFalse(pause_body["data"]["already_in_target_state"])
+        self.assertEqual(pause_body["data"]["target_state"], "paused")
+
+        repeat_pause_body = repeat_pause_response.json()
+        self.assertEqual(repeat_pause_response.status_code, 200)
+        self.assertTrue(repeat_pause_body["data"]["already_in_target_state"])
+
+        run_now_body = run_now_response.json()
+        self.assertEqual(run_now_response.status_code, 200)
+        self.assertEqual(run_now_body["data"]["request_id"], "req-run-now-api")
+        self.assertEqual(len(created_runs), 1)
+        self.assertEqual(created_runs[0].status, "queued")
+
+        invalid_body = invalid_binding_response.json()
+        self.assertEqual(invalid_binding_response.status_code, 404)
+        self.assertEqual(invalid_body["error"]["code"], "NOT_FOUND")
+
+        audit_records = [json.loads(record) for record in audit_handler.records]
+        action_records = [
+            record
+            for record in audit_records
+            if record.get("event") == "audit.context.bound" and record.get("action", "").startswith("source-binding.")
+        ]
+        self.assertTrue(action_records)
+        self.assertTrue(
+            any(
+                record.get("audit_ref") == run_now_body["data"]["audit_ref"]
+                and record.get("target_id") == "binding-action-001"
+                and record.get("result") == "accepted"
+                for record in action_records
+            )
+        )
+
+    def test_discord_interactions_endpoint_returns_not_found_when_disabled(self) -> None:
+        response = self.client.post("/api/v1/integrations/discord/interactions", content=b"{}")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(body["error"]["code"], "NOT_FOUND")
+
+    def test_notification_ingress_endpoint_rejects_invalid_signature(self) -> None:
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": "a" * 64},
+            )
+        )
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/notifications/ingress",
+                content=b'{"type":1}',
+                headers={
+                    "X-Signature-Timestamp": str(int(time.time())),
+                    "X-Signature-Ed25519": "00",
+                },
+            )
+
+        body = response.json()
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(body["error"], "SIGNATURE_INVALID")
+
+    def test_notification_ingress_endpoint_returns_pong_for_valid_ping(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": public_key},
+            )
+        )
+        body = b'{"type":1}'
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/notifications/ingress",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                    "X-Request-ID": "req-discord-ping",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["X-Request-ID"], "req-discord-ping")
+        self.assertEqual(response.json(), {"type": 1})
+
+    def test_notification_ingress_endpoint_returns_response_for_valid_command(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={
+                    "public_key": public_key,
+                    "response_text": "API route received interaction.",
+                },
+            )
+        )
+        body = json.dumps(
+            {
+                "id": "1234567890",
+                "application_id": "app-1",
+                "type": 2,
+                "guild_id": "guild-1",
+                "channel_id": "channel-1",
+                "member": {"user": {"id": "user-1"}},
+                "data": {
+                    "name": "notify",
+                    "options": [{"name": "text", "type": 3, "value": "hello from discord"}],
+                },
+            }
+        ).encode("utf-8")
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/notifications/ingress",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": 4,
+                "data": {
+                    "content": "API route received interaction.",
+                    "flags": 64,
+                },
+            },
+        )
+
+    def test_notification_ingress_endpoint_enforces_plugin_allowlists(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={
+                    "public_key": public_key,
+                    "guild_allowlist": ["guild-allowed"],
+                },
+            )
+        )
+        body = json.dumps(
+            {
+                "id": "1234567890",
+                "application_id": "app-1",
+                "type": 2,
+                "guild_id": "guild-blocked",
+                "channel_id": "channel-1",
+                "member": {"user": {"id": "user-1"}},
+                "data": {
+                    "name": "notify",
+                    "options": [{"name": "text", "type": 3, "value": "hello from discord"}],
+                },
+            }
+        ).encode("utf-8")
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/notifications/ingress",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "GUILD_NOT_ALLOWED")
+
+    def test_notification_ingress_endpoint_returns_bad_request_for_unsupported_type(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": public_key},
+            )
+        )
+        body = b'{"type":3}'
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/notifications/ingress",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "UNSUPPORTED_EVENT_TYPE")
+
+    def test_notification_ingress_endpoint_rejects_stale_timestamp(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": public_key},
+            )
+        )
+        body = b'{"type":1}'
+        timestamp = "1"
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/notifications/ingress",
+                content=body,
+                headers={
+                    "X-Signature-Timestamp": timestamp,
+                    "X-Signature-Ed25519": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"], "TIMESTAMP_INVALID")
+
+    def test_notification_ingress_endpoint_rejects_plugin_without_receive_handler(self) -> None:
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": "a" * 64},
+            )
+        )
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(
+                get_plugin=lambda _plugin_id: SimpleNamespace(
+                    status=PluginStatus.VALID,
+                    manifest=SimpleNamespace(capabilities=("notification.receive",)),
+                )
+            )
+            with patch("quantagent.api.services.notification_ingress.PluginRuntimeService.invoke") as invoke:
+                invoke.return_value = SimpleNamespace(error=SimpleNamespace(code="boom"), result=None)
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/v1/integrations/notifications/ingress",
+                        content=b'{"type":1}',
+                        headers={
+                            "X-Signature-Timestamp": str(int(time.time())),
+                            "X-Signature-Ed25519": "00",
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
+    def test_notification_ingress_endpoint_rejects_plugin_without_receive_capability(self) -> None:
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": "a" * 64},
+            )
+        )
+        invalid_record = PluginRecord(
+            id="quantagent.official.notification.discord",
+            source=PluginSource.OFFICIAL,
+            path=Path("/tmp/fake-plugin"),
+            status=PluginStatus.VALID,
+            manifest=PluginManifest(
+                id="quantagent.official.notification.discord",
+                name="Discord Notification",
+                type=PluginType.NOTIFICATION,
+                version="0.1.0",
+                entrypoint="src.discord_plugin:plugin",
+                capabilities=("notification.send",),
+                config_schema="config.schema.json",
+            ),
+        )
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(get_plugin=lambda _plugin_id: invalid_record)
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/v1/integrations/notifications/ingress",
+                    content=b'{"type":1}',
+                    headers={
+                        "X-Signature-Timestamp": str(int(time.time())),
+                        "X-Signature-Ed25519": "00",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
+    def test_notification_ingress_endpoint_rejects_plugin_with_invalid_result_shape(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": public_key},
+            )
+        )
+
+        body = b'{"type":1}'
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(
+                get_plugin=lambda _plugin_id: SimpleNamespace(
+                    status=PluginStatus.VALID,
+                    manifest=SimpleNamespace(capabilities=("notification.receive",)),
+                )
+            )
+            with patch("quantagent.api.services.notification_ingress.PluginRuntimeService.invoke") as invoke:
+                invoke.return_value = SimpleNamespace(
+                    error=None,
+                    result=SimpleNamespace(output={"accepted": True, "code": "RECEIVED", "message": "ok", "response": "not-a-mapping", "item": {"interaction_id": "1", "source_id": "s", "text": "t"}, "retryable": False}),
+                )
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/v1/integrations/notifications/ingress",
+                        content=body,
+                        headers={
+                            "X-Signature-Timestamp": timestamp,
+                            "X-Signature-Ed25519": signature,
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
+    def test_notification_ingress_endpoint_rejects_success_result_without_response_payload(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": public_key},
+            )
+        )
+
+        body = b'{"type":1}'
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(
+                get_plugin=lambda _plugin_id: SimpleNamespace(
+                    status=PluginStatus.VALID,
+                    manifest=SimpleNamespace(capabilities=("notification.receive",)),
+                )
+            )
+            with patch("quantagent.api.services.notification_ingress.PluginRuntimeService.invoke") as invoke:
+                invoke.return_value = SimpleNamespace(
+                    error=None,
+                    result=SimpleNamespace(output={"accepted": True, "code": "RECEIVED", "message": "ok", "response": None, "item": {"interaction_id": "1", "source_id": "s", "text": "t"}, "retryable": False}),
+                )
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/v1/integrations/notifications/ingress",
+                        content=body,
+                        headers={
+                            "X-Signature-Timestamp": timestamp,
+                            "X-Signature-Ed25519": signature,
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+
+    def test_notification_ingress_endpoint_allows_response_only_success_without_item(self) -> None:
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode(encoder=HexEncoder).decode("utf-8")
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": public_key},
+            )
+        )
+
+        body = json.dumps(
+            {
+                "id": "1234567890",
+                "application_id": "app-1",
+                "type": 2,
+                "guild_id": "guild-1",
+                "channel_id": "channel-1",
+                "member": {"user": {"id": "user-1"}},
+                "data": {
+                    "name": "notify",
+                    "options": [{"name": "text", "type": 3, "value": "hello from discord"}],
+                },
+            }
+        ).encode("utf-8")
+        timestamp = str(int(time.time()))
+        signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+        with patch("quantagent.api.services.plugin_registry.get_plugin_registry") as get_registry:
+            get_registry.return_value = SimpleNamespace(
+                get_plugin=lambda _plugin_id: SimpleNamespace(
+                    status=PluginStatus.VALID,
+                    manifest=SimpleNamespace(capabilities=("notification.receive",)),
+                )
+            )
+            with patch("quantagent.api.services.notification_ingress.PluginRuntimeService.invoke") as invoke:
+                invoke.return_value = SimpleNamespace(
+                    error=None,
+                    result=SimpleNamespace(
+                        output={
+                            "accepted": True,
+                            "code": "CHALLENGE",
+                            "message": "ok",
+                            "response_status_code": 200,
+                            "response": {"type": 4, "data": {"content": "ok", "flags": 64}},
+                            "item": None,
+                            "retryable": False,
+                        }
+                    ),
+                )
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/v1/integrations/notifications/ingress",
+                        content=body,
+                        headers={
+                            "X-Signature-Timestamp": timestamp,
+                            "X-Signature-Ed25519": signature,
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"type": 4, "data": {"content": "ok", "flags": 64}})
+
+    def test_notification_ingress_endpoint_uses_injected_core_ingress_service(self) -> None:
+        class _InjectedIngress:
+            def __init__(self) -> None:
+                self.calls = []
+
+            async def receive(self, **kwargs):
+                self.calls.append(kwargs)
+                return SimpleNamespace(
+                    receive_result=SimpleNamespace(
+                        accepted=True,
+                        response_status_code=200,
+                        response={"type": 4, "data": {"content": "handoff queued", "flags": 64}},
+                    )
+                )
+
+        injected = _InjectedIngress()
+        app = create_app(
+            self._settings(
+                NOTIFICATION_INGRESS_ENABLED=True,
+                NOTIFICATION_INGRESS_PLUGIN_ID="quantagent.official.notification.discord",
+                NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": "a" * 64, "webhook_url": "https://discord.example/secret-token"},
+            )
+        )
+        app.state.notification_core_ingress_service = injected
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/notifications/ingress",
+                content=b'{"type":2}',
+                headers={"X-Request-ID": "req-injected"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["content"], "handoff queued")
+        self.assertEqual(len(injected.calls), 1)
+        self.assertEqual(injected.calls[0]["plugin_id"], "quantagent.official.notification.discord")
+        self.assertEqual(injected.calls[0]["request_id"], "req-injected")
+        rendered = str(response.json())
+        self.assertNotIn("secret-token", rendered)
+
     def test_missing_capability_is_forbidden(self) -> None:
         reduced_capabilities = frozenset({"plugin.configure"})
         issued_session = issue_session("local_admin", self.settings, capabilities=reduced_capabilities)
@@ -1195,12 +3075,17 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertTrue({"code", "data", "msg", "error"}.issubset(ready_schema["properties"].keys()))
 
         self.assertIn("auth", schema["paths"]["/api/v1/auth/login"]["post"]["tags"])
+        self.assertIn("integrations", schema["paths"]["/api/v1/integrations/notifications/ingress"]["post"]["tags"])
         self.assertIn("auth", schema["paths"]["/api/v1/auth/logout"]["post"]["tags"])
         self.assertIn("auth", schema["paths"]["/api/v1/auth/refresh"]["post"]["tags"])
         self.assertIn("auth", schema["paths"]["/api/v1/me"]["get"]["tags"])
         self.assertIn("plugins", schema["paths"]["/api/v1/plugins"]["get"]["tags"])
         self.assertIn("plugins", schema["paths"]["/api/v1/plugins/{plugin_id}"]["get"]["tags"])
+        self.assertIn("plugins", schema["paths"]["/api/v1/plugins/{plugin_id}/config"]["get"]["tags"])
         self.assertIn("plugins", schema["paths"]["/api/v1/plugins/{plugin_id}/config-schema"]["get"]["tags"])
+        self.assertIn("plugins", schema["paths"]["/api/v1/plugins/{plugin_id}/dependencies"]["get"]["tags"])
+        self.assertIn("plugins", schema["paths"]["/api/v1/plugins/{plugin_id}/health"]["get"]["tags"])
+        self.assertIn("plugins", schema["paths"]["/api/v1/plugins/{plugin_id}/audit"]["get"]["tags"])
         self.assertIn("plugins", schema["paths"]["/api/v1/plugins/actions/rescan"]["post"]["tags"])
         self.assertEqual(
             {
@@ -1221,6 +3106,25 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertIn("wallet", schema["paths"]["/api/v1/wallet/accounts/{account_id}/cash-balances"]["get"]["tags"])
         self.assertNotIn("/api/v1/wallet/accounts", schema["paths"])
         self.assertNotIn("/api/v1/wallet/accounts/{account_id}/wallet-facts", schema["paths"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers"]["get"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers"]["post"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}"]["get"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}"]["put"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/actions/set-default"]["post"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/actions/test-connection"]["post"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/models"]["post"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/models/{model_id}"]["put"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/providers/{provider_id}/models/{model_id}"]["delete"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/presets"]["get"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/presets/{preset_key}"]["put"]["tags"])
+        self.assertIn("models", schema["paths"]["/api/v1/models/invocations"]["get"]["tags"])
+        self.assertIn("source-bindings", schema["paths"]["/api/v1/source-bindings"]["get"]["tags"])
+        self.assertIn("source-bindings", schema["paths"]["/api/v1/source-bindings/{binding_id}"]["get"]["tags"])
+        self.assertIn("source-bindings", schema["paths"]["/api/v1/source-bindings/{binding_id}/scheduler-runs"]["get"]["tags"])
+        self.assertIn("source-bindings", schema["paths"]["/api/v1/source-bindings/{binding_id}/actions/run-now"]["post"]["tags"])
+        self.assertIn("runtime", schema["paths"]["/api/v1/scheduler-runs"]["get"]["tags"])
+        self.assertIn("runtime", schema["paths"]["/api/v1/scheduler-runs/{run_id}"]["get"]["tags"])
+        self.assertIn("runtime", schema["paths"]["/api/v1/runtime/audit/news"]["get"]["tags"])
         self.assertNotIn("/api/v1/auth/test-actions/runtime-inspect", schema["paths"])
 
         login_schema = self._resolve_response_schema(schema, "/api/v1/auth/login", method="post")
@@ -1243,6 +3147,11 @@ class ApiAppTestCase(unittest.TestCase):
 
         plugins_schema = self._resolve_response_schema(schema, "/api/v1/plugins")
         self.assertTrue({"code", "data", "msg", "error"}.issubset(plugins_schema["properties"].keys()))
+        plugin_record_variants = plugins_schema["properties"]["data"]["anyOf"]
+        plugin_record_array_schema = next(variant for variant in plugin_record_variants if variant.get("type") == "array")
+        plugin_record_schema = self._resolve_schema_ref(schema, plugin_record_array_schema["items"])
+        manifest_schema = self._resolve_schema_ref(schema, plugin_record_schema["properties"]["manifest"]["anyOf"][0])
+        self.assertIn("source_bindings", manifest_schema["properties"])
 
         wallet_account_schema = self._resolve_response_schema(schema, "/api/v1/wallet/accounts/{account_id}")
         wallet_account_data_schema = self._resolve_schema_ref(schema, wallet_account_schema["properties"]["data"])
@@ -1268,6 +3177,28 @@ class ApiAppTestCase(unittest.TestCase):
             }.issubset(wallet_cash_items_schema["properties"])
         )
 
+        models_schema = self._resolve_response_schema(schema, "/api/v1/models/providers")
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(models_schema["properties"].keys()))
+
+        source_bindings_schema = self._resolve_response_schema(schema, "/api/v1/source-bindings")
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(source_bindings_schema["properties"].keys()))
+
+        binding_runs_schema = self._resolve_response_schema(schema, "/api/v1/source-bindings/{binding_id}/scheduler-runs")
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(binding_runs_schema["properties"].keys()))
+        binding_runs_data_schema = self._resolve_schema_ref(schema, binding_runs_schema["properties"]["data"])
+        binding_runs_meta_schema = self._resolve_schema_ref(schema, binding_runs_data_schema["properties"]["meta"])
+        binding_runs_page_schema = self._resolve_schema_ref(schema, binding_runs_meta_schema["properties"]["page"])
+        self.assertIn("cursor", binding_runs_page_schema["properties"])
+        self.assertIn("next_cursor", binding_runs_page_schema["properties"])
+
+        scheduler_run_schema = self._resolve_response_schema(schema, "/api/v1/scheduler-runs/{run_id}")
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(scheduler_run_schema["properties"].keys()))
+
+        runtime_audit_news_schema = self._resolve_response_schema(schema, "/api/v1/runtime/audit/news")
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(runtime_audit_news_schema["properties"].keys()))
+        runtime_audit_news_data_schema = self._resolve_schema_ref(schema, runtime_audit_news_schema["properties"]["data"])
+        self.assertTrue({"items", "next_cursor", "generated_at"}.issubset(runtime_audit_news_data_schema["properties"].keys()))
+
     def test_production_openapi_excludes_debug_routes(self) -> None:
         production_app = create_app(self._settings(APP_ENV="production"))
         with TestClient(production_app) as client:
@@ -1282,6 +3213,17 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertNotIn("/api/v1/debug/error", schema["paths"])
         self.assertNotIn("/api/v1/debug/success", schema["paths"])
         self.assertNotIn("/api/v1/auth/test-actions/runtime-inspect", schema["paths"])
+
+    def test_create_app_does_not_configure_logging_before_lifespan(self) -> None:
+        shutdown_api_logging()
+        logger = logging.getLogger("quantagent.api")
+        before_handlers = list(logger.handlers)
+        self.addCleanup(shutdown_api_logging)
+        self.addCleanup(lambda: setattr(logger, "handlers", before_handlers))
+
+        create_app(self._settings(AUTH_ENABLED=False))
+
+        self.assertFalse(any(isinstance(handler, InMemoryStructuredHandler) for handler in logger.handlers))
 
     def test_db_session_dependency_closes_session_without_auto_commit(self) -> None:
         session = FakeSession()
@@ -1391,9 +3333,252 @@ class ApiAppTestCase(unittest.TestCase):
         register_api_v1_protected_router(app, self.settings, router)
         return app
 
+    def _seed_runtime_audit_news(self, session) -> None:
+        session.add_all(
+            [
+                SourceBindingORM(
+                    binding_id="binding-runtime-001",
+                    owner_type="industry",
+                    owner_id="semiconductor",
+                    source_plugin_id="quantagent.official.source.rss",
+                    effective_config_snapshot={"feed": "https://example.com/rss"},
+                    schedule_policy={"interval_seconds": 300},
+                    retry_policy={"max_attempts": 3},
+                    rate_limit_policy={"requests_per_minute": 10},
+                    status="active",
+                    created_by="test",
+                    updated_by="test",
+                ),
+                SourceBindingORM(
+                    binding_id="binding-runtime-002",
+                    owner_type="industry",
+                    owner_id="semiconductor",
+                    source_plugin_id="quantagent.official.source.rss",
+                    effective_config_snapshot={"feed": "https://example.com/packaging.xml"},
+                    schedule_policy={"interval_seconds": 300},
+                    retry_policy={"max_attempts": 3},
+                    rate_limit_policy={"requests_per_minute": 10},
+                    status="active",
+                    created_by="test",
+                    updated_by="test",
+                ),
+                SchedulerRunORM(
+                    run_id="run-runtime-001",
+                    binding_id="binding-runtime-001",
+                    source_plugin_id="quantagent.official.source.rss",
+                    source_plugin_version=None,
+                    trigger_mode="scheduled",
+                    request_id="req-run-runtime-001",
+                    status="succeeded",
+                    started_at=datetime(2026, 6, 1, 9, 0, 0, tzinfo=UTC),
+                    finished_at=datetime(2026, 6, 1, 9, 0, 5, tzinfo=UTC),
+                    duration_ms=5000,
+                    captured_count=1,
+                    metadata_json={"trace_id": "trace-runtime-001", "correlation_id": "corr-runtime-001"},
+                ),
+                RawEventORM(
+                    raw_event_id="rawevt-runtime-001",
+                    source_plugin_id="quantagent.official.source.rss",
+                    external_id="entry-runtime-001",
+                    canonical_url="https://semis.example.com/news/hbm",
+                    title="HBM supply tightens",
+                    content="HBM supply chain update for semiconductor audit.",
+                    author="Memory Desk",
+                    published_at=datetime(2026, 6, 1, 8, 30, 0, tzinfo=UTC),
+                    first_captured_at=datetime(2026, 6, 1, 9, 0, 1, tzinfo=UTC),
+                    last_captured_at=datetime(2026, 6, 1, 9, 0, 2, tzinfo=UTC),
+                    raw_payload={"body": "full HBM body", "secret": "secret-token"},
+                    metadata_json={"source": "SemiWire", "feed": "memory", "trace_id": "trace-runtime-001"},
+                    canonical_dedupe_key="dedupe-runtime-001",
+                    dedupe_strategy="canonical_url",
+                    content_hash="hash-runtime-001",
+                    first_binding_id="binding-runtime-001",
+                    first_run_id="run-runtime-001",
+                    duplicate_capture_count=0,
+                    created_at=datetime(2026, 6, 1, 9, 0, 3, tzinfo=UTC),
+                    updated_at=datetime(2026, 6, 1, 9, 0, 3, tzinfo=UTC),
+                ),
+                EventIntakeRoutedEventORM(
+                    event_id="evt-routed-runtime-001",
+                    schema_version="event_intake_decision.v1",
+                    raw_event_id="rawevt-runtime-001",
+                    source_message_id="evt-source-runtime-001",
+                    analysis_request_id="evt-analysis-runtime-001",
+                    binding_id="binding-runtime-001",
+                    owner_type="industry",
+                    owner_id="semiconductor",
+                    request_id="req-1",
+                    correlation_id="corr-runtime-001",
+                    decision="route",
+                    discard_reason="not_discarded",
+                    status="success",
+                    summary="HBM demand is directly relevant.",
+                    output_json={
+                        "schema_version": "event_intake_decision.v1",
+                        "decision": "route",
+                        "discard_reason": "not_discarded",
+                        "quality": {
+                            "is_spam": False,
+                            "noise_flags": [],
+                            "content_completeness": "full",
+                            "enrichment_status": "succeeded",
+                            "confidence": 0.88,
+                        },
+                        "industry_relevance": [
+                            {
+                                "industry_id": "semiconductor",
+                                "relationship": "direct",
+                                "relevance_score": 0.91,
+                                "reason_summary": "HBM demand is directly relevant.",
+                            }
+                        ],
+                        "structured_news": {
+                            "canonical_title": "HBM demand update",
+                            "short_summary": "HBM demand is directly relevant.",
+                            "bullet_summary": ["HBM demand is directly relevant."],
+                            "event_type": "supply_demand",
+                            "entities": ["HBM"],
+                            "companies": [],
+                            "tickers": [],
+                            "technologies": ["HBM"],
+                            "products": ["memory"],
+                            "locations": [],
+                            "numbers": [],
+                            "time_horizon": "near_term",
+                            "source_facts": ["HBM demand and advanced packaging capacity tighten."],
+                            "uncertainties": [],
+                        },
+                        "routing": {
+                            "target_industries": ["semiconductor"],
+                            "target_topics": ["memory"],
+                            "priority": "high",
+                            "requires_deep_analysis": True,
+                            "requires_human_review": False,
+                            "dedupe_key_hint": "https://example.com/hbm",
+                        },
+                        "audit": {
+                            "reason_summary": "Direct semiconductor memory relevance.",
+                            "evidence_field_refs": ["article.title", "article.body_excerpt"],
+                            "schema_validation_status": "valid",
+                        },
+                        "source": {
+                            "plugin_id": "quantagent.official.source.rss",
+                            "binding_id": "binding-runtime-001",
+                            "url": "https://semis.example.com/news/hbm",
+                            "title": "HBM supply tightens",
+                            "published_at": "2026-06-01T08:30:00+00:00",
+                            "source_name": "SemiWire",
+                            "enrichment_status": "succeeded",
+                            "degraded_reason": None,
+                        },
+                        "article": {
+                            "content_completeness": "full",
+                            "body_content_available": True,
+                            "content_length_chars": 48,
+                            "excerpt_start": 0,
+                            "excerpt_end": 48,
+                        },
+                    },
+                    key_fields={
+                        "decision": "route",
+                        "discard_reason": "not_discarded",
+                        "short_summary": "HBM demand is directly relevant.",
+                        "event_type": "supply_demand",
+                        "target_industries": ["semiconductor"],
+                        "target_topics": ["memory"],
+                        "priority": "high",
+                        "requires_deep_analysis": True,
+                        "requires_human_review": False,
+                        "confidence": 0.88,
+                        "is_spam": False,
+                        "relevance": "semiconductor / direct / 0.91",
+                        "schema_validation_status": "valid",
+                    },
+                    source_snapshot={
+                        "plugin_id": "quantagent.official.source.rss",
+                        "binding_id": "binding-runtime-001",
+                        "url": "https://semis.example.com/news/hbm",
+                        "title": "HBM supply tightens",
+                        "published_at": "2026-06-01T08:30:00+00:00",
+                        "author": "Memory Desk",
+                        "language": "en",
+                        "feed_name": "memory",
+                        "source_name": "SemiWire",
+                        "source_tier": None,
+                        "enrichment_status": "succeeded",
+                        "degraded_reason": None,
+                    },
+                    article_snapshot={
+                        "title": "HBM supply tightens",
+                        "rss_summary": "HBM demand and advanced packaging capacity tighten.",
+                        "body_excerpt": "HBM demand and advanced packaging capacity tighten.",
+                        "body_content_available": True,
+                        "content_length_chars": 48,
+                        "excerpt_start": 0,
+                        "excerpt_end": 48,
+                        "content_completeness": "full",
+                    },
+                    provider_invocation_count=1,
+                    invocation_metadata={"status": "succeeded", "provider_metadata": {"model": "router-preview"}},
+                    created_at=datetime(2026, 6, 1, 9, 0, 6, tzinfo=UTC),
+                ),
+                RawEventORM(
+                    raw_event_id="rawevt-runtime-002",
+                    source_plugin_id="quantagent.official.source.rss",
+                    external_id="entry-runtime-002",
+                    canonical_url="https://news.example.com/articles/advanced-packaging",
+                    title="Advanced packaging capacity expands",
+                    content="Advanced packaging capacity expands across outsourced semiconductor assembly and test vendors.",
+                    author="Foundry Desk",
+                    published_at=datetime(2026, 6, 2, 7, 0, 0, tzinfo=UTC),
+                    first_captured_at=datetime(2026, 6, 2, 7, 1, 0, tzinfo=UTC),
+                    last_captured_at=datetime(2026, 6, 2, 7, 1, 2, tzinfo=UTC),
+                    raw_payload={"body": "very large full article body", "secret": "secret-token"},
+                    metadata_json={"source": "Packaging Daily", "feed": "advanced-packaging"},
+                    canonical_dedupe_key="dedupe-runtime-002",
+                    dedupe_strategy="canonical_url",
+                    content_hash="hash-runtime-002",
+                    first_binding_id="binding-runtime-002",
+                    first_run_id=None,
+                    duplicate_capture_count=1,
+                    created_at=datetime(2026, 6, 2, 7, 1, 3, tzinfo=UTC),
+                    updated_at=datetime(2026, 6, 2, 7, 1, 3, tzinfo=UTC),
+                ),
+                RawEventCaptureORM(
+                    capture_id="capture-runtime-001",
+                    raw_event_id="rawevt-runtime-001",
+                    source_plugin_id="quantagent.official.source.rss",
+                    source_binding_id="binding-runtime-001",
+                    scheduler_run_id="run-runtime-001",
+                    capture_dedupe_key="capture-dedupe-runtime-001",
+                    capture_status="captured",
+                    captured_at=datetime(2026, 6, 1, 9, 0, 1, tzinfo=UTC),
+                    request_id="req-capture-001",
+                    metadata_json={"trace_id": "trace-runtime-001", "correlation_id": "corr-runtime-001"},
+                ),
+                RawEventCaptureORM(
+                    capture_id="capture-runtime-002",
+                    raw_event_id="rawevt-runtime-002",
+                    source_plugin_id="quantagent.official.source.rss",
+                    source_binding_id="binding-runtime-002",
+                    scheduler_run_id=None,
+                    capture_dedupe_key="capture-dedupe-runtime-002",
+                    capture_status="captured",
+                    captured_at=datetime(2026, 6, 2, 7, 1, 0, tzinfo=UTC),
+                    request_id="req-capture-002",
+                    metadata_json={},
+                ),
+            ]
+        )
+
     def _login(self) -> None:
         response = self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
         self.assertEqual(response.status_code, 200)
+
+    def _login_with_client(self, client: TestClient, settings: Settings) -> str:
+        response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+        self.assertEqual(response.status_code, 200)
+        return response.json()["data"]["csrf_token"]
 
     def _resolve_response_schema(self, openapi_schema: dict, path: str, *, method: str = "get") -> dict:
         response_schema = openapi_schema["paths"][path][method]["responses"]["200"]["content"]["application/json"]["schema"]
@@ -1419,16 +3604,20 @@ class ApiAppTestCase(unittest.TestCase):
     def _settings(self, **overrides) -> Settings:
         """生成测试默认配置，并允许按场景覆盖个别字段。"""
         baseline = {
+            "_env_file": None,
             "APP_ENV": "development",
             "DATABASE_URL": None,
             "RUNTIME_DIR": "runtime",
             "LOG_LEVEL": "INFO",
             "API_V1_PREFIX": "/api/v1",
-            "HOST": "127.0.0.1",
-            "PORT": 8000,
+            "API_HOST": "127.0.0.1",
+            "API_PORT": 8000,
             "AUTH_ENABLED": True,
             "AUTH_ADMIN_PASSWORD": "test-admin-password",
-            "AUTH_SESSION_SECRET": "test-session-secret",
+            "AUTH_SESSION_SECRET": "test-session-secret-0123456789abcdef",
+            "NOTIFICATION_INGRESS_ENABLED": False,
+            "NOTIFICATION_INGRESS_PLUGIN_ID": "",
+            "NOTIFICATION_INGRESS_PLUGIN_CONFIG": {},
         }
         baseline.update(overrides)
         return Settings(**baseline)

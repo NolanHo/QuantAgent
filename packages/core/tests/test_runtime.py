@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 import types
@@ -106,27 +107,6 @@ class PluginRuntimeServiceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.stage, "load")
         self.assertEqual(error.code, "PLUGIN_LOAD_FAILED")
         self.assertEqual(error.details["error_type"], "ModuleNotFoundError")
-
-    async def test_loads_entrypoint_from_plugin_src_directory(self) -> None:
-        plugin_root = Path(tempfile.mkdtemp())
-        src_dir = plugin_root / "src"
-        src_dir.mkdir(parents=True, exist_ok=True)
-        (src_dir / "plugin_impl.py").write_text(
-            "from quantagent.plugin_sdk import BasePlugin, PluginInvokeResult\n"
-            "\n"
-            "class LocalPlugin(BasePlugin):\n"
-            "    async def invoke(self, request):\n"
-            "        return PluginInvokeResult(output={'loaded_from': 'plugin_src'})\n"
-            "\n"
-            "plugin = LocalPlugin\n",
-            encoding="utf-8",
-        )
-        record = self._record(entrypoint="plugin_impl:plugin", path=plugin_root)
-
-        invocation = await PluginRuntimeService().invoke(record, capability="source.fetch", request_id="req-plugin-path")
-
-        self.assertTrue(invocation.ok)
-        self.assertEqual(invocation.result.output["loaded_from"], "plugin_src")
 
     async def test_missing_capability_returns_invoke_error(self) -> None:
         self._install_module("test_runtime_capability", PlainRuntimePlugin)
@@ -293,6 +273,70 @@ class PluginRuntimeServiceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.result.output["context_request_id"], "req-factory-b")
         self.assertEqual(second.result.output["before_sleep"], "req-factory-b")
 
+    async def test_plugin_path_entrypoint_loads_same_module_name_in_isolation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            first_plugin_dir = root / "first"
+            second_plugin_dir = root / "second"
+            self._write_plugin_module(first_plugin_dir, origin="first")
+            self._write_plugin_module(second_plugin_dir, origin="second")
+
+            runtime = PluginRuntimeService()
+            first, second = await asyncio.gather(
+                runtime.invoke(
+                    self._record(plugin_id="quantagent.test.runtime.first", entrypoint="plugin:plugin", path=first_plugin_dir),
+                    capability="source.fetch",
+                    request_id="req-first",
+                ),
+                runtime.invoke(
+                    self._record(plugin_id="quantagent.test.runtime.second", entrypoint="plugin:plugin", path=second_plugin_dir),
+                    capability="source.fetch",
+                    request_id="req-second",
+                ),
+            )
+
+        self.assertTrue(first.ok)
+        self.assertTrue(second.ok)
+        self.assertEqual(first.result.output["origin"], "first")
+        self.assertEqual(second.result.output["origin"], "second")
+        self.assertNotIn("plugin", sys.modules)
+        self.assertFalse(any(module_name.startswith("_quantagent_plugin_") for module_name in sys.modules))
+
+    async def test_plugin_path_entrypoint_does_not_leak_synthetic_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            plugin_dir = Path(tmpdir) / "plugin"
+            self._write_plugin_module(plugin_dir, origin="leak-check")
+
+            invocation = await PluginRuntimeService().invoke(
+                self._record(entrypoint="plugin:plugin", path=plugin_dir),
+                capability="source.fetch",
+                request_id="req-leak",
+            )
+
+        self.assertTrue(invocation.ok)
+        self.assertFalse(any(module_name.startswith("_quantagent_plugin_") for module_name in sys.modules))
+
+    async def test_plugin_path_entrypoint_does_not_depend_on_current_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            plugin_dir = root / "plugins" / "cwd-safe"
+            other_cwd = root / "other"
+            other_cwd.mkdir()
+            self._write_plugin_module(plugin_dir, origin="cwd-safe")
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(other_cwd)
+                invocation = await PluginRuntimeService().invoke(
+                    self._record(entrypoint="plugin:plugin", path=plugin_dir.resolve()),
+                    capability="source.fetch",
+                    request_id="req-cwd",
+                )
+            finally:
+                os.chdir(old_cwd)
+
+        self.assertTrue(invocation.ok)
+        self.assertEqual(invocation.result.output["origin"], "cwd-safe")
+
     async def test_singleton_object_entrypoint_is_rejected_to_avoid_context_races(self) -> None:
         self._install_module("test_runtime_singleton", PlainRuntimePlugin())
         record = self._record(entrypoint="test_runtime_singleton:plugin")
@@ -376,6 +420,29 @@ class PluginRuntimeServiceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(invocation.cleanup_error)
         self.assertEqual(invocation.cleanup_error.code, "PLUGIN_STOP_FAILED_BY_TEST")
 
+    async def test_cancelled_invoke_waits_for_stop_cleanup(self) -> None:
+        stopped = asyncio.Event()
+
+        class SlowPlugin(BasePlugin):
+            async def invoke(self, request):
+                await asyncio.sleep(10)
+                return PluginInvokeResult(output={"done": True})
+
+            async def stop(self):
+                await asyncio.sleep(0.02)
+                stopped.set()
+
+        self._install_module("test_runtime_cancelled_cleanup", SlowPlugin)
+        record = self._record(entrypoint="test_runtime_cancelled_cleanup:plugin")
+        task = asyncio.create_task(PluginRuntimeService().invoke(record, capability="source.fetch", request_id="req-cancel"))
+        await asyncio.sleep(0)
+
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+        self.assertTrue(stopped.is_set())
+
     async def test_plugin_runtime_error_message_and_details_are_sanitized(self) -> None:
         class SensitiveErrorPlugin(BasePlugin):
             async def invoke(self, request):
@@ -411,20 +478,39 @@ class PluginRuntimeServiceTestCase(unittest.IsolatedAsyncioTestCase):
         sys.modules[module_name] = module
         self._module_names.append(module_name)
 
+    def _write_plugin_module(self, plugin_dir: Path, *, origin: str) -> None:
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "plugin.py").write_text(
+            "\n".join(
+                [
+                    "from quantagent.plugin_sdk import BasePlugin, PluginInvokeResult",
+                    "",
+                    "class TestPlugin(BasePlugin):",
+                    "    async def invoke(self, request):",
+                    f"        return PluginInvokeResult(output={{'origin': {origin!r}, 'request_id': request.request_id}})",
+                    "",
+                    "plugin = TestPlugin",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
     def _record(
         self,
         *,
+        plugin_id: str = "quantagent.test.runtime",
         entrypoint: str = "test_runtime_plugin:plugin",
-        status: PluginStatus = PluginStatus.VALID,
         path: Path | None = None,
+        status: PluginStatus = PluginStatus.VALID,
     ) -> PluginRecord:
         return PluginRecord(
-            id="quantagent.test.runtime",
+            id=plugin_id,
             source=PluginSource.OFFICIAL,
             path=path or Path(tempfile.gettempdir()),
             status=status,
             manifest=PluginManifest(
-                id="quantagent.test.runtime",
+                id=plugin_id,
                 name="Runtime Test",
                 type=PluginType.SOURCE,
                 version="0.1.0",

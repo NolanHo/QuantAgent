@@ -12,21 +12,140 @@ uv sync
 ### 启动 API
 
 ```bash
-APP_ENV=development uv run api
+uv run api
 ```
 
-API 默认监听 `127.0.0.1:8000`。鉴权默认开启（`AUTH_ENABLED=true`）；development 环境下口令使用 `.env.example` 中预设的弱默认值，也可显式设置 `AUTH_ENABLED=false` 完全关闭鉴权（此选项仅 `APP_ENV=development` 允许）。
+默认开发路径建议：
+
+```bash
+cp .env.example .env
+docker compose up -d db
+uv run quantagent-db upgrade
+uv run api
+```
+
+这条路径默认使用：
+
+- 宿主机数据库地址：`DATABASE_URL=postgresql+psycopg://quantagent:quantagent@127.0.0.1:15432/quantagent`
+- API 监听地址：`127.0.0.1:8000`
+- `APP_ENV=local`
+
+本地开发如果 `reload` 残留导致端口被占、服务半死不活或只杀掉了 reloader / worker 其中一个，不要继续手工猜 pid；优先执行：
+
+```bash
+cd apps/api
+uv run api-stop
+```
+
+`api-stop` 会优先读取 `RUNTIME_DIR/data/api/dev-server/` 下记录的 reloader / worker pid，并在缺失 pid 文件时回退到当前 API 监听端口的进程做兜底清理。`uv run api-reset` 当前与 `api-stop` 等价，只保留给本地开发的习惯性口令。
+
+API dotenv 文件按从低到高读取：仓库根目录 `.env`、当前工作目录 `.env`、`apps/api/.env`、`apps/api/.env.local`、`apps/api/.env.<APP_ENV>`、`apps/api/.env.<APP_ENV>.local`。重复变量允许存在，API 目录下的文件会覆盖根 `.env`；真实进程环境变量仍是最高优先级，适合 CI/CD secret、部署 secret 和临时强制覆盖。
+
+`APP_ENV` 先从真实环境变量读取；如果没有，再由根 `.env`、`apps/api/.env`、`apps/api/.env.local` 这几个基础层决定，用于选择对应的 `apps/api/.env.<APP_ENV>` 和 `.local` 文件。无论是从仓库根目录启动，还是在 `apps/api` 目录内直接执行 `uv run api`，都会优先读取仓库根 `.env` 再叠加 API 专属层。协作模板使用 `.example` 后缀，真实 `.env*` 文件不要提交。
+
+API 默认监听 `127.0.0.1:8000`。`APP_ENV=development` 或 `APP_ENV=local` 下，`uv run api` 会默认启用热更新；`staging`/`production` 等非本地环境保持单进程启动。鉴权默认开启（`AUTH_ENABLED=true`）；development、test、local 环境下口令可使用代码中的弱默认值，也可显式设置 `AUTH_ENABLED=false` 完全关闭鉴权；staging 和 production 必须提供安全口令和 session secret。
+
+如果你使用 Compose 跑 API，不需要再额外创建 `apps/api/.env`。默认 `.env.example` 里的 `COMPOSE_DATABASE_URL`、`COMPOSE_RUNTIME_DIR` 已经足够让 `docker compose up --build api` 跑起来。
+
+如果要启用 notification ingress HTTP host，还需要额外配置：
+
+```bash
+NOTIFICATION_INGRESS_ENABLED=true
+NOTIFICATION_INGRESS_PLUGIN_ID=quantagent.official.notification.discord
+NOTIFICATION_INGRESS_PLUGIN_CONFIG='{
+  "provider_specific_field": "provider-specific-value"
+}'
+```
+
+启用后会开放公开 endpoint：
+
+```text
+POST /api/v1/integrations/notifications/ingress
+```
+
+这个 endpoint 是通用 notification ingress HTTP host。它直接返回目标 notification 插件给出的原生 response，不走项目统一 `code/data/msg/error` envelope。
+
+当前实现只落地第一版 HTTP host adapter，但模型设计需要兼容 webhook、websocket、polling 三类 transport。任何平台专属字段都通过 `NOTIFICATION_INGRESS_PLUGIN_CONFIG` 进入目标 notification 插件，API 层不再维护平台专属 env 名称。
+
+Discord approval loop 的发送侧 dispatcher 属于 core/worker/scheduler 可复用能力；当前仓库没有在 API 进程内自动读取这些变量并启动 dispatcher 的默认入口。下面仅给出推荐的环境变量命名，实际需要在 worker/consumer 组装 `NotificationDispatchService` 时读取并接线：
+
+```bash
+NOTIFICATION_DISPATCH_ENABLED=true
+NOTIFICATION_DISPATCH_PLUGIN_ID=quantagent.official.notification.discord
+NOTIFICATION_DISPATCH_PLUGIN_CONFIG='{
+  "webhook_secret_ref": "env:DISCORD_WEBHOOK_URL"
+}'
+NOTIFICATION_DISPATCH_CHANNEL=discord
+```
+
+`NOTIFICATION_INGRESS_PLUGIN_CONFIG` 与 `NOTIFICATION_DISPATCH_PLUGIN_CONFIG` 只放插件配置或 secret reference，不写真实 webhook URL、公钥私钥、token、完整 prompt、私有策略或 broker credential。API host 可以注入带 `ApprovalNotificationHandoffAdapter` 的 core ingress service；没有配置 approval runtime 时会保留 no-op handoff，表示 ingress fact 已记录但不代表真实审批 input 已进入 approval 编排。
+
+真实 Discord `smoke_send.py` / `smoke_receive.py` 仅作为显式 env-gated 补充验证，不属于默认验收；smoke 通过也不表示生产级重试、投递持久化、审批执行或 broker 执行已完成。
+
+### 结构化文件日志
+
+API 会在 `create_app()` 显式初始化 API 私有结构化日志能力。未显式配置 `LOG_DIR` 且 `RUNTIME_DIR` 缺失或为空时，默认写入仓库根 `runtime/logs/api`；如果显式设置了非空 `RUNTIME_DIR`，则默认写入 `RUNTIME_DIR/logs/api`。如果显式设置 `LOG_DIR`，启动时会先解析为绝对路径，再按 stream 写入：
+
+```text
+LOG_DIR/{stream}/YYYY/MM/DD/{service}.{env}.{instance_id}.pid-{pid}.{stream}.{YYYYMMDD}[.part-NNN].jsonl
+```
+
+当前固定 stream：
+
+- `access`：每个 HTTP 请求一条访问日志。
+- `app`：应用启动、关闭和普通运行事件。
+- `error`：未处理异常、DB readiness / session 失败等错误。
+- `security`：未授权、CSRF 失败、能力拒绝等安全事件。
+- `audit`：受保护写操作上下文等文件审计事件。
+
+当前日志格式固定为 JSON Lines，不提供多格式切换。请求与错误响应会同时返回 `X-Request-ID` 和 `X-Trace-ID`；错误 envelope 中的 `error.trace_id` 会与响应头一致。access 日志默认只记录 path，不记录 query string。
+
+当前已支持：
+
+- `LOG_DIR`
+- `LOG_INSTANCE_ID`
+- `LOG_ROTATE_MAX_BYTES`
+- `LOG_QUEUE_MAX_SIZE`
+- `LOG_ACCESS_DROP_WHEN_FULL`
+- `LOG_ACCESS_RETENTION_DAYS`
+- `LOG_APP_RETENTION_DAYS`
+- `LOG_ERROR_RETENTION_DAYS`
+- `LOG_SECURITY_RETENTION_DAYS`
+- `LOG_AUDIT_RETENTION_DAYS`
+- `LOG_MAINTENANCE_MIN_AGE_SECONDS`
+- `LOG_MAX_TOTAL_BYTES`
+- `LOG_MIN_FREE_BYTES`
+
+阶段 2 maintenance 与磁盘保护：
+
+- startup 会先做一次补偿清理：只处理可确认已关闭的 `.jsonl` 文件。
+- 已关闭文件会压缩为 `.jsonl.gz`；无法确认关闭状态的文件会跳过，不会强行压缩或删除。
+- retention 按 stream 独立配置，默认 `access=3`、`app=14`、`error=30`、`security=30`、`audit=90`。
+- disk guard 命中 `LOG_MAX_TOTAL_BYTES` 或 `LOG_MIN_FREE_BYTES` 时，优先丢弃 access，尽量保留 error/security/audit。
+- shutdown 会在 queue drain 完成后做一次 maintenance 收口，避免当前进程刚关闭的活跃文件长期留在未压缩状态。
+
+默认路径与覆盖语义：
+
+- `RUNTIME_DIR` 缺失或为空时，shared settings 会探测源码仓库根，并将默认 runtime 固定到仓库根 `runtime`。
+- `RUNTIME_DIR=runtime`、`RUNTIME_DIR=./runtime`、`RUNTIME_DIR=../runtime` 这类非空相对路径仍按当前进程 cwd 解析，不会被强行改写成仓库根相对路径。
+- 生产、容器和 systemd 部署应显式设置 `RUNTIME_DIR` 或 `LOG_DIR` 指向持久卷路径，例如 `/app/runtime` 或 `/var/lib/quantagent/runtime`。
+
+当前非目标：
+
+- 不写数据库，不替代未来 append-only `audit_logs`。
+- 不接入 OpenTelemetry、APM SDK 或外部日志平台。
+- 不记录 request/response body、完整 headers、cookie、token、password、secret、session 或数据库连接串。
 
 ### 测试
 
 ```bash
-cd apps/api && uv run python -m unittest discover -s src/tests
+cd apps/api && uv run python -m unittest discover -s src
 ```
 
 Alpaca wallet API E2E validation 也落在 `apps/api/src/tests/`，只做测试链路验证，不新增任何 Alpaca route 或 runtime adapter：
 
 - 默认离线 E2E：使用 `apps/api/src/tests/alpaca_wallet_api_e2e_support.py` 中抽出的最小 Alpaca-shaped mapping helper，与 `WalletService.ingest_paper_execution()`、既有 `/api/v1/wallet/**` 只读 endpoints 组成受控读回链路。
-- 可选外部 smoke：只有同时满足 `QUANTAGENT_ALPACA_WALLET_API_E2E_SMOKE=1`、`QUANTAGENT_ALPACA_PAPER_SMOKE=1`、paper credentials 与 `https://paper-api.alpaca.markets` URL guard 时才运行。
+- 可选外部 smoke：只有同时满足 `QUANTAGENT_ALPACA_WALLET_API_E2E_SMOKE=1`、本次命令确认 token、`QUANTAGENT_ALPACA_PAPER_SMOKE=1`、paper credentials 与 `https://paper-api.alpaca.markets` URL guard 时才运行。确认 token 用来避免本机常驻 `.env` 变量让默认 `unittest discover` 误访问外部网络。
 - 外部 smoke 只读取 Alpaca paper account、positions、orders；本地 wallet state 使用 `acct_alpaca_e2e_redacted`、`order_redacted_*`、`client_redacted_*`、`activity_redacted_*` 等脱敏 identifier，不提交 paper order。
 
 窄验证命令：
@@ -40,6 +159,7 @@ cd apps/api && uv run python -m unittest src/tests/test_alpaca_wallet_api_e2e.py
 ```bash
 cd apps/api && \
 QUANTAGENT_ALPACA_WALLET_API_E2E_SMOKE=1 \
+QUANTAGENT_ALPACA_WALLET_API_E2E_RUN_TOKEN=run-external-alpaca-smoke \
 QUANTAGENT_ALPACA_PAPER_SMOKE=1 \
 APCA_API_KEY_ID=redacted \
 APCA_API_SECRET_KEY=redacted \
@@ -53,7 +173,7 @@ uv run python -m unittest src/tests/test_alpaca_wallet_api_e2e.py
 从仓库根目录执行：
 
 ```bash
-cp .env.example .env          # 首次配置，按需修改变量
+cp .env.example .env
 docker compose up -d db
 docker compose --profile migration run --rm migrate
 docker compose up --build api
@@ -67,17 +187,37 @@ docker compose up -d db
 
 `db` 容器内端口为 `5432`，宿主机默认绑定 `127.0.0.1:15432`，可通过 `.env` 中的 `DB_HOST` 和 `DB_PORT` 调整。
 
-Compose 中的 API 容器通过 `API_DATABASE_URL` 连接 `db:5432`；宿主机本地工具通过 `DATABASE_URL` 连接 `localhost:15432`。
+Compose 会直接为 API 容器注入运行时环境变量。默认情况下：
 
-如果修改了 `POSTGRES_DB`、`POSTGRES_USER` 或 `POSTGRES_PASSWORD`，需要同步调整 `API_DATABASE_URL` 和 `MIGRATION_DATABASE_URL`。
+- 容器内数据库使用 `COMPOSE_DATABASE_URL`
+- 容器内运行时目录使用 `COMPOSE_RUNTIME_DIR`
+- 宿主机直跑仍然使用根 `.env` 里的 `DATABASE_URL`
+
+Compose 不注入 `HOST` 或 `PORT`，避免宿主机 shell 变量覆盖 API 配置；容器内监听地址由镜像启动命令固定为 `0.0.0.0:8000`。根 `.env` 中的 `API_BIND_HOST`、`API_PORT` 只控制宿主机发布地址和端口，不改变容器内监听端口。
+
+`api` service 会通过 `PYTHONPATH=/app/apps/api/src:/app/packages/core/src:/app/packages/plugin-sdk/src` 优先加载挂载源码，避免本地 Compose 仍使用镜像内旧 wheel；`./apps/api:/app/apps/api`、`./packages/core:/app/packages/core` 和 `./packages/plugin-sdk:/app/packages/plugin-sdk` 因此用于本地开发源码覆盖。`./runtime:/app/runtime` 挂载前请确认宿主机 `runtime/` 目录已存在，避免 Docker 创建 root-owned 空目录影响后续写入。
+
+如果修改了 `POSTGRES_DB`、`POSTGRES_USER` 或 `POSTGRES_PASSWORD`，需要同步调整根 `.env` 中的 `DATABASE_URL` 和 `COMPOSE_DATABASE_URL`。
 
 ### 数据库迁移
 
-执行 Alembic 迁移，从仓库根目录运行：
+执行数据库迁移，从仓库根目录运行：
 
 ```bash
 docker compose --profile migration run --rm migrate
 ```
+
+本地直跑时使用 `packages/core` 提供的独立 CLI：
+
+```bash
+uv run quantagent-db upgrade
+uv run quantagent-db current
+uv run quantagent-db check
+```
+
+API 启动流程不自动执行迁移；API 只负责创建数据库连接并通过 `/api/v1/ready` 暴露 readiness probe。
+
+如果依赖仓库根目录 `.env` 中的 `DATABASE_URL`，请从仓库根目录运行这些 `uv run` 命令。若在 `packages/core` 或其他子目录执行，需要显式提供 `DATABASE_URL`，或改用 `uv run quantagent-db --database-url <DATABASE_URL> upgrade` 这类带参数的调用。服务器或容器中如果已经把 `quantagent-db` 安装进虚拟环境或镜像 `PATH`，命令默认会从当前目录及其祖先目录尝试定位 `packages/core/alembic.ini` 和 `packages/core/alembic/`；如果部署目录不保留这类仓库结构，需要通过 `QUANTAGENT_CORE_MIGRATION_ROOT=/path/to/packages/core` 显式指定迁移目录。
 
 ### 健康检查
 
@@ -92,21 +232,21 @@ curl -i http://127.0.0.1:8000/api/v1/ready
 
 ### 生产注意事项
 
-仓库本地 Compose 默认值仅用于本地开发，不等同生产安全部署。生产环境启动前，至少在 `.env` 中替换以下变量为安全值：
+仓库本地 Compose 默认值仅用于本地开发，不等同生产安全部署。生产环境启动前，至少在 API dotenv、真实进程环境变量、CI/deployment secret 或未来 Secret Manager 中提供以下安全值：
 
 - `APP_ENV=production`
-- `POSTGRES_PASSWORD`
+- 数据库账号、密码和 `DATABASE_URL`
 - `AUTH_ADMIN_PASSWORD`
 - `AUTH_SESSION_SECRET`（建议用 `openssl rand -hex 32` 生成）
 
-`APP_ENV=production` 时 API 会强制验证这些配置，启动时若检测到弱默认值（`AUTH_ADMIN_PASSWORD=dev-admin-password` 或 `AUTH_SESSION_SECRET=dev-session-secret-change-me`）或配置缺失，会直接报错退出。
+`APP_ENV=production` 时 API 会强制验证这些配置，启动时若检测到弱默认值（`AUTH_ADMIN_PASSWORD=12345678` 或 `AUTH_SESSION_SECRET=dev-session-secret-change-me`）、短口令、短 session secret 或配置缺失，会直接报错退出。
 
 ## API v1 route skeleton
 
 ### 基本约定
 
 - 默认会返回统一的 `code/data/msg/error` 响应信封。
-- 请求与错误响应都会携带 `X-Request-ID`。
+- 请求与错误响应都会携带 `X-Request-ID` 和 `X-Trace-ID`。
 - `APP_ENV=production` 时不会加载 `/api/v1/debug/*` 路由。
 - HTTP 传输层基础能力放在 `src/quantagent/api/http/`。
 - API 私有 Cookie Session 鉴权放在 `src/quantagent/api/auth/`。
@@ -130,7 +270,7 @@ curl -i http://127.0.0.1:8000/api/v1/ready
 - `/api/v1/me` 不再作为主要 refresh 入口；仅在识别旧 v1 cookie 时执行一次兼容升级。
 - 非 production 的 `/api/v1/debug/*` 仍会注册到 OpenAPI，但默认按 protected route 处理，不加入 public allowlist。
 - Cookie 默认 `HttpOnly` 且 `SameSite=Lax`；`APP_ENV=production` 下要求 `Secure=true`。
-- `AUTH_ENABLED=false` 仅允许 `APP_ENV=development`；此时依赖会返回 `local_dev` actor，避免下游审计上下文为空。
+- `AUTH_ENABLED=false` 仅允许 `APP_ENV=development`、`APP_ENV=test` 或 `APP_ENV=local`；此时依赖会返回 `local_dev` actor，避免下游审计上下文为空。
 - Cookie Session 写操作通过 `X-CSRF-Token` header 做 CSRF 校验；login 豁免，refresh/logout 和受保护写操作不豁免。
 - `quantagent.api.routers.v1.register` 中的 `STANDARD_API_V1_ROUTER_REGISTRATIONS` 与 registration helper 是 public/protected 真源；README、OpenAPI 或 route-level ad hoc dependency 只用于说明与补充，不替代该边界。
 
@@ -150,8 +290,28 @@ curl -i http://127.0.0.1:8000/api/v1/ready
 - 不暴露 `WalletFacts` 前端查询 endpoint
 - 不暗示 live broker sync、真实下单、撤单、改单、换汇或资金划转能力
 
-### Auth 环境变量
+### API/Auth 环境变量
 
+- `APP_ENV`：选择 API 运行环境，并决定是否追加读取 `apps/api/.env.<APP_ENV>` 和 `apps/api/.env.<APP_ENV>.local`。
+- `DATABASE_URL`：API 数据库连接串；容器内应指向 `db:5432`，宿主机直跑通常指向 `localhost:15432`。
+- `RUNTIME_DIR`：API 运行时目录；缺失或为空时默认探测到仓库根 `runtime`，显式非空相对路径仍按 cwd 解析，容器内通常显式设为 `/app/runtime`。
+- `LOG_LEVEL`：应用日志级别，例如 `DEBUG`、`INFO`、`WARNING`、`ERROR`。
+- `LOG_DIR`：结构化文件日志根目录；未设置时默认解析为 `RUNTIME_DIR/logs/api`，并在启动时固定为绝对路径。
+- `LOG_INSTANCE_ID`：文件命名中的实例标识；未设置时回退到主机名。
+- `LOG_ROTATE_MAX_BYTES`：单个活跃日志文件的大小轮转阈值，默认 `20971520`。
+- `LOG_QUEUE_MAX_SIZE`：结构化日志内存队列大小，默认 `10000`。
+- `LOG_ACCESS_DROP_WHEN_FULL`：队列满时是否优先丢弃 access 记录，默认 `true`。
+- `LOG_ACCESS_RETENTION_DAYS`：access stream 保留天数，默认 `3`。
+- `LOG_APP_RETENTION_DAYS`：app stream 保留天数，默认 `14`。
+- `LOG_ERROR_RETENTION_DAYS`：error stream 保留天数，默认 `30`。
+- `LOG_SECURITY_RETENTION_DAYS`：security stream 保留天数，默认 `30`。
+- `LOG_AUDIT_RETENTION_DAYS`：audit stream 保留天数，默认 `90`。
+- `LOG_MAINTENANCE_MIN_AGE_SECONDS`：maintenance 认定“关闭文件”的最小安全窗口，默认 `300`。
+- `LOG_MAX_TOTAL_BYTES`：日志目录总大小阈值；达到后优先降级 access。
+- `LOG_MIN_FREE_BYTES`：磁盘剩余空间阈值；低于后优先降级 access。
+- `API_HOST`：直跑 API 时的监听地址，默认 `127.0.0.1`；兼容读取历史变量名 `HOST`。Compose 中不注入该变量，容器内由启动命令监听 `0.0.0.0`。
+- `API_PORT`：直跑 API 时的监听端口，默认 `8000`；兼容读取历史变量名 `PORT`。在根目录 Compose 中，该变量只表示宿主机发布端口，容器内监听端口固定为 `8000`。
+- `API_V1_PREFIX`：API v1 路由前缀，默认 `/api/v1`。
 - `AUTH_ENABLED`：是否启用鉴权，默认 `true`。
 - `AUTH_ADMIN_PASSWORD`：本地管理员登录口令；`APP_ENV=development`、`APP_ENV=test` 和 `APP_ENV=local` 默认值为 `12345678`，`staging` 和 `production` 必须显式提供。
 - `AUTH_SESSION_SECRET`：session 签名 secret；`APP_ENV=development`、`APP_ENV=test` 和 `APP_ENV=local` 可使用默认值，`staging` 和 `production` 必须显式提供。
@@ -162,6 +322,21 @@ curl -i http://127.0.0.1:8000/api/v1/ready
 - `AUTH_SESSION_ABSOLUTE_LIFETIME_SECONDS`：absolute timeout 上限，默认 `86400`。
 - `AUTH_SESSION_REFRESH_THRESHOLD_SECONDS`：显式 refresh 触发重签的剩余 idle 阈值，默认 `1800`。
 - `AUTH_CSRF_HEADER_NAME`：CSRF header 名称，默认 `X-CSRF-Token`。
+- `MODEL_CONFIG_ENCRYPTION_KEY`：模型供应商 API key 入库加密主密钥；配置模型 key 前必须设置，值可用 Fernet key 生成命令创建。API 不会返回或记录该值。
+
+### 模型 provider API
+
+- `GET /api/v1/models/providers`：返回多个 OpenAI-compatible provider 的脱敏摘要列表和默认 provider id。
+- `POST /api/v1/models/providers`：创建新的 provider；请求可提交 API key，服务端加密入库，响应不回显明文。
+- `GET /api/v1/models/providers/{provider_id}`：返回单个 provider 的脱敏详情。
+- `PUT /api/v1/models/providers/{provider_id}`：更新 provider 配置；API key 为写入式覆盖字段。
+- `POST /api/v1/models/providers/{provider_id}/actions/set-default`：将 provider 设为默认项。
+- `POST /api/v1/models/providers/{provider_id}/actions/test-connection`：使用固定 smoke prompt 验证指定 provider，并记录 provider 维度 token usage。
+- `GET /api/v1/models/invocations`：返回最近模型调用摘要；支持按 `provider_id` 过滤。
+
+模型 provider 配置属于受保护管理面，不放入 Settings 或插件配置；写接口需要有效 Cookie Session 和 CSRF header。
+
+AI intake 当前通过受控 structured JSON 路径调用模型。要让 `industry.analysis.requested -> event.routed` 使用真实 provider，所选 provider / model 还必须支持 OpenAI-style `response_format={"type":"json_object"}`，并能稳定返回单个 JSON object。`test-connection` 只验证基础可达性，不覆盖这条结构化输出兼容性。
 
 ### 新增 route 流程
 
@@ -178,5 +353,5 @@ curl -i http://127.0.0.1:8000/api/v1/ready
 新增或调整 API v1 route 后，最小本地验证入口：
 
 ```bash
-cd apps/api && uv run python -m unittest discover -s src/tests
+cd apps/api && uv run python -m unittest discover -s src
 ```

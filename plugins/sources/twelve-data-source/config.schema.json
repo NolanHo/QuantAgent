@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Twelve Data Quote Source Plugin Config (redesign)",
+  "type": "object",
+  "properties": {
+    "symbols": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "要拉取最新报价的股票代码列表"
+    },
+    "twelve_data_api_key_ref": {
+      "type": "object",
+      "description": "Structured secret reference that the host resolves at runtime.",
+      "properties": {
+        "secret_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": ["secret_ref"],
+      "additionalProperties": false
+    },
+    "market": { "type": "string" },
+    "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 30, "default": 10 }
+  },
+  "required": ["symbols"],
+  "additionalProperties": false
+}

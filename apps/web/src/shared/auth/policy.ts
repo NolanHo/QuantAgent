@@ -10,14 +10,13 @@ import {
 } from './capabilities'
 
 export type WorkspaceRoutePath =
+  | '/'
   | '/approvals'
   | '/events'
-  | '/industries'
+  | '/models'
   | '/plugins'
   | '/runtime'
   | '/settings'
-  | '/skills'
-  | '/tools'
 
 export type NavVisibility = 'hidden' | 'visible'
 export type ActionAvailability = 'allowed' | 'disabled-with-reason'
@@ -41,24 +40,22 @@ export interface ActionPolicyResult {
 const DEFAULT_FORBIDDEN_REASON = '当前账号没有执行该操作的权限。'
 
 export const WORKSPACE_ROUTE_POLICY: Record<WorkspaceRoutePath, readonly Capability[]> = {
+  '/': [],
   '/approvals': [APPROVAL_APPROVE_CAPABILITY, APPROVAL_AMEND_CAPABILITY],
   '/events': [RUNTIME_INSPECT_CAPABILITY],
-  '/industries': [RUNTIME_INSPECT_CAPABILITY],
+  '/models': [SECRET_MANAGE_CAPABILITY],
   '/plugins': [PLUGIN_CONFIGURE_CAPABILITY, PLUGIN_INSTALL_CAPABILITY],
   '/runtime': [RUNTIME_INSPECT_CAPABILITY],
-  '/settings': [SECRET_MANAGE_CAPABILITY],
-  '/skills': [RUNTIME_INSPECT_CAPABILITY],
-  '/tools': [RUNTIME_INSPECT_CAPABILITY],
+  '/settings': [],
 }
 
 export const NAV_POLICY: readonly NavPolicyEntry[] = [
+  { label: '仪表盘', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/'], to: '/' },
   { label: '事件', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/events'], to: '/events' },
-  { label: '运行态', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/runtime'], to: '/runtime' },
   { label: '审批', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/approvals'], to: '/approvals' },
+  { label: '运行态', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/runtime'], to: '/runtime' },
   { label: '插件', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/plugins'], to: '/plugins' },
-  { label: '技能', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/skills'], to: '/skills' },
-  { label: '工具', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/tools'], to: '/tools' },
-  { label: '行业包', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/industries'], to: '/industries' },
+  { label: '模型', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/models'], to: '/models' },
   { label: '设置', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/settings'], to: '/settings' },
 ] as const
 
@@ -75,7 +72,25 @@ export function hasAnyCapability(
   capabilities: ReadonlySet<string>,
   requiredAnyOf: readonly Capability[],
 ): boolean {
+  if (requiredAnyOf.length === 0) {
+    return true
+  }
+
   return requiredAnyOf.some((capability) => capabilities.has(capability))
+}
+
+export function resolveWorkspaceRoutePath(pathname: string): WorkspaceRoutePath | null {
+  if (pathname === '/') {
+    return '/'
+  }
+
+  const families = (Object.keys(WORKSPACE_ROUTE_POLICY) as WorkspaceRoutePath[]).filter(
+    (route) => route !== '/',
+  )
+
+  const matchedFamily = families.find((family) => pathname === family || pathname.startsWith(`${family}/`))
+
+  return matchedFamily ?? null
 }
 
 export function checkCapabilities(

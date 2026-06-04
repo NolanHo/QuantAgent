@@ -1,10 +1,16 @@
+import { Card } from '@heroui/react'
+
 import styles from './PlaceholderPanel.module.css'
 
 export function PlaceholderPanel({ title, copy }: { title: string; copy: string }) {
   return (
-    <article className={styles.panel}>
-      <h2 className={styles.title}>{title}</h2>
-      <p className={styles.copy}>{copy}</p>
-    </article>
+    <Card className={styles.panel}>
+      <Card.Header>
+        <Card.Title className={styles.title}>{title}</Card.Title>
+      </Card.Header>
+      <Card.Content>
+        <Card.Description className={styles.copy}>{copy}</Card.Description>
+      </Card.Content>
+    </Card>
   )
 }

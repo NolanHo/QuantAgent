@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
+import importlib.util
 import inspect
 import logging
 import re
 import sys
+import types
+import uuid
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -172,7 +175,8 @@ class PluginRuntimeService:
 
     async def stop_plugin(self, plugin: Any, *, plugin_id: str | None = None) -> PluginError | None:
         try:
-            await _call_async(plugin.stop())
+            # Stop is the runtime cleanup boundary; finish it even when the caller cancels invoke.
+            await _call_async_shielded(plugin.stop())
         except Exception as exc:
             return _to_plugin_error(exc, stage="stop", plugin_id=plugin_id)
         return None
@@ -186,8 +190,7 @@ class PluginRuntimeService:
                 stage="load",
             )
 
-        with _plugin_import_paths(plugin_path):
-            module = self._import_module(module_name)
+        module = self._load_plugin_module(module_name, plugin_path=plugin_path)
         entrypoint_object = module
         for attribute in attribute_name.split("."):
             entrypoint_object = getattr(entrypoint_object, attribute)
@@ -200,6 +203,25 @@ class PluginRuntimeService:
             message="Plugin entrypoint must be a plugin class or factory.",
             stage="load",
         )
+
+    def _load_plugin_module(self, module_name: str, *, plugin_path: Path | None = None) -> Any:
+        module_file = _find_plugin_module_file(module_name, plugin_path=plugin_path)
+        if module_file is None:
+            return self._import_module(module_name)
+
+        synthetic_name = f"_quantagent_plugin_{uuid.uuid4().hex}_{_safe_module_suffix(module_name)}"
+        module = types.ModuleType(synthetic_name)
+        module.__file__ = str(module_file)
+        module.__package__ = ""
+        # 直接按文件内容编译执行，避免并发加载多个同名 plugin.py 时复用错误的模块状态。
+        source = module_file.read_text(encoding="utf-8")
+        code = compile(source, str(module_file), "exec")
+        sys.modules[synthetic_name] = module
+        try:
+            exec(code, module.__dict__)
+        finally:
+            sys.modules.pop(synthetic_name, None)
+        return module
 
 
 def _validate_record(record: PluginRecord) -> PluginError | None:
@@ -231,10 +253,49 @@ def _has_runtime_shape(plugin: Any) -> bool:
     )
 
 
+def _find_plugin_module_file(module_name: str, *, plugin_path: Path | None = None) -> Path | None:
+    if plugin_path is None:
+        return None
+    plugin_root = plugin_path.resolve()
+    module_parts = module_name.split(".")
+    if not module_parts or any(not item for item in module_parts):
+        return None
+
+    module_path = plugin_root.joinpath(*module_parts)
+    candidates = (module_path.with_suffix(".py"), module_path / "__init__.py")
+    for candidate in candidates:
+        if candidate.is_file() and _is_path_inside_root(candidate, plugin_root):
+            return candidate
+    return None
+
+
+def _is_path_inside_root(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _safe_module_suffix(module_name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]", "_", module_name)
+
+
 async def _call_async(value: Awaitable[Any] | Any) -> Any:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+async def _call_async_shielded(value: Awaitable[Any] | Any) -> Any:
+    if not inspect.isawaitable(value):
+        return value
+    task = asyncio.ensure_future(value)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
 
 
 def _to_plugin_error(exc: Exception, *, stage: str, plugin_id: str | None = None) -> PluginError:
@@ -302,26 +363,3 @@ def _sanitize_detail_value(key: str, value: Any) -> Any:
 def _is_sensitive_key(key: str) -> bool:
     normalized_key = key.lower().replace("-", "_")
     return any(keyword in normalized_key for keyword in SENSITIVE_KEYWORDS)
-
-
-@contextmanager
-def _plugin_import_paths(plugin_path: Path | None):
-    if plugin_path is None:
-        yield
-        return
-
-    candidates = [plugin_path, plugin_path / "src"]
-    inserted: list[str] = []
-    try:
-        for candidate in candidates:
-            candidate_str = str(candidate)
-            if candidate.is_dir() and candidate_str not in sys.path:
-                sys.path.insert(0, candidate_str)
-                inserted.append(candidate_str)
-        yield
-    finally:
-        for candidate_str in reversed(inserted):
-            try:
-                sys.path.remove(candidate_str)
-            except ValueError:
-                continue

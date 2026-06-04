@@ -1,5 +1,6 @@
 export * from "./api";
 export * from "./capabilities";
-export * from "./context";
+export * from "./hooks";
 export * from "./policy";
+export * from "./provider";
 export * from "./types";

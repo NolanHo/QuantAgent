@@ -6,12 +6,17 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi[standard]>=0.136.1",
+    "pynacl>=1.5.0",
     "pydantic-settings>=2.14.1",
+    "python-dotenv>=1.2.2",
     "quantagent-core",
 ]
 
 [project.scripts]
 api = "quantagent.api.main:run"
+api-stop = "quantagent.api.main:stop"
+api-reset = "quantagent.api.main:reset"
+api-discord-approval-smoke = "quantagent.api.demo.discord_approval_smoke:main"
 
 [tool.uv.sources]
 quantagent-core = { workspace = true }

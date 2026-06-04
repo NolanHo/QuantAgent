@@ -31,8 +31,8 @@
 | 数据库迁移 | Alembic |
 | 插件 manifest | `plugin.yaml` |
 | 插件配置 schema | Zod authoring + JSON Schema runtime validation |
-| 初版 Event Bus | 进程内实现 |
-| 后续 Event Bus 演进 | Redis |
+| 初版 Event Bus | Kafka 运行默认 + memory 测试 fake |
+| 后续 Event Bus 演进 | Kafka 扩展 outbox / replay / DLQ |
 | 初版插件热重载 | 支持 |
 | 前端插件配置 | 仅支持 schema 驱动表单 |
 
@@ -426,14 +426,14 @@ Plugin Discovery
 - FastAPI 不需要知道每个插件的具体类。
 - 行业包可以组合多个数据源插件。
 - 同一个事件可以广播给多个行业包。
-- 后续拆成微服务时，Event Bus 可以从进程内实现替换为 Redis、NATS、Kafka 等消息系统。
+- 后续拆成微服务时，Event Bus 可以继续沿 Kafka 路线扩展 outbox、replay、DLQ 等能力，或在新的 OpenSpec 下评估其他消息系统。
 - 第三方插件可以通过 SDK 接入，而不是修改核心代码。
 
 ### 初版 Event Bus 选择
 
-初版使用进程内 Event Bus。原因是 0 到 1 阶段更容易调试，部署依赖更少，也能更快验证插件生命周期、行业包路由和 Agent workflow。
+初版运行态默认使用 Kafka runtime，`memory` fake 只保留给单元测试和单进程 smoke。这样做的原因是 RSS 抓取、worker 路由和后续 runtime audit 都依赖跨进程事件传递，默认 memory 会让 `scheduler` 与 `worker` 看起来都启动了但实际无法通信。
 
-设计时需要保留消息总线接口，避免业务代码直接依赖进程内实现。后续需要多容器或微服务化时，可以将实现替换为 Redis Streams，再根据吞吐和可靠性需求评估 NATS 或 Kafka。
+设计时需要保留消息总线接口，避免业务代码直接依赖某个 backend 细节。当前 baseline 是“Kafka 运行默认 + memory 测试 fake”，后续如果需要 outbox、replay、DLQ 或更强恢复语义，应继续沿 Kafka 路线在新 OpenSpec 中演进，而不是回到进程内 / Redis 双轨叙述。
 
 ## 跨语言共享边界
 

@@ -2,7 +2,7 @@ id: quantagent.official.source.jina
 name: Jina Reader Source
 version: 0.1.0
 type: source
-entrypoint: jina_source:plugin
+entrypoint: src.jina_source:plugin
 description: Official Jina Reader source plugin for reading web pages through Jina Reader.
 capabilities:
   - source.fetch

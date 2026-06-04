@@ -2,9 +2,18 @@
 
 本文档中心分为两层：`docs/design/` 是最终设计真相来源，`docs/prd/` 是按设计同步后的产品需求与索引。
 
-## 开发示例
+## Demo 演示
 
-- [Plugin Registry V1 伪代码使用示例](plugin-registry-v1-pseudocode-demo.md)
+| Demo | 说明 |
+| --- | --- |
+| [quantagent-demo CLI](demo/quantagent-demo-cli.md) | 最小闭环：插件扫描 → 触发 → 事件发布 → 消费 |
+| [插件底座 Demo](demo/plugin-registry-v1-pseudocode.md) | Registry → Runtime → Scheduling 全链路说明 |
+
+## 参考文档
+
+| 主题 | 文档 | 说明 |
+| --- | --- | --- |
+| 插件参考 | [Source 插件参考](references/plugins/source.md) | Source 插件运行机制、`effectiveConfig` 合同、兼容层与开发指引 |
 
 ## 设计文档索引
 

@@ -14,6 +14,8 @@
 
 ## 目录与代码
 
+- 规划或实现 Web 变更前，先按根目录 `AGENTS.md` 的 reference 发现机制，用本轮路径和能力关键词在 `.agents/skills/references/`、`docs/design/`、`docs/prd/`、`openspec/specs/` 中查找更具体规范；例如 route、query、API client、runtime、auth、realtime、文件职责、目录拆分、权限或测试。
+- 如果发现共享 Web gate、文件职责规范或相关设计文档，必须先读取并体现在目录规划、文件职责和验证入口中；不能只按当前 `apps/web` 现状或旧 flat 示例继续写。
 - API 调用收敛到 `src/shared/api/`；不要在页面组件里散落裸 `fetch` 或临时请求逻辑。
 - 运行时配置收敛到 `src/shared/config/`；不要在组件中硬编码后端地址或部署参数。
 - 应用级 provider、router、layout 放在 `src/app/`。
@@ -24,6 +26,8 @@
 - 新增共享 UI、应用基础设施或样式前，先检查现有 `src/app/`、`src/shared/` 边界，能复用就不要平行再造。
 - 新增样式优先复用现有 Tailwind token 和 utility；只有 Tailwind 明显不适合时才使用 `*.module.css`。全局样式只保留跨页面 tokens、layout 和 fallback。
 - 服务端状态使用 TanStack Query；页面不得把 REST 快照长期复制进 React state 或绕过 shared API client 手写 envelope/error 处理。
+- `src/features/<domain>/`、`src/shared/<capability>/` 和 `src/app/` 下的目录不能长期扁平堆文件；当一个目录同时承载组件、hooks、types、api、utils 或文档时，必须拆成子目录或职责文件组，避免几十个文件平铺难以定位。
+- 共享能力、复杂 feature 和公共组件目录必须补 `README.md` 或最小 usage note，说明该目录负责什么、公开入口是什么、不要往里继续放什么。
 
 ## 组件与样式
 
@@ -31,6 +35,7 @@
 - TailwindCSS 是默认样式表达；优先使用现有 token、utility 和 `tailwind-merge` 组合样式，避免为普通布局、间距、颜色和状态单独写 CSS。
 - 页面出现可复用区块、复杂状态、表单、表格、timeline、risk panel、权限状态、错误/空/加载态时，必须拆成命名组件和必要 hooks，不能把所有 JSX、请求和状态堆在 route 文件里。
 - 业务组件优先放在对应 `src/features/<domain>/components/`；只有跨两个以上业务域复用且不含业务规则的组件才进入 `src/shared/ui/`。
+- 组件目录增长时，必须继续按 `components/`、`hooks/`、`types/`、`utils/` 等职责拆分；不要在单个目录下无序平铺一批命名随意的组件文件。
 - 新增 UI 必须覆盖 loading、empty、error、permission denied、sensitive masked 等与本功能相关的状态；权限不足和后端错误应显示可排查的 request id。
 - 管理台 UI 应保持密度、可扫描性和操作反馈，不写营销落地页式 hero、装饰性大卡片或与运行时管理无关的介绍文案。
 
@@ -38,6 +43,7 @@
 
 - 页面文案默认使用中文；代码标识、URL path、协议字段和专有名词可保留英文。
 - UI 文案服务管理台操作，不写营销落地页式介绍。
+- 非显然实现、边界条件和架构取舍优先写中文注释，尤其是 auth、API、权限、状态同步、debug 隔离和生成物边界。
 - secret、prompt、私有策略和敏感交易细节必须脱敏展示。
 - Agent run、tool invocation、Skill、插件状态和审批信息只展示结构化摘要，不展示完整模型推理链。
 - 插件配置优先使用 schema-driven form；没有明确契约和安全边界前，不允许插件注入自定义前端组件。
