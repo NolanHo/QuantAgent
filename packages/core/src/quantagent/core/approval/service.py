@@ -537,7 +537,7 @@ class ApprovalOrchestrationService:
         return decision
 
     def _link_decision(self, input_id: str, decision: ApprovalDecision) -> None:
-        self._repository.link_decision_to_input(input_id, decision)
+        self._repository.link_decision_to_input(input_id, decision.approval_id)
 
     def _record_decision_audit(
         self,

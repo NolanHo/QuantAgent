@@ -146,6 +146,13 @@ def upgrade() -> None:
         ["approval_id", "created_at", "record_id"],
     )
     op.create_index("ix_approval_decisions_input", "approval_decisions", ["input_id"])
+    op.create_foreign_key(
+        "fk_approval_requests_latest_decision_record_id",
+        "approval_requests",
+        "approval_decisions",
+        ["latest_decision_record_id"],
+        ["record_id"],
+    )
 
     op.create_table(
         "approval_audit_records",
@@ -179,6 +186,11 @@ def downgrade() -> None:
     op.drop_index("ix_approval_audit_records_request_id", table_name="approval_audit_records")
     op.drop_index("ix_approval_audit_records_approval_created", table_name="approval_audit_records")
     op.drop_table("approval_audit_records")
+    op.drop_constraint(
+        "fk_approval_requests_latest_decision_record_id",
+        "approval_requests",
+        type_="foreignkey",
+    )
     op.drop_index("ix_approval_decisions_input", table_name="approval_decisions")
     op.drop_index("ix_approval_decisions_approval_created", table_name="approval_decisions")
     op.drop_table("approval_decisions")

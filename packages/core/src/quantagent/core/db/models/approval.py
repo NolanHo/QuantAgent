@@ -57,7 +57,15 @@ class ApprovalRequestORM(Base):
     policy_source: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     allowed_channels: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    latest_decision_record_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    latest_decision_record_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey(
+            "approval_decisions.record_id",
+            name="fk_approval_requests_latest_decision_record_id",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)

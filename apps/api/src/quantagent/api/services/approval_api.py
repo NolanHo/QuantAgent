@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
+from fastapi import Request
 from sqlalchemy.orm import Session
 
 from quantagent.api.auth import ActorAuditContext
@@ -32,16 +34,56 @@ from quantagent.core.db.repositories.approval_repository import SQLAlchemyApprov
 from quantagent.core.events import InMemoryEventBus
 
 
-def get_approval_api_service(session: Session) -> ApprovalApiService:
+def get_approval_api_service(
+    session: Session,
+    *,
+    event_publisher: ApprovalEventPublisher,
+) -> ApprovalApiService:
     repository = SQLAlchemyApprovalRepository(session)
-    event_publisher = ApprovalEventPublisher(InMemoryEventBus())
+    deferred_event_publisher = _DeferredApprovalEventPublisher(event_publisher)
     return ApprovalApiService(
         query_service=ApprovalQueryService(repository),
         action_service=ApprovalOrchestrationService(
             repository=repository,
-            event_publisher=event_publisher,
+            event_publisher=deferred_event_publisher,
         ),
+        commit=session.commit,
+        event_publisher=deferred_event_publisher,
     )
+
+
+def get_approval_event_publisher(request: Request) -> ApprovalEventPublisher:
+    publisher = getattr(request.app.state, "approval_event_publisher", None)
+    if publisher is not None:
+        return publisher
+    bus = getattr(request.app.state, "approval_event_bus", None)
+    if bus is None:
+        bus = InMemoryEventBus()
+        request.app.state.approval_event_bus = bus
+    publisher = ApprovalEventPublisher(bus)
+    request.app.state.approval_event_publisher = publisher
+    return publisher
+
+
+class _DeferredApprovalEventPublisher:
+    def __init__(self, publisher: ApprovalEventPublisher) -> None:
+        self._publisher = publisher
+        self._pending: list[Callable[[], Awaitable[object]]] = []
+
+    async def publish_approval_requested(self, *args: object, **kwargs: object) -> None:
+        self._pending.append(lambda: self._publisher.publish_approval_requested(*args, **kwargs))
+
+    async def publish_notification_requested(self, *args: object, **kwargs: object) -> None:
+        self._pending.append(lambda: self._publisher.publish_notification_requested(*args, **kwargs))
+
+    async def publish_approval_completed(self, *args: object, **kwargs: object) -> None:
+        self._pending.append(lambda: self._publisher.publish_approval_completed(*args, **kwargs))
+
+    async def flush(self) -> None:
+        pending = self._pending
+        self._pending = []
+        for publish in pending:
+            await publish()
 
 
 class ApprovalApiService:
@@ -50,9 +92,13 @@ class ApprovalApiService:
         *,
         query_service: ApprovalQueryService,
         action_service: ApprovalOrchestrationService,
+        commit: Callable[[], None],
+        event_publisher: _DeferredApprovalEventPublisher,
     ) -> None:
         self._query_service = query_service
         self._action_service = action_service
+        self._commit = commit
+        self._event_publisher = event_publisher
 
     def list_approvals(self, query: ApprovalListQueryParams) -> ApprovalListResponse:
         page = self._query_service.list_approvals(
@@ -98,6 +144,9 @@ class ApprovalApiService:
         )
         if result.approval is None:
             raise ApprovalQueryNotFoundError(approval_id)
+        # 事务边界：数据库写入与审计先提交，状态通知只在提交成功后发布。
+        self._commit()
+        await self._event_publisher.flush()
         return _action_response(result)
 
 

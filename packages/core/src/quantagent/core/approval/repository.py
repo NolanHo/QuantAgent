@@ -41,7 +41,7 @@ class ApprovalRepository(Protocol):
 
     def save_decision(self, decision: ApprovalDecision) -> None: ...
 
-    def link_decision_to_input(self, input_id: str, decision: ApprovalDecision) -> None: ...
+    def link_decision_to_input(self, input_id: str, approval_id: str) -> None: ...
 
     def get_decision_by_input_id(self, input_id: str, *, approval_id: str | None = None) -> ApprovalDecision | None: ...
 
@@ -146,9 +146,11 @@ class InMemoryApprovalRepository:
         with self._lock:
             self._decisions_by_approval[decision.approval_id].append(decision)
 
-    def link_decision_to_input(self, input_id: str, decision: ApprovalDecision) -> None:
+    def link_decision_to_input(self, input_id: str, approval_id: str) -> None:
         with self._lock:
-            self._decision_by_input.setdefault((decision.approval_id, input_id), decision)
+            decision = self.latest_decision(approval_id)
+            if decision is not None:
+                self._decision_by_input.setdefault((approval_id, input_id), decision)
 
     def get_decision_by_input_id(self, input_id: str, *, approval_id: str | None = None) -> ApprovalDecision | None:
         with self._lock:

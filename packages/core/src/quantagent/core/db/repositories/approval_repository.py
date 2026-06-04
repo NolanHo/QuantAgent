@@ -145,8 +145,15 @@ class SQLAlchemyApprovalRepository:
             reason_summary=evaluation.reason_summary,
             created_at=_utcnow(),
         )
-        self._session.add(row)
-        self._session.flush()
+        try:
+            # 幂等：并发重复评估以唯一约束兜底，冲突时复用已落库记录。
+            with self._session.begin_nested():
+                self._session.add(row)
+                self._session.flush()
+        except IntegrityError:
+            existing = self.get_evaluation_by_input_id(evaluation.input_id, approval_id=evaluation.approval_id)
+            if existing is None:
+                raise
 
     def get_evaluation_by_input_id(self, input_id: str, *, approval_id: str | None = None) -> ApprovalEvaluation | None:
         statement = select(ApprovalEvaluationORM).where(ApprovalEvaluationORM.input_id == input_id)
@@ -173,8 +180,8 @@ class SQLAlchemyApprovalRepository:
             approval_row.latest_decision_record_id = row.record_id
         self._session.flush()
 
-    def link_decision_to_input(self, input_id: str, decision: ApprovalDecision) -> None:
-        row = self._latest_decision_row(decision.approval_id)
+    def link_decision_to_input(self, input_id: str, approval_id: str) -> None:
+        row = self._latest_decision_row(approval_id)
         if row is None:
             return
         if row.input_id is None:

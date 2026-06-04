@@ -1691,26 +1691,27 @@ class ApiAppTestCase(unittest.TestCase):
                     handler=approval_completed,
                 )
             )
-            with patch("quantagent.api.services.approval_api.InMemoryEventBus", return_value=route_bus):
-                approve_response = client.post(
-                    "/api/v1/approvals/approval-smoke-1/actions/approve",
-                    headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke-approve"},
-                    json={"input_id": "input-smoke-approve", "channel": "web", "reason": "approve via smoke"},
-                )
-                reject_response = client.post(
-                    "/api/v1/approvals/approval-smoke-2/actions/reject",
-                    headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke"},
-                    json={"input_id": "input-smoke", "channel": "web", "reason": "reject via smoke"},
-                )
-                reanalysis_response = client.post(
-                    "/api/v1/approvals/approval-smoke-3/actions/request-reanalysis",
-                    headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke-reanalysis"},
-                    json={
-                        "input_id": "input-smoke-reanalysis",
-                        "channel": "web",
-                        "comment": "reanalysis via smoke",
-                    },
-                )
+            client.app.state.approval_event_bus = route_bus
+            client.app.state.approval_event_publisher = ApprovalEventPublisher(route_bus)
+            approve_response = client.post(
+                "/api/v1/approvals/approval-smoke-1/actions/approve",
+                headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke-approve"},
+                json={"input_id": "input-smoke-approve", "channel": "web", "reason": "approve via smoke"},
+            )
+            reject_response = client.post(
+                "/api/v1/approvals/approval-smoke-2/actions/reject",
+                headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke"},
+                json={"input_id": "input-smoke", "channel": "web", "reason": "reject via smoke"},
+            )
+            reanalysis_response = client.post(
+                "/api/v1/approvals/approval-smoke-3/actions/request-reanalysis",
+                headers={"X-CSRF-Token": csrf_token, "X-Request-ID": "req-approval-smoke-reanalysis"},
+                json={
+                    "input_id": "input-smoke-reanalysis",
+                    "channel": "web",
+                    "comment": "reanalysis via smoke",
+                },
+            )
             approve_detail_after = client.get("/api/v1/approvals/approval-smoke-1")
             reject_detail_after = client.get("/api/v1/approvals/approval-smoke-2")
             reanalysis_detail_after = client.get("/api/v1/approvals/approval-smoke-3")
@@ -3475,6 +3476,41 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertIn("runtime", schema["paths"]["/api/v1/scheduler-runs"]["get"]["tags"])
         self.assertIn("runtime", schema["paths"]["/api/v1/scheduler-runs/{run_id}"]["get"]["tags"])
         self.assertIn("runtime", schema["paths"]["/api/v1/runtime/audit/news"]["get"]["tags"])
+        approval_paths = {
+            "/api/v1/approvals": ("get", "ApprovalListResponse"),
+            "/api/v1/approvals/{approval_id}": ("get", "ApprovalDetailResponse"),
+            "/api/v1/approvals/{approval_id}/actions/approve": ("post", "ApprovalActionResponse"),
+            "/api/v1/approvals/{approval_id}/actions/reject": ("post", "ApprovalActionResponse"),
+            "/api/v1/approvals/{approval_id}/actions/request-reanalysis": ("post", "ApprovalActionResponse"),
+        }
+        for path, (method, data_schema_name) in approval_paths.items():
+            self.assertIn(path, schema["paths"])
+            self.assertIn("approvals", schema["paths"][path][method]["tags"])
+            response_ref = schema["paths"][path][method]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+            self.assertIn("ApiResponse_", response_ref)
+            self.assertIn(data_schema_name, response_ref)
+
+        approval_list_schema = self._resolve_response_schema(schema, "/api/v1/approvals")
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(approval_list_schema["properties"].keys()))
+        approval_list_data_schema = self._resolve_schema_ref(schema, approval_list_schema["properties"]["data"])
+        self.assertIn("items", approval_list_data_schema["properties"])
+        self.assertIn("next_cursor", approval_list_data_schema["properties"])
+
+        approval_detail_schema = self._resolve_response_schema(schema, "/api/v1/approvals/{approval_id}")
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(approval_detail_schema["properties"].keys()))
+        approval_detail_data_schema = self._resolve_schema_ref(schema, approval_detail_schema["properties"]["data"])
+        self.assertIn("audit_refs", approval_detail_data_schema["properties"])
+        self.assertIn("decisions", approval_detail_data_schema["properties"])
+
+        approval_action_schema = self._resolve_response_schema(
+            schema,
+            "/api/v1/approvals/{approval_id}/actions/approve",
+            method="post",
+        )
+        self.assertTrue({"code", "data", "msg", "error"}.issubset(approval_action_schema["properties"].keys()))
+        approval_action_data_schema = self._resolve_schema_ref(schema, approval_action_schema["properties"]["data"])
+        self.assertIn("approval", approval_action_data_schema["properties"])
+        self.assertIn("decision", approval_action_data_schema["properties"])
         self.assertNotIn("/api/v1/auth/test-actions/runtime-inspect", schema["paths"])
 
         login_schema = self._resolve_response_schema(schema, "/api/v1/auth/login", method="post")

@@ -48,7 +48,7 @@ class SQLAlchemyApprovalRepositoryTestCase(unittest.TestCase):
         stored_input = self.repository.save_input(user_input)
         self.repository.save_evaluation(evaluation)
         self.repository.save_decision(decision)
-        self.repository.link_decision_to_input(user_input.id, decision)
+        self.repository.link_decision_to_input(user_input.id, decision.approval_id)
         self.session.commit()
 
         self.assertEqual(self.repository.get_action_request(action.id), action)
@@ -94,11 +94,11 @@ class SQLAlchemyApprovalRepositoryTestCase(unittest.TestCase):
         self.repository.save_input(first_input)
         self.repository.save_evaluation(first_evaluation)
         self.repository.save_decision(first_decision)
-        self.repository.link_decision_to_input(first_input.id, first_decision)
+        self.repository.link_decision_to_input(first_input.id, first_decision.approval_id)
         self.repository.save_input(second_input)
         self.repository.save_evaluation(second_evaluation)
         self.repository.save_decision(second_decision)
-        self.repository.link_decision_to_input(second_input.id, second_decision)
+        self.repository.link_decision_to_input(second_input.id, second_decision.approval_id)
         self.session.commit()
 
         self.assertEqual(self.repository.get_input("shared-input", approval_id="approval-1"), first_input)
@@ -178,7 +178,7 @@ class SQLAlchemyApprovalRepositoryTestCase(unittest.TestCase):
         self.repository.save_evaluation(_evaluation())
         decision = _decision(status=ApprovalDecisionStatus.REJECTED)
         self.repository.save_decision(decision)
-        self.repository.link_decision_to_input("input-1", decision)
+        self.repository.link_decision_to_input("input-1", decision.approval_id)
         self.repository.save_audit_record(
             ApprovalAuditRecord(
                 record_id="audit-1",
@@ -237,7 +237,7 @@ class SQLAlchemyApprovalRepositoryTestCase(unittest.TestCase):
         self.repository.save_evaluation(_evaluation(extracted_changes={"token": "eval-token"}))
         decision = _decision(status=ApprovalDecisionStatus.REJECTED)
         self.repository.save_decision(decision)
-        self.repository.link_decision_to_input("input-1", decision)
+        self.repository.link_decision_to_input("input-1", decision.approval_id)
         self.repository.save_audit_record(
             ApprovalAuditRecord(
                 record_id="audit-sensitive",

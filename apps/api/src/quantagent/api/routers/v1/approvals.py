@@ -23,7 +23,11 @@ from quantagent.api.schemas.approvals import (
     ApprovalListQueryParams,
     ApprovalListResponse,
 )
-from quantagent.api.services.approval_api import body_intent_conflicts, get_approval_api_service
+from quantagent.api.services.approval_api import (
+    body_intent_conflicts,
+    get_approval_api_service,
+    get_approval_event_publisher,
+)
 from quantagent.core.approval import ApprovalQueryNotFoundError
 
 
@@ -32,6 +36,7 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 @router.get("", response_model=ApiResponse[ApprovalListResponse], dependencies=[Depends(require_capability(APPROVAL_READ_CAPABILITY))])
 def list_approvals(
+    request: Request,
     status: str | None = Query(default=None),
     risk_level: str | None = Query(default=None),
     required_confirmation_level: str | None = Query(default=None),
@@ -41,7 +46,7 @@ def list_approvals(
     sort: str = Query(default="-updated_at"),
     session: Session = Depends(get_db_session),
 ) -> ApiResponse[ApprovalListResponse]:
-    service = get_approval_api_service(session)
+    service = get_approval_api_service(session, event_publisher=get_approval_event_publisher(request))
     try:
         data = service.list_approvals(
             ApprovalListQueryParams(
@@ -62,9 +67,10 @@ def list_approvals(
 @router.get("/{approval_id}", response_model=ApiResponse[ApprovalDetailResponse], dependencies=[Depends(require_capability(APPROVAL_READ_CAPABILITY))])
 def get_approval(
     approval_id: str,
+    request: Request,
     session: Session = Depends(get_db_session),
 ) -> ApiResponse[ApprovalDetailResponse]:
-    service = get_approval_api_service(session)
+    service = get_approval_api_service(session, event_publisher=get_approval_event_publisher(request))
     try:
         return ApiResponse.success(service.get_detail(approval_id))
     except ApprovalQueryNotFoundError as exc:
@@ -126,11 +132,10 @@ async def _handle_action(
 ) -> ApiResponse[ApprovalActionResponse]:
     if body_intent_conflicts(action=action, body=body):
         raise BadRequestError("Approval action body intent conflicts with path action", details={"action": action})
-    service = get_approval_api_service(session)
+    service = get_approval_api_service(session, event_publisher=get_approval_event_publisher(request))
     context = build_actor_audit_context(request, actor)
     try:
         data = await service.submit_action(approval_id=approval_id, action=action, body=body, context=context)
     except ApprovalQueryNotFoundError as exc:
         raise NotFoundError("Approval not found", details={"approval_id": exc.approval_id}) from exc
-    session.commit()
     return ApiResponse.success(data)
