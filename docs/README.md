@@ -8,6 +8,12 @@
 | --- | --- |
 | [API 文档索引](api/README.md) | 当前 `/api/v1` 路由清单、鉴权 / CSRF 规则和前端对接文档入口 |
 
+## Agent 方案
+
+| 文档 | 说明 |
+| --- | --- |
+| [Agent 方案索引](agent/README.md) | MainAgent / PlannerExecutor 架构草案、行业包开发模型、半导体样例和工具契约 |
+
 ## Demo 演示
 
 | Demo | 说明 |
