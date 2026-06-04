@@ -7,6 +7,7 @@ import inspect
 import logging
 import re
 import sys
+import types
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -209,20 +210,15 @@ class PluginRuntimeService:
             return self._import_module(module_name)
 
         synthetic_name = f"_quantagent_plugin_{uuid.uuid4().hex}_{_safe_module_suffix(module_name)}"
-        spec = importlib.util.spec_from_file_location(synthetic_name, module_file)
-        if spec is None or spec.loader is None:
-            raise PluginRuntimeError(
-                code="PLUGIN_ENTRYPOINT_MODULE_INVALID",
-                message="Plugin entrypoint module could not be loaded from plugin path.",
-                stage="load",
-                details={"module": module_name},
-            )
-
-        module = importlib.util.module_from_spec(spec)
-        # dataclasses/typing 会按 __module__ 回查 sys.modules；执行期间注册，完成后清理，避免频繁 invoke 泄漏 synthetic module。
+        module = types.ModuleType(synthetic_name)
+        module.__file__ = str(module_file)
+        module.__package__ = ""
+        # 直接按文件内容编译执行，避免并发加载多个同名 plugin.py 时复用错误的模块状态。
+        source = module_file.read_text(encoding="utf-8")
+        code = compile(source, str(module_file), "exec")
         sys.modules[synthetic_name] = module
         try:
-            spec.loader.exec_module(module)
+            exec(code, module.__dict__)
         finally:
             sys.modules.pop(synthetic_name, None)
         return module
