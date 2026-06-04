@@ -1,12 +1,14 @@
 import { Button, Input, Modal, TextField, useOverlayState } from '@heroui/react'
 import { useEffect, useState } from 'react'
 
-import type { ApprovalActionType, ApprovalWorkbenchItem } from '../../types/approval-workbench.types'
+import type { ApprovalActionFeedback, ApprovalActionType, ApprovalWorkbenchItem } from '../../types/approval-workbench.types'
+import { maskApprovalTraceIdentifier, toSafeApprovalErrorMessage } from '../../utils/approval-error-display'
 import { toActionCopy } from '../../utils/approval-formatters'
 
 export function ApprovalActionDialog({
   approvalItems,
   confirmLabel,
+  errorFeedback,
   isSubmitting = false,
   onConfirm,
   state,
@@ -16,6 +18,7 @@ export function ApprovalActionDialog({
 }: {
   approvalItems: readonly ApprovalWorkbenchItem[]
   confirmLabel: string
+  errorFeedback?: ApprovalActionFeedback | null
   isSubmitting?: boolean
   onConfirm: (reason?: string) => void
   state: ReturnType<typeof useOverlayState>
@@ -50,6 +53,13 @@ export function ApprovalActionDialog({
                   <div>目标审批数：{approvalItems.length}</div>
                   <div>审批项：{approvalItems.map((item) => item.actionLabel).join('；')}</div>
                 </div>
+                {errorFeedback ? (
+                  <div className="rounded-lg border border-trading-down/25 bg-trading-down/5 px-3 py-3 text-[12px] text-trading-down">
+                    {toSafeApprovalErrorMessage(errorFeedback.message)} · request_id：
+                    {maskApprovalTraceIdentifier(errorFeedback.requestId)} · trace_id：
+                    {maskApprovalTraceIdentifier(errorFeedback.traceId)}
+                  </div>
+                ) : null}
                 {needsReason ? (
                   <TextField value={reason} onChange={setReason}>
                     <Input

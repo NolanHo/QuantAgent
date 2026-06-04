@@ -12,7 +12,7 @@ export function ApprovalErrorState({
   requestId: string
   traceId: string
 }) {
-  // 中文注释：错误态只展示白名单文案和截断排障 ID，避免后端原始错误或追踪标识泄漏到公开 UI。
+  // 中文注释：这里同时承接 transport error 和业务失败反馈，但都只展示白名单文案和截断排障 ID。
   const safeMessage = toSafeApprovalErrorMessage(message)
   const maskedRequestId = maskApprovalTraceIdentifier(requestId)
   const maskedTraceId = maskApprovalTraceIdentifier(traceId)

@@ -44,11 +44,11 @@ export function ApprovalWorkbenchPage({
 
       <ApprovalWorkbenchToolbar onReset={handleReset} onUpdateSearch={onUpdateSearch} search={search} />
 
-      {page.actions.actionMutation.isError ? (
+      {page.actions.actionFeedback ? (
         <ApprovalErrorState
-          message="approval_action_failed"
-          requestId="req-approval-mutation"
-          traceId="trace-approval-mutation"
+          message={page.actions.actionFeedback.message}
+          requestId={page.actions.actionFeedback.requestId}
+          traceId={page.actions.actionFeedback.traceId}
         />
       ) : null}
 
@@ -76,6 +76,7 @@ export function ApprovalWorkbenchPage({
         <ApprovalActionDialog
           approvalItems={page.actions.activeAction.items}
           confirmLabel={page.actions.activeAction.action === 'approve' ? '确认批准' : page.actions.activeAction.action === 'reject' ? '确认拒绝' : '提交重分析'}
+          errorFeedback={page.actions.actionFeedback}
           isSubmitting={page.actions.actionMutation.isPending}
           onConfirm={page.actions.confirmActiveAction}
           state={page.actions.actionState}

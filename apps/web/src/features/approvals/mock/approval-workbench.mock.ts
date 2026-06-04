@@ -1,4 +1,5 @@
 import type {
+  ApprovalActionFeedback,
   ApprovalActionResult,
   ApprovalActionType,
   ApprovalLinkContext,
@@ -226,11 +227,17 @@ export function runApprovalAction(params: {
   const nextItems = cloneItems(mockItems)
   const appliedIds: string[] = []
   const failedIds: string[] = []
+  const failures: ApprovalActionFeedback[] = []
 
   for (const approvalId of approvalIds) {
     const item = nextItems.find((candidate) => candidate.id === approvalId)
     if (!item) {
       failedIds.push(approvalId)
+      failures.push({
+        message: 'approval_action_failed',
+        requestId: `req-${approvalId}`,
+        traceId: `trace-${approvalId}`,
+      })
       continue
     }
 
@@ -241,6 +248,7 @@ export function runApprovalAction(params: {
         traceId: `trace-${approvalId}`,
       }
       failedIds.push(approvalId)
+      failures.push({ ...item.actionError })
       continue
     }
 
@@ -251,6 +259,7 @@ export function runApprovalAction(params: {
         traceId: `trace-${approvalId}`,
       }
       failedIds.push(approvalId)
+      failures.push({ ...item.actionError })
       continue
     }
 
@@ -274,6 +283,7 @@ export function runApprovalAction(params: {
     action,
     appliedIds,
     failedIds,
+    failures,
     message:
       action === 'approve'
         ? '已记录人工批准。批准只代表人工确认，不代表真实执行完成。'

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { getApprovalLinkContext, listApprovalWorkbenchItems } from '../mock/approval-workbench.mock'
+import {
+  getApprovalLinkContext,
+  listApprovalWorkbenchItems,
+  runApprovalAction,
+} from '../mock/approval-workbench.mock'
 import {
   computeBatchEligibility,
   filterApprovalWorkbenchItems,
@@ -66,5 +70,22 @@ describe('approval-rules', () => {
     expect(context.status).toBe('invalid')
     expect(context.actionDisabled).toBe(true)
     expect(context.disabledReason).toContain('无效')
+  })
+
+  it('returns structured failures for business-level action rejection', () => {
+    const result = runApprovalAction({
+      action: 'approve',
+      approvalIds: ['apr-network-04'],
+    })
+
+    expect(result.appliedIds).toEqual([])
+    expect(result.failedIds).toEqual(['apr-network-04'])
+    expect(result.failures).toEqual([
+      {
+        message: 'approval_not_pending',
+        requestId: 'req-apr-network-04',
+        traceId: 'trace-apr-network-04',
+      },
+    ])
   })
 })

@@ -95,7 +95,14 @@ export interface ApprovalActionResult {
   action: ApprovalActionType
   appliedIds: string[]
   failedIds: string[]
+  failures: ApprovalActionFeedback[]
   message: string
+}
+
+export interface ApprovalActionFeedback {
+  message: string
+  requestId: string
+  traceId: string
 }
 
 export interface ApprovalLinkContext {
