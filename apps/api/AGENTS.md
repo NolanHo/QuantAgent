@@ -8,7 +8,9 @@
 
 ## 项目概览
 
-QuantAgent 是事件驱动的量化智能系统。`apps/api` 当前处于 API v1 基础骨架阶段，重点维护应用启动、路由注册、中间件、响应信封、异常处理、数据库就绪探针和 OpenAPI 契约等传输层能力。
+QuantAgent 是事件驱动的量化智能系统。`apps/api` 已从 API v1 基础骨架推进到管理台 HTTP 边界阶段：除应用启动、路由注册、中间件、响应信封、异常处理、数据库就绪探针和 OpenAPI 契约外，当前已经承载 auth、plugins、source bindings、scheduler runs、wallet、models、runtime inspect、raw events、notification ingress 和 approvals 等标准 API v1 路由。
+
+这些业务路由仍然只能作为 HTTP/API 传输层和应用装配层存在。Approval 持久化、SourceBinding 调度、Model 配置、RawEvent、Wallet、Plugin Registry 等核心能力的状态机、持久化和领域规则由 `packages/core` 的 service/repository/model 承担；API 侧只做 DTO、依赖注入、capability/CSRF、request id、错误映射、事务提交点和响应封装。
 
 本目录技术栈保持简单：`uv + Python + FastAPI + Pydantic`。数据库 engine/session 创建复用 `quantagent-core`，API 层只负责应用生命周期挂载、请求级 session 依赖和 readiness probe。Docker 运行入口复用仓库根目录 `Dockerfile` 和 `docker-compose.yml`。
 
@@ -38,7 +40,9 @@ apps/api/
     │       ├── http/          # HTTP 传输层基础能力
     │       ├── auth/          # API 私有 Cookie Session 鉴权
     │       ├── schemas/       # API request/response DTO
+    │       ├── services/      # API 私有编排层，负责把 HTTP DTO / actor context 接到 core service
     │       ├── providers/     # sample data 或可替换 provider seam
+    │       ├── observability/ # API 私有结构化日志、request/security/audit 事件
     │       └── routers/v1/    # 标准 API v1 路由与注册真源
     └── tests/                 # API 测试
 ```
@@ -69,6 +73,10 @@ apps/api/
 - `GET /api/v1/version` 是最小非业务示例，只展示 DTO、provider、响应信封和 OpenAPI 契约；不要把它扩展成 runtime、plugin、approval、Agent、tool invocation、WebSocket、broker、live trading 或业务 endpoint family。
 - WebSocket 或实时通道只负责状态变化通知，不替代 REST 查询和数据库状态真源。
 - 高风险动作即使来自前端按钮或 AI 文本，也必须经过后端 Policy Gate。
+- Approval action route 只记录人工输入、evaluation、decision 和 audit，不能把 approve 描述为真实交易成功；`request-reanalysis` V1 只记录意图，不在 API 请求内触发 AgentRuntime、worker 或 scheduler。
+- Notification ingress HTTP host 是公开 ingress 边界；它可以把 provider 输入交给 core notification ingress / approval handoff seam，但不能在 API host 内直接判定 approval decision 或发布 `approval.completed`。
+- Runtime inspect、Agent runs、Tool invocations、Scheduler runs、RawEvents 和 audit news 路由是只读恢复视图；不要在这些 route 中夹带状态修复、后台任务调度或跨聚合写操作。
+- Model provider、plugin rescan、source binding actions、approval actions 等受保护写操作必须使用现有 `require_csrf` / `build_actor_audit_context` 风格保留 actor、request_id 和审计上下文。
 
 ### 路由骨架
 
@@ -77,6 +85,7 @@ apps/api/
 - 当前 `src/quantagent/api/providers/` 只用于 sample data 或轻量替换点；需要数据库访问、外部服务调用、credentials、runtime 状态或核心领域逻辑时，应先通过 OpenSpec 明确边界，并优先下沉到 package 层。
 - route 应显式声明 FastAPI `response_model=ApiResponse[T]` 和 OpenAPI `tags`。
 - 新增 API v1 route 时，按 `schemas/` DTO、`providers/` seam、`routers/` route、`register_api_v1_routes` 注册、`src/tests/` 运行时和 OpenAPI 契约测试的顺序落地。
+- 需要访问数据库、core service、registry、runtime inspect 或持久化 read model 的 API，优先放在 `services/` 中做 API 私有编排；router 不直接拼 ORM 查询、不直接 new 复杂 core service 流程。
 - 新增或修改跨前端契约时，需要同步更新 `packages/contracts`、OpenAPI 或 JSON Schema 中的对应定义作为契约真源，不能只改 API 侧临时返回字段而不更新契约。
 - 本包当前不生成 static OpenAPI artifact、generated client、TypeScript types 或 Zod schema；不要为单个 route 局部引入生成链路。
 
