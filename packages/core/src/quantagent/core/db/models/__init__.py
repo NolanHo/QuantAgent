@@ -1,3 +1,4 @@
+from quantagent.core.db.models.agent_chat import AgentChatMessageORM, AgentChatRunORM, AgentChatSessionORM
 from quantagent.core.db.models.approval import (
     ApprovalActionRequestORM,
     ApprovalAuditRecordORM,
@@ -13,6 +14,9 @@ from quantagent.core.db.models.scheduler_run import SchedulerRunORM
 from quantagent.core.db.models.source_binding import SourceBindingORM
 
 __all__ = [
+    "AgentChatMessageORM",
+    "AgentChatRunORM",
+    "AgentChatSessionORM",
     "ApprovalActionRequestORM",
     "ApprovalAuditRecordORM",
     "ApprovalDecisionORM",

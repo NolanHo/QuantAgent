@@ -4,6 +4,7 @@ import { listVisibleNavItems, useAuth } from '../../shared/auth'
 
 const routeLabels = new Map<string, string>([
   ['agents', 'Agent Runs'],
+  ['agent-chat', 'Agent Chat'],
   ['approvals', '审批'],
   ['audit', '审计时间线'],
   ['events', '事件'],
@@ -13,7 +14,6 @@ const routeLabels = new Map<string, string>([
   ['runtime', '运行态'],
   ['settings', '设置'],
   ['debug', '调试工作台'],
-  ['agent-run-chat', 'Agent Debug Chat'],
   ['page-states', '页面状态'],
   ['runtime-config', '运行时配置'],
   ['error-fallback', '错误兜底'],

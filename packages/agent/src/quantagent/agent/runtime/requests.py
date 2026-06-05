@@ -14,6 +14,9 @@ class StrictModel(BaseModel):
 
 
 class AgentRunRequest(StrictModel):
+    session_id: str = Field(min_length=1, description="Stable Agent Chat session id.")
+    thread_id: str = Field(min_length=1, description="Stable DeepAgents/LangGraph thread id for this session.")
+    workspace_id: str = Field(min_length=1, description="Stable workspace id bound to this session/run context.")
     agent_run_id: str = Field(min_length=1, description="Stable id for this AgentRun.")
     event_id: str = Field(min_length=1, description="Bound event id from Router/Intake.")
     industry_id: str = Field(min_length=1, description="Industry package id.")
@@ -28,6 +31,6 @@ class AgentRunRequest(StrictModel):
 class AgentRunResult(StrictModel):
     agent_run_id: str = Field(description="AgentRun id.")
     status: str = Field(description="completed or failed.")
-    output_summary: str = Field(default="", description="Safe final output summary.")
+    output_content: str = Field(default="", description="Final output content.")
     artifact_refs: list[ArtifactRef] = Field(default_factory=list, description="Artifacts produced during this run.")
     events: list[AgentRunEvent] = Field(default_factory=list, description="Events emitted during non-streaming run.")

@@ -27,6 +27,6 @@ class ArtifactRef(StrictModel):
     artifact_id: str = Field(description="Current AgentRun-scoped artifact id.")
     kind: ArtifactKind = Field(description="Artifact type for permission and downstream handling.")
     producer_id: str = Field(description="Tool, main agent, subagent, or runtime component that produced this artifact.")
-    safe_summary: str = Field(description="Prompt/log-safe summary without secrets or full reasoning.")
+    content: str = Field(description="Display/runtime content for this artifact reference.")
     confidence_score: float | None = Field(default=None, ge=0, le=1, description="Optional producer confidence.")
     created_from_ids: list[str] = Field(default_factory=list, description="Upstream artifact/context/search ids.")

@@ -19,6 +19,7 @@ import { Route as AppworkspacePluginsIndexRouteImport } from './routes/_app/(wor
 import { Route as AppworkspaceModelsIndexRouteImport } from './routes/_app/(workspace)/models/index'
 import { Route as AppworkspaceEventsIndexRouteImport } from './routes/_app/(workspace)/events/index'
 import { Route as AppworkspaceApprovalsIndexRouteImport } from './routes/_app/(workspace)/approvals/index'
+import { Route as AppworkspaceAgentChatIndexRouteImport } from './routes/_app/(workspace)/agent-chat/index'
 import { Route as AppworkspacePluginsPluginIdRouteImport } from './routes/_app/(workspace)/plugins/$pluginId'
 import { Route as AppworkspaceEventsAllRouteImport } from './routes/_app/(workspace)/events/all'
 import { Route as AppworkspaceApprovalsApprovalIdRouteImport } from './routes/_app/(workspace)/approvals/$approvalId'
@@ -82,6 +83,12 @@ const AppworkspaceApprovalsIndexRoute =
     path: '/approvals/',
     getParentRoute: () => AppworkspaceRouteRoute,
   } as any)
+const AppworkspaceAgentChatIndexRoute =
+  AppworkspaceAgentChatIndexRouteImport.update({
+    id: '/agent-chat/',
+    path: '/agent-chat/',
+    getParentRoute: () => AppworkspaceRouteRoute,
+  } as any)
 const AppworkspacePluginsPluginIdRoute =
   AppworkspacePluginsPluginIdRouteImport.update({
     id: '/plugins/$pluginId',
@@ -138,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/approvals/$approvalId': typeof AppworkspaceApprovalsApprovalIdRoute
   '/events/all': typeof AppworkspaceEventsAllRoute
   '/plugins/$pluginId': typeof AppworkspacePluginsPluginIdRoute
+  '/agent-chat/': typeof AppworkspaceAgentChatIndexRoute
   '/approvals/': typeof AppworkspaceApprovalsIndexRoute
   '/events/': typeof AppworkspaceEventsIndexRoute
   '/models/': typeof AppworkspaceModelsIndexRoute
@@ -156,6 +164,7 @@ export interface FileRoutesByTo {
   '/approvals/$approvalId': typeof AppworkspaceApprovalsApprovalIdRoute
   '/events/all': typeof AppworkspaceEventsAllRoute
   '/plugins/$pluginId': typeof AppworkspacePluginsPluginIdRoute
+  '/agent-chat': typeof AppworkspaceAgentChatIndexRoute
   '/approvals': typeof AppworkspaceApprovalsIndexRoute
   '/events': typeof AppworkspaceEventsIndexRoute
   '/models': typeof AppworkspaceModelsIndexRoute
@@ -177,6 +186,7 @@ export interface FileRoutesById {
   '/_app/(workspace)/approvals/$approvalId': typeof AppworkspaceApprovalsApprovalIdRoute
   '/_app/(workspace)/events/all': typeof AppworkspaceEventsAllRoute
   '/_app/(workspace)/plugins/$pluginId': typeof AppworkspacePluginsPluginIdRoute
+  '/_app/(workspace)/agent-chat/': typeof AppworkspaceAgentChatIndexRoute
   '/_app/(workspace)/approvals/': typeof AppworkspaceApprovalsIndexRoute
   '/_app/(workspace)/events/': typeof AppworkspaceEventsIndexRoute
   '/_app/(workspace)/models/': typeof AppworkspaceModelsIndexRoute
@@ -198,6 +208,7 @@ export interface FileRouteTypes {
     | '/approvals/$approvalId'
     | '/events/all'
     | '/plugins/$pluginId'
+    | '/agent-chat/'
     | '/approvals/'
     | '/events/'
     | '/models/'
@@ -216,6 +227,7 @@ export interface FileRouteTypes {
     | '/approvals/$approvalId'
     | '/events/all'
     | '/plugins/$pluginId'
+    | '/agent-chat'
     | '/approvals'
     | '/events'
     | '/models'
@@ -236,6 +248,7 @@ export interface FileRouteTypes {
     | '/_app/(workspace)/approvals/$approvalId'
     | '/_app/(workspace)/events/all'
     | '/_app/(workspace)/plugins/$pluginId'
+    | '/_app/(workspace)/agent-chat/'
     | '/_app/(workspace)/approvals/'
     | '/_app/(workspace)/events/'
     | '/_app/(workspace)/models/'
@@ -326,6 +339,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppworkspaceApprovalsIndexRouteImport
       parentRoute: typeof AppworkspaceRouteRoute
     }
+    '/_app/(workspace)/agent-chat/': {
+      id: '/_app/(workspace)/agent-chat/'
+      path: '/agent-chat'
+      fullPath: '/agent-chat/'
+      preLoaderRoute: typeof AppworkspaceAgentChatIndexRouteImport
+      parentRoute: typeof AppworkspaceRouteRoute
+    }
     '/_app/(workspace)/plugins/$pluginId': {
       id: '/_app/(workspace)/plugins/$pluginId'
       path: '/plugins/$pluginId'
@@ -407,6 +427,7 @@ interface AppworkspaceRouteRouteChildren {
   AppworkspaceApprovalsApprovalIdRoute: typeof AppworkspaceApprovalsApprovalIdRoute
   AppworkspaceEventsAllRoute: typeof AppworkspaceEventsAllRoute
   AppworkspacePluginsPluginIdRoute: typeof AppworkspacePluginsPluginIdRoute
+  AppworkspaceAgentChatIndexRoute: typeof AppworkspaceAgentChatIndexRoute
   AppworkspaceApprovalsIndexRoute: typeof AppworkspaceApprovalsIndexRoute
   AppworkspaceEventsIndexRoute: typeof AppworkspaceEventsIndexRoute
   AppworkspaceModelsIndexRoute: typeof AppworkspaceModelsIndexRoute
@@ -424,6 +445,7 @@ const AppworkspaceRouteRouteChildren: AppworkspaceRouteRouteChildren = {
   AppworkspaceApprovalsApprovalIdRoute: AppworkspaceApprovalsApprovalIdRoute,
   AppworkspaceEventsAllRoute: AppworkspaceEventsAllRoute,
   AppworkspacePluginsPluginIdRoute: AppworkspacePluginsPluginIdRoute,
+  AppworkspaceAgentChatIndexRoute: AppworkspaceAgentChatIndexRoute,
   AppworkspaceApprovalsIndexRoute: AppworkspaceApprovalsIndexRoute,
   AppworkspaceEventsIndexRoute: AppworkspaceEventsIndexRoute,
   AppworkspaceModelsIndexRoute: AppworkspaceModelsIndexRoute,

@@ -477,16 +477,16 @@ describe("createApiClient", () => {
       onUnauthorized,
     });
 
-    const response = await client.stream("/debug/agent-runs/fixtures/demo/stream", {
-      data: { scenario: "primary" },
+    const response = await client.stream("/agent-chat/sessions/session-1/messages/stream", {
+      data: { message: "hello" },
       signal: new AbortController().signal,
     });
 
     expect(response.ok).toBe(true);
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://debug-api.test/api/v1/debug/agent-runs/fixtures/demo/stream",
+      "http://debug-api.test/api/v1/agent-chat/sessions/session-1/messages/stream",
       expect.objectContaining({
-        body: JSON.stringify({ scenario: "primary" }),
+        body: JSON.stringify({ message: "hello" }),
         credentials: "include",
         method: "post",
       }),
@@ -514,7 +514,7 @@ describe("createApiClient", () => {
 
     const client = createApiClient({ onError, onUnauthorized });
 
-    await expect(client.stream("/debug/agent-runs/fixtures/demo/stream")).rejects.toMatchObject({
+    await expect(client.stream("/agent-chat/sessions/session-1/messages/stream")).rejects.toMatchObject({
       code: 401,
       msg: "unauthorized",
       requestId: "req-stream",

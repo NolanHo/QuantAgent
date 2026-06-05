@@ -4,6 +4,7 @@ import { Outlet, useNavigate } from '@tanstack/react-router'
 import { PageEmpty } from '../../app/components/PageEmpty'
 import { PageLoading } from '../../app/components/PageLoading'
 import { PlaceholderPanel } from '../../app/components/PlaceholderPanel'
+import { agentChatDebugPresetOptions } from '../../features/agent-chat'
 import { PluginConfigDebugPanel } from '../plugin-config-form'
 import { loadRuntimeConfig } from '../../shared/config'
 import {
@@ -60,8 +61,8 @@ export function DebugWorkbenchIndexPage() {
           copy="验证 schema-driven form、敏感字段掩码和 Zod 来源 schema 兼容边界。"
         />
         <PlaceholderPanel
-          title="Agent Debug Chat"
-          copy="启动 NVDA fixture，用对话流观察 MainAgent、SubAgent、tool、artifact 和最终输出。"
+          title="Agent 事件调试"
+          copy="用正式 Agent Chat 链路调试英伟达财报和后续媒体报道事件，不维护独立 fixture stream。"
         />
       </section>
 
@@ -81,9 +82,20 @@ export function DebugWorkbenchIndexPage() {
         <Button onPress={() => void navigate({ to: '/debug/plugin-config-form' })} size="sm" type="button" variant="outline">
           打开插件配置表单
         </Button>
-        <Button onPress={() => void navigate({ to: '/debug/agent-run-chat' })} size="sm" type="button" variant="outline">
-          打开 Agent Debug Chat
+        <Button onPress={() => void navigate({ to: '/agent-chat' })} size="sm" type="button" variant="outline">
+          打开 Agent Chat
         </Button>
+        {agentChatDebugPresetOptions.map((option) => (
+          <Button
+            key={option.preset}
+            onPress={() => void navigate({ to: '/agent-chat', search: { preset: option.preset } })}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {option.label}
+          </Button>
+        ))}
       </section>
     </>
   )

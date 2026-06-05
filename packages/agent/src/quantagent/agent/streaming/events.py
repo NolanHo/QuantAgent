@@ -15,6 +15,7 @@ class StrictModel(BaseModel):
 class AgentRunEventType(StrEnum):
     RUN_STARTED = "run.started"
     MODEL_DELTA = "model.delta"
+    MODEL_REASONING = "model.reasoning"
     TODO_UPDATED = "todo.updated"
     TOOL_STARTED = "tool.started"
     TOOL_COMPLETED = "tool.completed"
@@ -22,9 +23,11 @@ class AgentRunEventType(StrEnum):
     SUBAGENT_STARTED = "subagent.started"
     SUBAGENT_COMPLETED = "subagent.completed"
     ARTIFACT_CREATED = "artifact.created"
+    INTERRUPT_REQUESTED = "interrupt.requested"
     RUN_OUTPUT = "run.output"
     RUN_FAILED = "run.failed"
     RUN_COMPLETED = "run.completed"
+    RUNTIME_EVENT = "runtime.event"
 
 
 class AgentRunEvent(StrictModel):
@@ -33,6 +36,6 @@ class AgentRunEvent(StrictModel):
     type: AgentRunEventType = Field(description="Stable event type.")
     seq: int = Field(ge=1, description="Monotonic sequence within the run.")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Event creation time.")
-    payload: dict[str, Any] = Field(default_factory=dict, description="Small structured payload without secrets.")
-    safe_summary: str | None = Field(default=None, description="Optional display-safe summary.")
+    payload: dict[str, Any] = Field(default_factory=dict, description="Structured runtime payload.")
+    content: str | None = Field(default=None, description="Raw display content emitted by the runtime event.")
     trace_id: str = Field(description="Trace id spanning runtime, tools, audit, and logs.")

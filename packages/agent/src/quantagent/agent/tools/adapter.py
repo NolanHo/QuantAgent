@@ -9,7 +9,6 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from quantagent.agent.runtime.context import ToolRuntimeContext
-from quantagent.agent.runtime.errors import ToolAdapterError
 from quantagent.agent.streaming.adapter import EventSequencer
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
 from quantagent.agent.tools.profiles import ToolBinding
@@ -47,7 +46,7 @@ class ToolAdapter:
                 trace_id=self._runtime_context.trace_id,
                 event_type=AgentRunEventType.TOOL_STARTED,
                 payload={"invocation_id": invocation_id, "tool_id": tool.binding.tool_id, "name": tool.binding.name},
-                safe_summary=f"Tool {tool.binding.name} started.",
+                content=f"Tool {tool.binding.name} started.",
             )
         ]
 
@@ -56,17 +55,24 @@ class ToolAdapter:
             if inspect.isawaitable(result):
                 result = await result
         except Exception as exc:  # noqa: BLE001
-            safe_error = _safe_error_summary(exc)
+            error = _tool_error_content(exc)
             events.append(
                 self._sequencer.next(
                     agent_run_id=self._runtime_context.agent_run_id,
                     trace_id=self._runtime_context.trace_id,
                     event_type=AgentRunEventType.TOOL_FAILED,
-                    payload={"invocation_id": invocation_id, "tool_id": tool.binding.tool_id, "error": safe_error},
-                    safe_summary=f"Tool {tool.binding.name} failed.",
+                    payload={
+                        "invocation_id": invocation_id,
+                        "tool_id": tool.binding.tool_id,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                    content=f"Tool {tool.binding.name} failed.",
                 )
             )
-            raise ToolAdapterError(safe_error) from exc
+            # 中文注释：工具自身失败应作为 tool result 回给 DeepAgents，让模型有机会调整计划继续 loop；
+            # 未授权、缺工具等平台配置错误仍在 Runtime 层直接失败。
+            return {"ok": False, "error": error}, events
 
         events.append(
             self._sequencer.next(
@@ -74,13 +80,12 @@ class ToolAdapter:
                 trace_id=self._runtime_context.trace_id,
                 event_type=AgentRunEventType.TOOL_COMPLETED,
                 payload={"invocation_id": invocation_id, "tool_id": tool.binding.tool_id},
-                safe_summary=f"Tool {tool.binding.name} completed.",
+                content=f"Tool {tool.binding.name} completed.",
             )
         )
         return dict(result), events
 
 
-def _safe_error_summary(exc: Exception) -> str:
-    """错误摘要只保留类别，原始异常内容可能带 secret、路径、prompt 或 provider 请求。"""
-
-    return f"{type(exc).__name__}: tool execution failed"
+def _tool_error_content(exc: Exception) -> str:
+    message = str(exc)
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__

@@ -7,7 +7,7 @@
 - 解析和承载 `AgentDefinition`、`SubAgentDefinition`、`ToolProfile`、`RuntimePolicy` 等通用契约。
 - 调用 DeepAgents `create_deep_agent()`，并把工具、SubAgent、skills、backend、interrupt policy 和 checkpointer 作为配置传入。
 - 为工具注入 run-scoped hidden context，例如 `agent_run_id`、`event_id`、`trace_id` 和 `tool_profile_id`。
-- 管理当前 run 的 artifact 引用，优先通过 `artifact_id` 和 `safe_summary` 传递大产物。
+- 管理当前 run 的 artifact 引用，优先通过 `artifact_id` 传递大产物，展示内容保留在 artifact `content` 或 payload 中。
 - 将运行过程转换成稳定的 `AgentRunEvent` 流，供 API SSE 或其他调试入口消费。
 
 ## 子目录
@@ -17,14 +17,14 @@
 - `tools/`：tool profile、平台工具协议、DeepAgents tool adapter 和调用摘要。
 - `artifacts/`：artifact 类型、引用和当前 run 的 in-memory store。
 - `streaming/`：稳定事件类型和 DeepAgents/LangGraph chunk adapter。
-- `testing/`：无外部模型和 secret 的 fake harness。
+- `testing/`：无外部模型依赖的 fake harness。
 
 ## 不负责什么
 
 - 不做 FastAPI router、SSE 编码、Web 类型或 API envelope。
 - 不直接发现、加载或执行具体插件实现；插件和 ToolRegistry 的真实治理在 core/plugin 边界。
 - 不接真实 broker、真实通知、真实账户或生产交易。
-- 不默认保存完整 chain-of-thought、完整 prompt、provider raw response、secret 或私有策略明文。
+- Agent Chat MVP 调试链路不做 `safe_summary` 或可见性分层；runtime event 能拿到的 prompt、payload、provider 片段和工具错误应按原样进入事件或 artifact。
 
 ## DeepAgents 复用边界
 
@@ -40,5 +40,5 @@ runtime = AgentRuntime()
 request = build_echo_run_request()
 
 async for event in runtime.run_stream(request):
-    print(event.type, event.safe_summary)
+    print(event.type, event.content)
 ```

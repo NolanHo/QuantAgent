@@ -14,6 +14,9 @@ class ToolAdapterTest(TestCase):
     def test_tool_adapter_injects_hidden_runtime_context(self) -> None:
         async def _run() -> None:
             context = ToolRuntimeContext(
+                session_id="session_1",
+                thread_id="thread_1",
+                workspace_id="workspace_1",
                 agent_run_id="run_1",
                 event_id="evt_1",
                 industry_id="industry_test",

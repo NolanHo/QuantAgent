@@ -11,6 +11,7 @@ import {
 
 export type WorkspaceRoutePath =
   | '/'
+  | '/agent-chat'
   | '/approvals'
   | '/debug'
   | '/events'
@@ -42,6 +43,7 @@ const DEFAULT_FORBIDDEN_REASON = '当前账号没有执行该操作的权限。'
 
 export const WORKSPACE_ROUTE_POLICY: Record<WorkspaceRoutePath, readonly Capability[]> = {
   '/': [],
+  '/agent-chat': [RUNTIME_INSPECT_CAPABILITY],
   '/approvals': [APPROVAL_APPROVE_CAPABILITY, APPROVAL_AMEND_CAPABILITY],
   '/debug': [RUNTIME_INSPECT_CAPABILITY],
   '/events': [RUNTIME_INSPECT_CAPABILITY],
@@ -54,6 +56,7 @@ export const WORKSPACE_ROUTE_POLICY: Record<WorkspaceRoutePath, readonly Capabil
 export const NAV_POLICY: readonly NavPolicyEntry[] = [
   { label: '仪表盘', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/'], to: '/' },
   { label: '事件', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/events'], to: '/events' },
+  { label: 'Agent Chat', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/agent-chat'], to: '/agent-chat' },
   { label: '审批', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/approvals'], to: '/approvals' },
   { label: '运行态', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/runtime'], to: '/runtime' },
   { label: '插件', requiredAnyOf: WORKSPACE_ROUTE_POLICY['/plugins'], to: '/plugins' },

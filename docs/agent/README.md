@@ -15,6 +15,7 @@
 | [07. 英伟达财报事件链路样例](07-nvidia-earnings-flow-example.md) | 用 NVDA 第一手财报公告和后续媒体报道串起补充对照证据、行动提交、去重和通知抑制 |
 | [08. Run 绑定的上下文工具机制](08-run-scoped-context-tools.md) | 定义工具如何绑定 AgentRun、如何返回 artifact、MainAgent 与 SubAgent 如何配置不同上下文工具 |
 | [09. Agent 产物归属与协作边界](09-agent-artifact-ownership.md) | 定义 MainAgent、SubAgent 和工具分别产出什么，哪些 artifact 值得保存和传递 |
+| [10. Agent Chat 与 AgentRuntime 运行链路](10-agent-chat-runtime-flow.md) | 说明正式 Agent Chat / AgentRuntime 链路、session/run 管理、DeepAgents stream、数据结构和 debug 页面定位 |
 
 ## 当前结论
 
@@ -24,6 +25,7 @@
 - 上下文获取工具按 Agent 角色配置；MVP 以 Tavily `search_web` 为轻量搜索工具，不把 `collect_evidence` 作为复杂万能工具。
 - MainAgent 只产出 `IndustryAnalysis` 和可选 `ActionPlan`；`ActionRequest`、Approval、Notification、Broker 和 Monitor 是 `submit_action_plan` 内部平台对象。
 - 行业包只声明 AgentDefinition、SubAgent、Skill、工具、market mapping、scoring hints 和 eval fixtures；通用 PlannerExecutor 框架放在共享 Agent package。
+- 正式 Agent Chat 的 session、run、thread、workspace 和 stream 是产品运行链路的一部分；Debug 工作台只能作为快捷入口和参数面板复用正式链路，不维护独立 fixture 协议。
 
 ## 维护约定
 

@@ -2,9 +2,6 @@ import { createRoute } from '@tanstack/react-router'
 import type { AnyRoute } from '@tanstack/react-router'
 
 import {
-  AgentRunChatPage,
-} from '@/features/debug/agent-run-chat'
-import {
   DebugErrorFallbackIndexPage,
   DebugErrorFallbackThrowPage,
   DebugPageStatesPage,
@@ -132,12 +129,6 @@ export const debugRouteApi: DebugRouteApi = {
       component: DebugPluginConfigFormPage,
     })
 
-    const debugAgentRunChatRoute = createRoute({
-      getParentRoute: () => debugRoute,
-      path: 'agent-run-chat',
-      component: AgentRunChatPage,
-    })
-
     const debugErrorFallbackRouteTree = debugErrorFallbackRoute.addChildren([debugErrorFallbackThrowRoute])
     const debugRouteTree = debugRoute.addChildren([
       debugIndexRoute,
@@ -146,7 +137,6 @@ export const debugRouteApi: DebugRouteApi = {
       debugErrorFallbackRouteTree,
       debugRoutePlaygroundRoute,
       debugPluginConfigFormRoute,
-      debugAgentRunChatRoute,
     ])
 
     workspaceRoute.addChildren([...workspaceChildren, debugRouteTree])

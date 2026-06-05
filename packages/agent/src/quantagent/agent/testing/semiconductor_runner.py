@@ -88,7 +88,7 @@ async def _run_primary_fixture(
         kind="evidence_board",
         producer_id=RESEARCH_SUBAGENT_ID,
         payload=primary_evidence_board(),
-        safe_summary="EvidenceBoard: 一手财报数字强，公开对照材料支持 surprise，同时存在估值和跳空风险。",
+        content="EvidenceBoard: 一手财报数字强，公开对照材料支持 surprise，同时存在估值和跳空风险。",
         confidence_score=0.9,
     )
     search_id = call_search(ledger, "NVIDIA revenue guidance consensus data center gross margin")
@@ -100,10 +100,10 @@ async def _run_primary_fixture(
             "report_id": "report_nvda_primary_research",
             "search_ids": [search_id],
             "evidence_board_artifact_id": evidence_ref.artifact_id,
-            "summary": evidence_ref.safe_summary,
+            "summary": evidence_ref.content,
             "gaps": ["电话会全文尚未发布。"],
         },
-        safe_summary="Research report produced evidence board and gaps.",
+        content="Research report produced evidence board and gaps.",
         created_from_ids=[evidence_ref.artifact_id],
         confidence_score=0.9,
     )
@@ -112,7 +112,7 @@ async def _run_primary_fixture(
         sequencer,
         AgentRunEventType.ARTIFACT_CREATED,
         {"artifact_id": evidence_ref.artifact_id, "kind": evidence_ref.kind},
-        evidence_ref.safe_summary,
+        evidence_ref.content,
     )
     yield _event(
         request,
@@ -128,7 +128,7 @@ async def _run_primary_fixture(
         kind="thesis_evaluation",
         producer_id="evaluate_thesis",
         payload=primary_thesis_evaluation(evidence_ref.artifact_id, account_context_id),
-        safe_summary="ThesisEvaluation: propose_trade with high confidence and low risk.",
+        content="ThesisEvaluation: propose_trade with high confidence and low risk.",
         created_from_ids=[evidence_ref.artifact_id],
         confidence_score=0.92,
     )
@@ -138,7 +138,7 @@ async def _run_primary_fixture(
         kind="industry_analysis",
         producer_id=MAIN_AGENT_ID,
         payload=primary_industry_analysis(evidence_ref.artifact_id, evaluation_ref.artifact_id),
-        safe_summary="IndustryAnalysis: NVDA 一手财报支持小仓位 dry-run 做多计划。",
+        content="IndustryAnalysis: NVDA 一手财报支持小仓位 dry-run 做多计划。",
         created_from_ids=[evidence_ref.artifact_id, evaluation_ref.artifact_id],
         confidence_score=0.92,
     )
@@ -146,7 +146,7 @@ async def _run_primary_fixture(
         kind="action_plan",
         producer_id="build_action_plan",
         payload=primary_action_plan(analysis_ref.artifact_id, evaluation_ref.artifact_id, account_context_id),
-        safe_summary="ActionPlan: open long NVDA dry-run with stop loss, take profit, and monitoring.",
+        content="ActionPlan: open long NVDA dry-run with stop loss, take profit, and monitoring.",
         created_from_ids=[analysis_ref.artifact_id, evaluation_ref.artifact_id],
         confidence_score=0.92,
     )
@@ -156,7 +156,7 @@ async def _run_primary_fixture(
         kind="submission_result",
         producer_id="submit_action_plan",
         payload=primary_submission_result(action_plan_ref.artifact_id, analysis_ref.artifact_id, evidence_ref.artifact_id),
-        safe_summary="SubmitActionPlanResult: execute_then_notify dry-run requested by policy gate.",
+        content="SubmitActionPlanResult: execute_then_notify dry-run requested by policy gate.",
         created_from_ids=[action_plan_ref.artifact_id, analysis_ref.artifact_id, evidence_ref.artifact_id],
         confidence_score=0.92,
     )
@@ -169,7 +169,7 @@ async def _run_primary_fixture(
             sequencer,
             AgentRunEventType.ARTIFACT_CREATED,
             {"artifact_id": ref.artifact_id, "kind": ref.kind},
-            ref.safe_summary,
+            ref.content,
         )
     yield _event(
         request,
@@ -198,7 +198,7 @@ async def _run_media_follow_up_fixture(
         kind="evidence_board",
         producer_id=MAIN_AGENT_ID,
         payload=media_evidence_board(),
-        safe_summary="EvidenceBoard: 二手报道确认已覆盖财报 surprise，没有新增实质信息。",
+        content="EvidenceBoard: 二手报道确认已覆盖财报 surprise，没有新增实质信息。",
         confidence_score=0.84,
     )
     call_search(ledger, "NVIDIA beats expectations AI demand earnings media report original release")
@@ -209,7 +209,7 @@ async def _run_media_follow_up_fixture(
         kind="thesis_evaluation",
         producer_id="evaluate_thesis",
         payload=media_thesis_evaluation(evidence_ref.artifact_id, account_context_id),
-        safe_summary="ThesisEvaluation: record_only because prior coverage is complete.",
+        content="ThesisEvaluation: record_only because prior coverage is complete.",
         created_from_ids=[evidence_ref.artifact_id],
         confidence_score=0.84,
     )
@@ -219,7 +219,7 @@ async def _run_media_follow_up_fixture(
         kind="industry_analysis",
         producer_id=MAIN_AGENT_ID,
         payload=media_industry_analysis(evidence_ref.artifact_id, evaluation_ref.artifact_id),
-        safe_summary="IndustryAnalysis: follow-up media report is record_only and duplicate notification suppressed.",
+        content="IndustryAnalysis: follow-up media report is record_only and duplicate notification suppressed.",
         created_from_ids=[evidence_ref.artifact_id, evaluation_ref.artifact_id],
         confidence_score=0.84,
     )
@@ -229,7 +229,7 @@ async def _run_media_follow_up_fixture(
             sequencer,
             AgentRunEventType.ARTIFACT_CREATED,
             {"artifact_id": ref.artifact_id, "kind": ref.kind},
-            ref.safe_summary,
+            ref.content,
         )
     yield _event(
         request,
@@ -251,14 +251,14 @@ def _event(
     sequencer: EventSequencer,
     event_type: AgentRunEventType,
     payload: Mapping[str, Any],
-    safe_summary: str,
+    content: str,
 ) -> AgentRunEvent:
     return sequencer.next(
         agent_run_id=request.agent_run_id,
         trace_id=request.trace_id,
         event_type=event_type,
         payload=dict(payload),
-        safe_summary=safe_summary,
+        content=content,
     )
 
 

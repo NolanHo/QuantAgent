@@ -21,7 +21,7 @@ class ArtifactStore(Protocol):
         kind: ArtifactKind,
         producer_id: str,
         payload: Mapping[str, Any],
-        safe_summary: str,
+        content: str,
         created_from_ids: list[str] | None = None,
         confidence_score: float | None = None,
     ) -> ArtifactRef: ...
@@ -41,17 +41,17 @@ class InMemoryArtifactStore:
         kind: ArtifactKind,
         producer_id: str,
         payload: Mapping[str, Any],
-        safe_summary: str,
+        content: str,
         created_from_ids: list[str] | None = None,
         confidence_score: float | None = None,
     ) -> ArtifactRef:
         artifact_id = f"artifact_{uuid4().hex}"
-        # 安全边界：store 只接受调用方已经脱敏的 payload，不保存 provider raw response 或 CoT。
+        # 中文注释：MVP 调试需要保留调用方传入的原始 payload/content，artifact 只负责按 id 绑定产物。
         ref = ArtifactRef(
             artifact_id=artifact_id,
             kind=kind,
             producer_id=producer_id,
-            safe_summary=safe_summary,
+            content=content,
             created_from_ids=created_from_ids or [],
             confidence_score=confidence_score,
         )

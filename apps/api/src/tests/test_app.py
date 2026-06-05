@@ -690,46 +690,156 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(body["error"]["code"], "UNAUTHORIZED")
         self.assertEqual(response.headers["X-Request-ID"], body["error"]["request_id"])
 
-    def test_agent_debug_sse_streams_nvda_fixture_events(self) -> None:
-        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+    def test_agent_chat_session_can_be_created(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
 
-        with self.client.stream(
-            "POST",
-            "/api/v1/debug/agent-runs/fixtures/semiconductor-nvda-earnings/stream",
-            json={"scenario": "primary"},
-            headers={"Accept": "text/event-stream"},
-        ) as response:
-            body = "".join(response.iter_text())
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("text/event-stream", response.headers["content-type"])
-        self.assertIn("event: run.started", body)
-        self.assertIn("event: todo.updated", body)
-        self.assertIn("event: subagent.started", body)
-        self.assertIn("event: tool.completed", body)
-        self.assertIn("event: artifact.created", body)
-        self.assertIn("event: run.completed", body)
-        self.assertIn('"trade_decision":"submit_dry_run_open_long"', body)
-        self.assertNotIn("sk-", body)
-        self.assertNotIn("traceback", body.lower())
-
-    def test_agent_debug_unknown_fixture_uses_envelope(self) -> None:
-        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
-
-        response = self.client.post("/api/v1/debug/agent-runs/fixtures/missing/stream", json={"scenario": "primary"})
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            self._login_with_client(client, self.settings)
+            response = client.post("/api/v1/agent-chat/sessions", json={"title": "Test Chat"})
         body = response.json()
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(body["error"]["code"], "BAD_REQUEST")
-        self.assertEqual(body["msg"], "未知 Agent debug fixture")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["code"], 0)
+        self.assertTrue(body["data"]["session_id"].startswith("chat_sess_"))
+        self.assertTrue(body["data"]["thread_id"].startswith("chat_thread_"))
+        self.assertEqual(body["data"]["messages"], [])
 
-    def test_agent_debug_routes_disabled_in_production(self) -> None:
-        production_app = create_app(self._settings(APP_ENV="production"))
-        with TestClient(production_app) as client:
+    def test_agent_chat_unknown_session_uses_envelope(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            self._login_with_client(client, self.settings)
+            response = client.get("/api/v1/agent-chat/sessions/missing")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(body["error"]["code"], "NOT_FOUND")
+
+    def test_agent_chat_message_stream_persists_runtime_transcript(self) -> None:
+        from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
+
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+        captured_requests = []
+
+        class FakeAgentRuntime:
+            async def run_stream(self, request):
+                captured_requests.append(request)
+                yield AgentRunEvent(
+                    agent_run_id=request.agent_run_id,
+                    trace_id=request.trace_id,
+                    type=AgentRunEventType.MODEL_DELTA,
+                    seq=1,
+                    content="hello ",
+                    payload={"delta": "hello "},
+                )
+                yield AgentRunEvent(
+                    agent_run_id=request.agent_run_id,
+                    trace_id=request.trace_id,
+                    type=AgentRunEventType.RUN_OUTPUT,
+                    seq=2,
+                    content="hello world",
+                    payload={},
+                )
+                yield AgentRunEvent(
+                    agent_run_id=request.agent_run_id,
+                    trace_id=request.trace_id,
+                    type=AgentRunEventType.RUN_COMPLETED,
+                    seq=3,
+                    content="Run completed.",
+                    payload={},
+                )
+
+        with (
+            TestClient(app) as client,
+            patch("quantagent.api.services.agent_chat._model_from_config", return_value=object()),
+            patch("quantagent.api.services.agent_chat.AgentRuntime", return_value=FakeAgentRuntime()),
+        ):
+            Base.metadata.create_all(client.app.state.db_engine)
+            self._login_with_client(client, self.settings)
+            create_response = client.post("/api/v1/agent-chat/sessions", json={"title": "Stream Chat"})
+            session_id = create_response.json()["data"]["session_id"]
+
             response = client.post(
-                "/api/v1/debug/agent-runs/fixtures/semiconductor-nvda-earnings/stream",
-                json={"scenario": "primary"},
+                f"/api/v1/agent-chat/sessions/{session_id}/messages/stream",
+                json={"message": "分析这个事件"},
             )
+            session_response = client.get(f"/api/v1/agent-chat/sessions/{session_id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("event: message.appended", response.text)
+        self.assertIn("event: model.delta", response.text)
+        self.assertIn("hello world", response.text)
+        self.assertEqual(len(captured_requests), 1)
+        self.assertEqual(captured_requests[0].session_id, session_id)
+        self.assertTrue(captured_requests[0].thread_id.startswith("chat_thread_"))
+        session_body = session_response.json()
+        self.assertEqual(session_response.status_code, 200)
+        transcript = session_body["data"]["messages"]
+        self.assertEqual([item["kind"] for item in transcript], ["message", "delta", "final", "system_event"])
+        self.assertEqual(transcript[0]["content"], "分析这个事件")
+        self.assertEqual(transcript[1]["content"], "hello ")
+        self.assertIn("QuantAgent's MainAgent runtime", captured_requests[0].agent_definition.system_prompt)
+
+    def test_agent_chat_message_stream_reports_missing_model_with_raw_debug_content(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            self._login_with_client(client, self.settings)
+            create_response = client.post("/api/v1/agent-chat/sessions", json={"title": "No Model Chat"})
+            session_id = create_response.json()["data"]["session_id"]
+
+            response = client.post(
+                f"/api/v1/agent-chat/sessions/{session_id}/messages/stream",
+                json={"message": "分析这个事件"},
+            )
+            session_response = client.get(f"/api/v1/agent-chat/sessions/{session_id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("event: run.failed", response.text)
+        self.assertIn("ServiceUnavailableError: No model configured for Agent Chat", response.text)
+        transcript = session_response.json()["data"]["messages"]
+        self.assertEqual(transcript[-1]["kind"], "error")
+        self.assertIn("No model configured for Agent Chat", transcript[-1]["content"])
+
+    def test_agent_chat_stream_unknown_session_uses_envelope(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            self._login_with_client(client, self.settings)
+            response = client.post(
+                "/api/v1/agent-chat/sessions/missing/messages/stream",
+                json={"message": "分析这个事件"},
+            )
+
+        body = response.json()
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(body["error"]["code"], "NOT_FOUND")
+
+    def test_old_agent_debug_fixture_endpoint_is_removed(self) -> None:
+        self.client.post("/api/v1/auth/login", json={"password": self.settings.AUTH_ADMIN_PASSWORD})
+        response = self.client.post(
+            "/api/v1/debug/agent-runs/fixtures/semiconductor-nvda-earnings/stream",
+            json={"scenario": "primary"},
+        )
 
         self.assertEqual(response.status_code, 404)
 
@@ -3631,11 +3741,11 @@ class ApiAppTestCase(unittest.TestCase):
         runtime_audit_news_data_schema = self._resolve_schema_ref(schema, runtime_audit_news_schema["properties"]["data"])
         self.assertTrue({"items", "next_cursor", "generated_at"}.issubset(runtime_audit_news_data_schema["properties"].keys()))
 
-        agent_debug_stream_content = schema["paths"]["/api/v1/debug/agent-runs/fixtures/{fixture_id}/stream"]["post"][
+        agent_chat_stream_content = schema["paths"]["/api/v1/agent-chat/sessions/{session_id}/messages/stream"]["post"][
             "responses"
         ]["200"]["content"]
-        self.assertIn("text/event-stream", agent_debug_stream_content)
-        self.assertNotIn("application/json", agent_debug_stream_content)
+        self.assertIn("text/event-stream", agent_chat_stream_content)
+        self.assertNotIn("application/json", agent_chat_stream_content)
 
     def test_production_openapi_excludes_debug_routes(self) -> None:
         production_app = create_app(self._settings(APP_ENV="production"))
@@ -3651,6 +3761,7 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertNotIn("/api/v1/debug/error", schema["paths"])
         self.assertNotIn("/api/v1/debug/success", schema["paths"])
         self.assertNotIn("/api/v1/debug/agent-runs/fixtures/{fixture_id}/stream", schema["paths"])
+        self.assertIn("/api/v1/agent-chat/sessions", schema["paths"])
         self.assertNotIn("/api/v1/auth/test-actions/runtime-inspect", schema["paths"])
 
     def test_create_app_does_not_configure_logging_before_lifespan(self) -> None:

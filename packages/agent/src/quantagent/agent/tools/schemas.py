@@ -14,7 +14,7 @@ class ToolInvocationSummary(StrictModel):
     tool_id: str = Field(description="Stable platform tool id.")
     name: str = Field(description="DeepAgents-visible tool name.")
     status: str = Field(description="started, completed, or failed.")
-    safe_summary: str = Field(description="Display-safe summary without secrets.")
+    content: str = Field(description="Display/runtime content for the invocation.")
 
 
 class GetRunContextInput(StrictModel):

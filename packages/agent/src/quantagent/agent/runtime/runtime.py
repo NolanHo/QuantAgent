@@ -8,7 +8,10 @@ from quantagent.agent.artifacts import ArtifactStore, InMemoryArtifactStore
 from quantagent.agent.runtime.context import ToolRuntimeContext
 from quantagent.agent.runtime.errors import AgentRuntimeError, DeepAgentsUnavailableError
 from quantagent.agent.runtime.requests import AgentRunRequest, AgentRunResult
-from quantagent.agent.streaming.adapter import EventSequencer, chunk_to_safe_summary
+from quantagent.agent.streaming.adapter import (
+    EventSequencer,
+    iter_deepagents_stream_events,
+)
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
 from quantagent.agent.tools.adapter import PlatformTool
 
@@ -52,11 +55,11 @@ class AgentRuntime:
         async for event in self.run_stream(request):
             events.append(event)
         status = "completed" if events and events[-1].type == AgentRunEventType.RUN_COMPLETED else "failed"
-        output = next((event.safe_summary or "" for event in reversed(events) if event.type == AgentRunEventType.RUN_OUTPUT), "")
+        output = next((event.content or "" for event in reversed(events) if event.type == AgentRunEventType.RUN_OUTPUT), "")
         return AgentRunResult(
             agent_run_id=request.agent_run_id,
             status=status,
-            output_summary=output,
+            output_content=output,
             artifact_refs=self._deps.artifact_store.list_for_run(),
             events=events,
         )
@@ -68,12 +71,19 @@ class AgentRuntime:
             trace_id=request.trace_id,
             event_type=AgentRunEventType.RUN_STARTED,
             payload={
+                "session_id": request.session_id,
+                "thread_id": request.thread_id,
+                "workspace_id": request.workspace_id,
                 "event_id": request.event_id,
                 "industry_id": request.industry_id,
                 "agent_id": request.agent_definition.agent_id,
                 "agent_version": request.agent_definition.version,
+                "input_message": request.input_message,
+                "system_prompt": request.agent_definition.system_prompt,
+                "runtime_policy": request.runtime_policy.model_dump(mode="json", exclude={"model"}),
+                "tool_profile": request.tool_profile.model_dump(mode="json"),
             },
-            safe_summary=f"AgentRun {request.agent_run_id} started.",
+            content=f"AgentRun {request.agent_run_id} started.",
         )
 
         try:
@@ -89,20 +99,23 @@ class AgentRuntime:
                 trace_id=request.trace_id,
                 event_type=AgentRunEventType.RUN_COMPLETED,
                 payload={"artifact_ids": [ref.artifact_id for ref in self._deps.artifact_store.list_for_run()]},
-                safe_summary=f"AgentRun {request.agent_run_id} completed.",
+                content=f"AgentRun {request.agent_run_id} completed.",
             )
         except Exception as exc:  # noqa: BLE001
-            safe_error = _safe_runtime_error_summary(exc)
+            error = _runtime_error_content(exc)
             yield sequencer.next(
                 agent_run_id=request.agent_run_id,
                 trace_id=request.trace_id,
                 event_type=AgentRunEventType.RUN_FAILED,
-                payload={"error": safe_error},
-                safe_summary=f"AgentRun {request.agent_run_id} failed.",
+                payload={"error": str(exc), "error_type": type(exc).__name__},
+                content=error,
             )
 
     def tool_runtime_context(self, request: AgentRunRequest, *, subagent_id: str | None = None) -> ToolRuntimeContext:
         return ToolRuntimeContext(
+            session_id=request.session_id,
+            thread_id=request.thread_id,
+            workspace_id=request.workspace_id,
             agent_run_id=request.agent_run_id,
             event_id=request.event_id,
             industry_id=request.industry_id,
@@ -122,23 +135,34 @@ class AgentRuntime:
             ]
         )
         graph = factory(request, self._build_langchain_tools(request, sequencer, tool_events, tool_ids=all_tool_ids))
-        config = {"configurable": {"thread_id": request.agent_run_id}}
+        config = {
+            "configurable": {
+                "thread_id": request.thread_id,
+                "session_id": request.session_id,
+                "workspace_id": request.workspace_id,
+                "agent_run_id": request.agent_run_id,
+            }
+        }
         input_data = {"messages": [{"role": "user", "content": request.input_message}]}
 
-        stream = graph.stream(input_data, config=config)
+        # 中文注释：DeepAgents frontend 需要同时看到 assistant message 流和 state updates，不能只消费默认结构 chunk。
+        stream = _open_deepagents_stream(graph, input_data, config)
         last_summary = ""
         for chunk in stream:
             while tool_events:
                 yield tool_events.pop(0)
-            summary = chunk_to_safe_summary(chunk)
-            last_summary = summary
-            yield sequencer.next(
-                agent_run_id=request.agent_run_id,
-                trace_id=request.trace_id,
-                event_type=AgentRunEventType.MODEL_DELTA,
-                payload={"summary": summary},
-                safe_summary=summary,
-            )
+            for event_type, payload, summary in iter_deepagents_stream_events(chunk):
+                if event_type == AgentRunEventType.MODEL_DELTA and summary:
+                    last_summary += summary
+                elif event_type == AgentRunEventType.RUN_OUTPUT and summary:
+                    last_summary = summary
+                yield sequencer.next(
+                    agent_run_id=request.agent_run_id,
+                    trace_id=request.trace_id,
+                    event_type=event_type,
+                    payload=payload,
+                    content=summary,
+                )
 
         while tool_events:
             yield tool_events.pop(0)
@@ -146,8 +170,8 @@ class AgentRuntime:
             agent_run_id=request.agent_run_id,
             trace_id=request.trace_id,
             event_type=AgentRunEventType.RUN_OUTPUT,
-            payload={"source": "stream"},
-            safe_summary=last_summary or "DeepAgents stream completed.",
+            payload={"source": "stream", "session_id": request.session_id, "thread_id": request.thread_id},
+            content=last_summary,
         )
 
     @staticmethod
@@ -284,10 +308,16 @@ class AgentRuntime:
         return ToolAdapter(runtime_context=runtime_context, sequencer=sequencer)
 
 
-def _safe_runtime_error_summary(exc: Exception) -> str:
-    """Runtime 失败事件不能包含 provider/prompt/secret 原文，只暴露错误类别。"""
+def _runtime_error_content(exc: Exception) -> str:
+    message = str(exc)
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
-    return f"{type(exc).__name__}: agent runtime failed"
+
+def _open_deepagents_stream(graph: DeepAgentGraph, input_data: Mapping[str, Any], config: Mapping[str, Any]) -> Iterable[Any]:
+    try:
+        return graph.stream(input_data, config=config, stream_mode=["updates", "messages"])  # type: ignore[call-arg]
+    except TypeError:
+        return graph.stream(input_data, config=config)
 
 
 def _ordered_unique(items: Sequence[str]) -> list[str]:
