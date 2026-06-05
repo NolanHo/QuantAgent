@@ -116,5 +116,5 @@ function messageContentToText(content: unknown): string {
       })
       .join("");
   }
-  return content == null ? "" : String(content);
+  return content === null || content === undefined ? "" : String(content);
 }

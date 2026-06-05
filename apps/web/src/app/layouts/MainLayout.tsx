@@ -5,6 +5,7 @@ import { listVisibleNavItems, useAuth } from '../../shared/auth'
 const routeLabels = new Map<string, string>([
   ['agents', 'Agent Runs'],
   ['agent-chat', 'Agent Chat'],
+  ['agent-chat-renderer', 'Agent Chat Renderer'],
   ['approvals', '审批'],
   ['audit', '审计时间线'],
   ['events', '事件'],

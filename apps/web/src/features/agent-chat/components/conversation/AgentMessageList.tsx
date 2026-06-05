@@ -1,4 +1,6 @@
-import { AgentMessageBubble, type AgentTimelineDisplayItem } from "./AgentMessageBubble";
+import { agentTimelineToRenderMessages } from "../../utils";
+import { AgentChatTranscriptRenderer } from "../rendering";
+import type { AgentTimelineDisplayItem } from "./AgentMessageBubble";
 
 export function AgentMessageList({
   isStreaming = false,
@@ -22,9 +24,11 @@ export function AgentMessageList({
 
   return (
     <div className="grid gap-5">
-      {messages.map((message) => (
-        <AgentMessageBubble key={message.id} message={message} />
-      ))}
+      <AgentChatTranscriptRenderer
+        contentClassName="max-h-none overflow-visible p-0"
+        messages={agentTimelineToRenderMessages(messages)}
+        showDownload={false}
+      />
       {isStreaming ? (
         <div className="flex items-center gap-2 px-2 text-[12px] font-semibold text-muted-strong">
           <span className="size-2 animate-pulse rounded-full bg-primary" />

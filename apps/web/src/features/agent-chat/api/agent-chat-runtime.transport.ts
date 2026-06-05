@@ -205,7 +205,10 @@ export class AgentChatRuntimeTransport implements AgentServerAdapter {
           }
 
           this.updateRuntimeEvent(rawEvent);
-          if (rawEvent.kind === "tool") this.publish(toolEvent(rawEvent, runId, this.nextSeq()));
+          if (rawEvent.kind === "tool") {
+            const event = toolEvent(rawEvent, runId, this.nextSeq());
+            if (event) this.publish(event);
+          }
           if (rawEvent.kind === "todo") this.updateTodos(rawEvent);
           if (rawEvent.kind === "subagent") this.updateNamedList("subagents", rawEvent);
           if (rawEvent.kind === "artifact") this.updateNamedList("artifacts", rawEvent);
@@ -510,10 +513,20 @@ function reasoningTimelineKey(rawEvent: AgentChatStreamEvent): string {
 }
 
 function toolTimelineKey(rawEvent: AgentChatStreamEvent): string {
-  const payload = rawEvent.payload ?? {};
-  const callId = payload.invocation_id ?? payload.tool_call_id ?? payload.call_id ?? readFirstToolCallChunkId(payload);
-  const toolName = payload.tool_name ?? payload.tool_id ?? payload.name ?? readFirstToolCallChunkName(payload);
+  const { callId, toolName } = readToolIdentity(rawEvent.payload ?? {});
   return `tool_${rawEvent.run_id ?? rawEvent.agent_run_id ?? rawEvent.session_id}_${callId ?? toolName ?? rawEvent.type}`;
+}
+
+function readToolIdentity(payload: Record<string, unknown>): { callId: null | string; toolName: null | string } {
+  const message = payload.message && typeof payload.message === "object" ? (payload.message as Record<string, unknown>) : null;
+  return {
+    callId: readString(payload.invocation_id) ?? readString(payload.tool_call_id) ?? readString(payload.call_id) ?? readString(message?.tool_call_id) ?? readString(message?.id) ?? readFirstToolCallChunkId(payload) ?? (message ? readFirstToolCallChunkId(message) : null),
+    toolName: readString(payload.tool_name) ?? readString(payload.tool_id) ?? readString(payload.name) ?? readString(message?.name) ?? readString(message?.tool_name) ?? readString(message?.tool_id) ?? readFirstToolCallChunkName(payload) ?? (message ? readFirstToolCallChunkName(message) : null),
+  };
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
 }
 
 function readFirstToolCallChunkId(payload: Record<string, unknown>): string | null {
@@ -550,7 +563,7 @@ function matchesSubscribeParams(event: AgentServerEvent, params: SubscribeParams
 function namespaceMatches(actual: readonly string[], prefix: readonly string[], depth?: number): boolean {
   if (prefix.length > actual.length) return false;
   if (!prefix.every((part, index) => actual[index] === part)) return false;
-  return depth == null || actual.length - prefix.length <= depth;
+  return depth === null || depth === undefined || actual.length - prefix.length <= depth;
 }
 
 function methodToChannel(method: AgentServerEvent["method"]) {
@@ -670,16 +683,20 @@ function valuesEvent(values: Record<string, unknown>, seq: number): AgentServerE
   } as AgentServerEvent;
 }
 
-function toolEvent(rawEvent: AgentChatStreamEvent, runId: string, seq: number): AgentServerEvent {
-  const toolCallId = String(rawEvent.payload.tool_call_id ?? rawEvent.event_id);
-  const toolName = String(rawEvent.payload.tool_name ?? rawEvent.payload.tool_id ?? "tool");
+function toolEvent(rawEvent: AgentChatStreamEvent, runId: string, seq: number): AgentServerEvent | null {
+  const { callId, toolName } = readToolIdentity(rawEvent.payload ?? {});
+  // 中文注释：没有稳定工具身份的 runtime chunk 不进入 LangChain tools channel，
+  // 否则 useToolCalls 会把每个 chunk 当成一个新 tool，导致 UI 卡顿和误渲染。
+  if (!callId && !toolName) return null;
+  const toolCallId = callId ?? toolName ?? "tool";
+  const displayName = toolName ?? "tool";
   return {
     event_id: `${runId}_tool_${rawEvent.event_id}`,
     method: "tools",
     params: {
       data:
         rawEvent.type === "tool.started"
-          ? { event: "tool-started", input: rawEvent.payload, tool_call_id: toolCallId, tool_name: toolName }
+          ? { event: "tool-started", input: rawEvent.payload, tool_call_id: toolCallId, tool_name: displayName }
           : { event: "tool-finished", output: rawEvent.payload, tool_call_id: toolCallId },
       namespace: [],
       timestamp: now(),

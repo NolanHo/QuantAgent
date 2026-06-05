@@ -111,6 +111,48 @@ describe("AgentChatRuntimeTransport", () => {
     ]);
     expect(latestValues?.timeline?.filter((item) => item.kind === "reasoning")).toHaveLength(1);
   });
+
+  it("does not publish unidentifiable tool chunks to the LangChain tool channel", async () => {
+    const apiClient = createMockApiClient([
+      createStreamEvent({
+        content: "DeepAgents runtime event.",
+        event_id: "toolish-runtime-chunk",
+        kind: "tool",
+        payload: { source: "messages", raw: { type: "AIMessageChunk" } },
+        role: "tool",
+        seq: 1,
+        type: "tool.completed",
+      }),
+      createStreamEvent({ content: "完成。", event_id: "final-1", kind: "final", seq: 2, type: "run.final" }),
+    ]);
+    const transport = new AgentChatRuntimeTransport({
+      apiClient,
+      sessionId: "session-1",
+      threadId: "thread-1",
+    });
+    const stream = transport.openEventStream({
+      channels: ["messages", "values", "tools", "lifecycle"],
+      depth: 1,
+      namespaces: [[]],
+    });
+
+    const eventsPromise = collectUntilCompleted(stream.events);
+    await transport.send({
+      id: 1,
+      method: "run.start",
+      params: {
+        assistant_id: "agent-chat",
+        input: { messages: [{ content: "分析这个事件", type: "human" }] },
+      },
+      type: "command",
+    } as unknown as AgentServerCommand);
+
+    const events = await eventsPromise;
+    stream.close();
+    await transport.close();
+
+    expect(events.filter((event) => event.method === "tools")).toHaveLength(0);
+  });
 });
 
 function createMockApiClient(events: AgentChatStreamEvent[]): ApiClient {
