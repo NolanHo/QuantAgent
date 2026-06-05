@@ -45,7 +45,7 @@ class StreamingAdapterTest(TestCase):
         self.assertEqual(events[0][0], AgentRunEventType.MODEL_REASONING)
         self.assertEqual(events[0][1]["reasoning"], "先判断缺口。")
 
-    def test_iter_deepagents_stream_events_ignores_tool_call_chunks_from_messages(self) -> None:
+    def test_iter_deepagents_stream_events_maps_tool_call_chunks_from_messages(self) -> None:
         events = iter_deepagents_stream_events(
             (
                 "messages",
@@ -59,19 +59,26 @@ class StreamingAdapterTest(TestCase):
             )
         )
 
-        self.assertEqual(events, [])
+        self.assertEqual(events[0][0], AgentRunEventType.TOOL_STARTED)
+        self.assertEqual(events[0][1]["tool_call_id"], "call_1")
+        self.assertEqual(events[0][1]["name"], "write_todos")
+        self.assertEqual(events[0][1]["input"], {"todos": []})
 
-    def test_iter_deepagents_stream_events_ignores_tool_call_chunks_from_updates(self) -> None:
+    def test_iter_deepagents_stream_events_maps_tool_call_chunks_from_updates(self) -> None:
         events = iter_deepagents_stream_events(
             ("updates", {"tool_call_chunks": [{"name": "write_todos", "args": "{\"todos\":[]}", "id": "call_1"}]})
         )
 
-        self.assertEqual(events[0][0], AgentRunEventType.RUNTIME_EVENT)
+        self.assertEqual(events[0][0], AgentRunEventType.TOOL_STARTED)
+        self.assertEqual(events[0][1]["tool_call_id"], "call_1")
+        self.assertEqual(events[0][1]["input"], {"todos": []})
 
-    def test_iter_deepagents_stream_events_ignores_tool_messages_in_messages_channel(self) -> None:
-        events = iter_deepagents_stream_events(("messages", (ToolMessage(content="[]", tool_call_id="call_1"), {})))
+    def test_iter_deepagents_stream_events_maps_tool_messages_in_messages_channel(self) -> None:
+        events = iter_deepagents_stream_events(("messages", (ToolMessage(content='{"ok":true}', tool_call_id="call_1"), {})))
 
-        self.assertEqual(events, [])
+        self.assertEqual(events[0][0], AgentRunEventType.TOOL_COMPLETED)
+        self.assertEqual(events[0][1]["tool_call_id"], "call_1")
+        self.assertEqual(events[0][1]["result"], {"ok": True})
 
     def test_iter_deepagents_stream_events_maps_todos(self) -> None:
         events = iter_deepagents_stream_events(("updates", {"todos": [{"content": "检查", "status": "completed"}]}))

@@ -30,6 +30,10 @@ class ToolAdapterTest(TestCase):
 
             self.assertEqual(result["agent_run_id"], "run_1")
             self.assertEqual(result["event_id"], "evt_1")
+            self.assertEqual(events[0].payload["input"], {"text": "hello"})
+            self.assertEqual(events[0].payload["tool_call_id"], events[0].payload["invocation_id"])
+            self.assertEqual(events[-1].payload["input"], {"text": "hello"})
+            self.assertEqual(events[-1].payload["result"]["agent_run_id"], "run_1")
             self.assertEqual(
                 [event.type for event in events],
                 [

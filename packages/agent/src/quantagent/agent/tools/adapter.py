@@ -39,13 +39,23 @@ class ToolAdapter:
 
     async def invoke(self, tool: PlatformTool[InputModelT], raw_input: Mapping[str, Any]) -> tuple[Mapping[str, Any], list[AgentRunEvent]]:
         input_data = tool.input_model.model_validate(dict(raw_input))
+        input_payload = input_data.model_dump(mode="json")
         invocation_id = f"tool_inv_{uuid4().hex}"
         events = [
             self._sequencer.next(
                 agent_run_id=self._runtime_context.agent_run_id,
                 trace_id=self._runtime_context.trace_id,
                 event_type=AgentRunEventType.TOOL_STARTED,
-                payload={"invocation_id": invocation_id, "tool_id": tool.binding.tool_id, "name": tool.binding.name},
+                payload={
+                    "invocation_id": invocation_id,
+                    "tool_call_id": invocation_id,
+                    "call_id": invocation_id,
+                    "tool_id": tool.binding.tool_id,
+                    "name": tool.binding.name,
+                    "tool_name": tool.binding.name,
+                    "input": input_payload,
+                    "args": input_payload,
+                },
                 content=f"Tool {tool.binding.name} started.",
             )
         ]
@@ -63,7 +73,13 @@ class ToolAdapter:
                     event_type=AgentRunEventType.TOOL_FAILED,
                     payload={
                         "invocation_id": invocation_id,
+                        "tool_call_id": invocation_id,
+                        "call_id": invocation_id,
                         "tool_id": tool.binding.tool_id,
+                        "name": tool.binding.name,
+                        "tool_name": tool.binding.name,
+                        "input": input_payload,
+                        "args": input_payload,
                         "error": str(exc),
                         "error_type": type(exc).__name__,
                     },
@@ -79,7 +95,18 @@ class ToolAdapter:
                 agent_run_id=self._runtime_context.agent_run_id,
                 trace_id=self._runtime_context.trace_id,
                 event_type=AgentRunEventType.TOOL_COMPLETED,
-                payload={"invocation_id": invocation_id, "tool_id": tool.binding.tool_id},
+                payload={
+                    "invocation_id": invocation_id,
+                    "tool_call_id": invocation_id,
+                    "call_id": invocation_id,
+                    "tool_id": tool.binding.tool_id,
+                    "name": tool.binding.name,
+                    "tool_name": tool.binding.name,
+                    "input": input_payload,
+                    "args": input_payload,
+                    "result": dict(result),
+                    "output": dict(result),
+                },
                 content=f"Tool {tool.binding.name} completed.",
             )
         )

@@ -350,9 +350,6 @@ function upsertByEventId(current: unknown, event: AgentChatStreamEvent) {
 }
 
 function mergeRuntimeEventIndex(current: unknown, event: AgentChatStreamEvent) {
-  if (event.kind === "reasoning") {
-    return upsertByStableKey(current, compactReasoningEvent(event), reasoningTimelineKey(event));
-  }
   if (event.kind === "tool") {
     return upsertByStableKey(current, event, toolTimelineKey(event));
   }
@@ -372,20 +369,8 @@ function upsertByStableKey(current: unknown, event: AgentChatStreamEvent, key: s
 }
 
 function stableEventKey(event: AgentChatStreamEvent): string {
-  if (event.kind === "reasoning") return reasoningTimelineKey(event);
   if (event.kind === "tool") return toolTimelineKey(event);
   return event.event_id;
-}
-
-function compactReasoningEvent(event: AgentChatStreamEvent): AgentChatStreamEvent {
-  return {
-    ...event,
-    event_id: reasoningTimelineKey(event),
-    payload: {
-      latest_event_id: event.event_id,
-      reasoning: event.content || event.payload.reasoning || "",
-    },
-  };
 }
 
 function upsertByToolKey(current: unknown, event: AgentChatStreamEvent) {
@@ -435,49 +420,10 @@ function upsertTimelineItem(current: unknown, item: TimelineItem) {
 }
 
 function mergeTimelineEvent(current: unknown, rawEvent: AgentChatStreamEvent) {
-  if (rawEvent.kind === "reasoning") {
-    return mergeReasoningTimelineItem(current, rawEvent);
-  }
   if (rawEvent.kind === "tool") {
     return upsertTimelineItemByKey(current, timelineItemFromRawEvent(rawEvent), toolTimelineKey(rawEvent));
   }
   return appendTimelineItem(current, timelineItemFromRawEvent(rawEvent));
-}
-
-function mergeReasoningTimelineItem(current: unknown, rawEvent: AgentChatStreamEvent) {
-  const items = Array.isArray(current) ? current.slice() : [];
-  const key = reasoningTimelineKey(rawEvent);
-  const index = items.findIndex((item) => item && typeof item === "object" && "id" in item && item.id === key);
-  const nextContent = rawEvent.content || String(rawEvent.payload.reasoning ?? "");
-  if (index >= 0) {
-    const previous = items[index] as TimelineItem;
-    items[index] = {
-      ...previous,
-      content: `${previous.content}${nextContent}`,
-      payload: {
-        ...previous.payload,
-        latest_event_id: rawEvent.event_id,
-        reasoning: `${previous.content}${nextContent}`,
-        source: rawEvent.payload.source,
-        type: rawEvent.type,
-      },
-      seq: rawEvent.seq ?? previous.seq,
-      type: rawEvent.type,
-    };
-    return items;
-  }
-  items.push({
-    ...timelineItemFromRawEvent(rawEvent),
-    content: nextContent,
-    id: key,
-    payload: {
-      latest_event_id: rawEvent.event_id,
-      reasoning: nextContent,
-      source: rawEvent.payload.source,
-      type: rawEvent.type,
-    },
-  });
-  return items;
 }
 
 function upsertTimelineItemByKey(current: unknown, item: TimelineItem, key: string) {
@@ -508,10 +454,6 @@ function timelineItemFromRawEvent(rawEvent: AgentChatStreamEvent): TimelineItem 
   };
 }
 
-function reasoningTimelineKey(rawEvent: AgentChatStreamEvent): string {
-  return `reasoning_${rawEvent.run_id ?? rawEvent.agent_run_id ?? rawEvent.session_id}`;
-}
-
 function toolTimelineKey(rawEvent: AgentChatStreamEvent): string {
   const { callId, toolName } = readToolIdentity(rawEvent.payload ?? {});
   return `tool_${rawEvent.run_id ?? rawEvent.agent_run_id ?? rawEvent.session_id}_${callId ?? toolName ?? rawEvent.type}`;
@@ -519,14 +461,60 @@ function toolTimelineKey(rawEvent: AgentChatStreamEvent): string {
 
 function readToolIdentity(payload: Record<string, unknown>): { callId: null | string; toolName: null | string } {
   const message = payload.message && typeof payload.message === "object" ? (payload.message as Record<string, unknown>) : null;
+  const raw = payload.raw && typeof payload.raw === "object" ? (payload.raw as Record<string, unknown>) : null;
   return {
-    callId: readString(payload.invocation_id) ?? readString(payload.tool_call_id) ?? readString(payload.call_id) ?? readString(message?.tool_call_id) ?? readString(message?.id) ?? readFirstToolCallChunkId(payload) ?? (message ? readFirstToolCallChunkId(message) : null),
-    toolName: readString(payload.tool_name) ?? readString(payload.tool_id) ?? readString(payload.name) ?? readString(message?.name) ?? readString(message?.tool_name) ?? readString(message?.tool_id) ?? readFirstToolCallChunkName(payload) ?? (message ? readFirstToolCallChunkName(message) : null),
+    callId:
+      readString(payload.invocation_id) ??
+      readString(payload.tool_call_id) ??
+      readString(payload.call_id) ??
+      readString(message?.tool_call_id) ??
+      readString(message?.id) ??
+      readString(raw?.id) ??
+      readString(raw?.tool_call_id) ??
+      readFirstToolCallChunkId(payload) ??
+      (message ? readFirstToolCallChunkId(message) : null),
+    toolName:
+      readString(payload.tool_name) ??
+      readString(payload.name) ??
+      readString(message?.name) ??
+      readString(message?.tool_name) ??
+      readString(raw?.name) ??
+      readString(raw?.tool_name) ??
+      readString(payload.tool_id) ??
+      readString(message?.tool_id) ??
+      readFirstToolCallChunkName(payload) ??
+      (message ? readFirstToolCallChunkName(message) : null),
   };
 }
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
+}
+
+function readToolInput(payload: Record<string, unknown>): unknown {
+  const direct = payload.input ?? payload.args;
+  if (direct !== undefined) return parseMaybeJson(direct);
+  const raw = payload.raw && typeof payload.raw === "object" ? (payload.raw as Record<string, unknown>) : null;
+  const rawArgs = raw?.args ?? raw?.arguments ?? raw?.input;
+  return rawArgs === undefined ? undefined : parseMaybeJson(rawArgs);
+}
+
+function readToolOutput(payload: Record<string, unknown>): unknown {
+  const direct = payload.result ?? payload.output ?? payload.error;
+  if (direct !== undefined) return parseMaybeJson(direct);
+  const message = payload.message && typeof payload.message === "object" ? (payload.message as Record<string, unknown>) : null;
+  return message?.content === undefined ? undefined : parseMaybeJson(message.content);
+}
+
+function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
 }
 
 function readFirstToolCallChunkId(payload: Record<string, unknown>): string | null {
@@ -696,8 +684,8 @@ function toolEvent(rawEvent: AgentChatStreamEvent, runId: string, seq: number): 
     params: {
       data:
         rawEvent.type === "tool.started"
-          ? { event: "tool-started", input: rawEvent.payload, tool_call_id: toolCallId, tool_name: displayName }
-          : { event: "tool-finished", output: rawEvent.payload, tool_call_id: toolCallId },
+          ? { event: "tool-started", input: readToolInput(rawEvent.payload), tool_call_id: toolCallId, tool_name: displayName }
+          : { event: "tool-finished", output: readToolOutput(rawEvent.payload), tool_call_id: toolCallId, tool_name: displayName },
       namespace: [],
       timestamp: now(),
     },

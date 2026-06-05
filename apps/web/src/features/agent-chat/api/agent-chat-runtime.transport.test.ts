@@ -34,7 +34,7 @@ describe("AgentChatRuntimeTransport", () => {
         content: "Tool tavily_search started.",
         event_id: "tool-start-1",
         kind: "tool",
-        payload: { invocation_id: "tool_inv_1", name: "tavily_search", tool_id: "tool.tavily_search" },
+        payload: { input: { query: "NVDA earnings consensus" }, invocation_id: "tool_inv_1", name: "tavily_search", tool_id: "tool.tavily_search" },
         role: "tool",
         seq: 4,
         type: "tool.started",
@@ -56,7 +56,7 @@ describe("AgentChatRuntimeTransport", () => {
       threadId: "thread-1",
     });
     const stream = transport.openEventStream({
-      channels: ["messages", "values", "lifecycle"],
+      channels: ["messages", "values", "tools", "lifecycle"],
       depth: 1,
       namespaces: [[]],
     });
@@ -105,11 +105,20 @@ describe("AgentChatRuntimeTransport", () => {
     expect(latestValues?.timeline).toEqual([
       expect.objectContaining({ content: "分析这个事件", id: expect.stringMatching(/^human_/u), kind: "message", role: "user" }),
       expect.objectContaining({ content: "我需要先分析。", id: expect.stringMatching(/^ai_/u), kind: "final", role: "assistant" }),
-      expect.objectContaining({ content: "先判断是否需要检索。再判断工具是否可用。", id: "reasoning_run-1", kind: "reasoning", type: "model.reasoning" }),
+      expect.objectContaining({ content: "先判断是否需要检索。", id: "reasoning-1", kind: "reasoning", type: "model.reasoning" }),
+      expect.objectContaining({ content: "再判断工具是否可用。", id: "reasoning-2", kind: "reasoning", type: "model.reasoning" }),
       expect.objectContaining({ content: "Tool tavily_search started.", id: "tool_run-1_tool_inv_1", kind: "tool", type: "tool.started" }),
       expect.objectContaining({ content: "Todo updated.", id: "todo-1", kind: "todo", type: "todo.updated" }),
     ]);
-    expect(latestValues?.timeline?.filter((item) => item.kind === "reasoning")).toHaveLength(1);
+    expect(latestValues?.timeline?.filter((item) => item.kind === "reasoning")).toHaveLength(2);
+    expect(events.filter((event) => event.method === "tools").map((event) => event.params.data)).toEqual([
+      {
+        event: "tool-started",
+        input: { query: "NVDA earnings consensus" },
+        tool_call_id: "tool_inv_1",
+        tool_name: "tavily_search",
+      },
+    ]);
   });
 
   it("does not publish unidentifiable tool chunks to the LangChain tool channel", async () => {

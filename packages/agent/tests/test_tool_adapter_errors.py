@@ -49,6 +49,10 @@ class ToolAdapterErrorTest(TestCase):
                 [event.type for event in events],
                 [AgentRunEventType.TOOL_STARTED, AgentRunEventType.TOOL_FAILED],
             )
+            self.assertEqual(events[0].payload["input"], {"text": "hello"})
+            self.assertEqual(events[-1].payload["input"], {"text": "hello"})
+            self.assertEqual(events[-1].payload["tool_call_id"], events[-1].payload["invocation_id"])
+            self.assertEqual(events[-1].payload["name"], "fail")
             self.assertIn("secret-token", str(result))
             self.assertIn("prompt raw", str(events[-1].payload))
 

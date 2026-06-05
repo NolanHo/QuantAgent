@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -60,6 +61,10 @@ def iter_deepagents_stream_events(chunk: object) -> list[tuple[AgentRunEventType
     mode, value = _split_stream_mode(chunk)
     if mode == "messages":
         events: list[tuple[AgentRunEventType, dict[str, Any], str | None]] = []
+        for tool_call in _extract_tool_call_chunks(value):
+            events.append(_tool_call_to_started_event(tool_call, source="messages"))
+        for tool_message in _extract_tool_messages(value):
+            events.append(_tool_message_to_completed_event(tool_message, source="messages"))
         reasoning = _extract_reasoning_content(value)
         if reasoning:
             events.append(
@@ -131,13 +136,10 @@ def _updates_to_events(value: object) -> list[tuple[AgentRunEventType, dict[str,
     if messages is not None:
         tool_messages = _extract_tool_messages(messages)
         for tool_message in tool_messages:
-            events.append(
-                (
-                    AgentRunEventType.TOOL_COMPLETED,
-                    {"message": tool_message, "source": "updates"},
-                    str(tool_message.get("content") or "Tool completed."),
-                )
-            )
+            events.append(_tool_message_to_completed_event(tool_message, source="updates"))
+
+    for tool_call in _extract_tool_call_chunks(value):
+        events.append(_tool_call_to_started_event(tool_call, source="updates"))
 
     subagents = _find_key(value, "subagents")
     if subagents is not None:
@@ -204,12 +206,22 @@ def _find_key(value: object, key: str) -> object | None:
 
 def _extract_tool_messages(messages: object) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
+    if isinstance(messages, Mapping):
+        for item in messages.values():
+            result.extend(_extract_tool_messages(item))
+        return result
     if not isinstance(messages, list | tuple):
+        message_type = getattr(messages, "type", None)
+        if message_type == "tool":
+            result.append(_json_safe(messages))
         return result
     for message in messages:
         message_type = getattr(message, "type", None)
         if message_type == "tool":
             result.append(_json_safe(message))
+            continue
+        if isinstance(message, Mapping | list | tuple):
+            result.extend(_extract_tool_messages(message))
     return result
 
 
@@ -370,3 +382,89 @@ def _extract_tool_call_chunks(value: object) -> list[Any]:
         safe = _json_safe(raw)
         return safe if isinstance(safe, list) else [safe]
     return []
+
+
+def _tool_call_to_started_event(tool_call: object, *, source: str) -> tuple[AgentRunEventType, dict[str, Any], str | None]:
+    safe = _json_safe(tool_call)
+    tool_call_record = safe if isinstance(safe, Mapping) else {"raw": safe}
+    args_value = tool_call_record.get("args") or tool_call_record.get("arguments") or tool_call_record.get("input")
+    parsed_input = _parse_tool_input(args_value)
+    raw_args = args_value if isinstance(args_value, str) else None
+    call_id = _read_non_empty_string(tool_call_record, "id", "tool_call_id", "call_id")
+    name = _read_non_empty_string(tool_call_record, "name", "tool_name", "tool_id")
+    payload: dict[str, Any] = {
+        "source": source,
+        "raw": safe,
+    }
+    if call_id:
+        payload["tool_call_id"] = call_id
+        payload["call_id"] = call_id
+    if name:
+        payload["name"] = name
+        payload["tool_name"] = name
+    if parsed_input is not None:
+        payload["input"] = parsed_input
+        payload["args"] = parsed_input
+    if raw_args is not None:
+        payload["args_text"] = raw_args
+    label = name or call_id or "tool"
+    return (AgentRunEventType.TOOL_STARTED, payload, f"Tool {label} started.")
+
+
+def _tool_message_to_completed_event(tool_message: Mapping[str, Any], *, source: str) -> tuple[AgentRunEventType, dict[str, Any], str | None]:
+    content = tool_message.get("content")
+    result = _parse_tool_result(content)
+    call_id = _read_non_empty_string(tool_message, "tool_call_id", "id", "call_id")
+    name = _read_non_empty_string(tool_message, "name", "tool_name", "tool_id")
+    payload: dict[str, Any] = {
+        "message": dict(tool_message),
+        "result": result,
+        "output": result,
+        "source": source,
+    }
+    if call_id:
+        payload["tool_call_id"] = call_id
+        payload["call_id"] = call_id
+    if name:
+        payload["name"] = name
+        payload["tool_name"] = name
+    summary = content if isinstance(content, str) and content.strip() else "Tool completed."
+    return (AgentRunEventType.TOOL_COMPLETED, payload, summary)
+
+
+def _parse_tool_input(value: object) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        return _json_safe(value)
+    if isinstance(value, list | tuple):
+        return _json_safe(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            return {"args": value}
+    return _json_safe(value)
+
+
+def _parse_tool_result(value: object) -> Any:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return ""
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            return value
+    return _json_safe(value)
+
+
+def _read_non_empty_string(value: Mapping[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        item = value.get(key)
+        if isinstance(item, str) and item:
+            return item
+    return None

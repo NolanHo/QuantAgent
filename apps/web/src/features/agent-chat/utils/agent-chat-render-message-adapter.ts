@@ -67,7 +67,7 @@ function mergeTimelineItemIntoAssistant(message: AgentRenderMessage, item: Agent
   }
 
   if (item.kind === "reasoning") {
-    upsertReasoningPart(message.parts, item.content, item.type);
+    appendReasoningPart(message.parts, item.content, item.type);
     return;
   }
 
@@ -116,17 +116,10 @@ function upsertTextPart(parts: AgentRenderPart[], text: string, display: "proces
   parts.push({ type: "text", display, text });
 }
 
-function upsertReasoningPart(parts: AgentRenderPart[], text: string, eventType?: string): void {
+function appendReasoningPart(parts: AgentRenderPart[], text: string, eventType?: string): void {
   if (!text) return;
-  const existing = parts.find((part) => part.type === "reasoning");
-  if (existing?.type === "reasoning") {
-    if (!existing.text.includes(text)) existing.text = `${existing.text}\n\n${text}`;
-    existing.status = eventType?.includes("completed") ? "completed" : existing.status ?? "completed";
-    return;
-  }
   parts.push({
     type: "reasoning",
-    title: "推理过程",
     status: eventType?.includes("streaming") ? "streaming" : "completed",
     text,
   });
@@ -144,7 +137,7 @@ function upsertToolPart(parts: AgentRenderPart[], next: AgentToolPart): void {
     ...current,
     ...next,
     description: next.description ?? current.description,
-    input: mergeToolInput(current.input, next.input),
+    input: mergeToolInput(current.input, next.input) ?? current.input,
     output: next.output ?? current.output,
     status: next.status,
   };
@@ -172,6 +165,7 @@ function upsertTasksPart(parts: AgentRenderPart[], tasks: AgentTaskItem[]): void
 function timelineItemToToolPart(item: AgentChatTimelineItem): AgentToolPart {
   const identity = readToolIdentity(item.payload);
   const status = item.type === "tool.started" ? "running" : item.type === "tool.failed" ? "error" : "completed";
+  const input = readToolInput(item.payload);
   const output = status === "running" ? undefined : readToolOutput(item);
   return {
     type: "tool",
@@ -179,33 +173,78 @@ function timelineItemToToolPart(item: AgentChatTimelineItem): AgentToolPart {
     name: identity.toolName ?? "tool",
     status,
     description: status === "running" ? item.content : undefined,
-    input: status === "running" ? compactToolInput(item.payload) : undefined,
+    input,
     output,
   };
 }
 
 function readToolIdentity(payload: Record<string, unknown>): { callId: null | string; toolName: null | string } {
   const message = isRecord(payload.message) ? payload.message : null;
+  const raw = isRecord(payload.raw) ? payload.raw : null;
   return {
-    callId: readString(payload.invocation_id) ?? readString(payload.tool_call_id) ?? readString(payload.call_id) ?? readString(message?.tool_call_id) ?? readString(message?.id),
-    toolName: readString(payload.tool_name) ?? readString(payload.tool_id) ?? readString(payload.name) ?? readString(message?.name) ?? readString(message?.tool_name) ?? readString(message?.tool_id),
+    callId:
+      readString(payload.invocation_id) ??
+      readString(payload.tool_call_id) ??
+      readString(payload.call_id) ??
+      readString(message?.tool_call_id) ??
+      readString(message?.id) ??
+      readString(raw?.id) ??
+      readString(raw?.tool_call_id),
+    toolName:
+      readString(payload.tool_name) ??
+      readString(payload.name) ??
+      readString(message?.name) ??
+      readString(message?.tool_name) ??
+      readString(raw?.name) ??
+      readString(raw?.tool_name) ??
+      readString(payload.tool_id) ??
+      readString(message?.tool_id),
   };
 }
 
-function compactToolInput(payload: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const key of ["query", "symbol", "symbols", "window", "tool_id", "name"]) {
+function readToolInput(payload: Record<string, unknown>): Record<string, unknown> | undefined {
+  const direct = payload.input ?? payload.args;
+  if (isRecord(direct)) return direct;
+  if (typeof direct === "string" && direct) return { args: direct };
+  const raw = isRecord(payload.raw) ? payload.raw : null;
+  const rawArgs = raw?.args ?? raw?.arguments ?? raw?.input;
+  if (isRecord(rawArgs)) return rawArgs;
+  if (typeof rawArgs === "string" && rawArgs) return parseJsonRecord(rawArgs) ?? { args: rawArgs };
+  const compact: Record<string, unknown> = {};
+  for (const key of ["query", "symbol", "symbols", "window"]) {
     const value = payload[key];
-    if (isPrimitive(value)) result[key] = value;
+    if (isPrimitive(value) || Array.isArray(value)) compact[key] = value;
   }
-  return result;
+  return Object.keys(compact).length ? compact : undefined;
 }
 
 function readToolOutput(item: AgentChatTimelineItem): string | undefined {
+  const structured = item.payload.result ?? item.payload.output ?? item.payload.error;
+  const formatted = formatUnknownOutput(structured);
+  if (formatted) return formatted;
   const message = isRecord(item.payload.message) ? item.payload.message : null;
   const content = readString(message?.content) ?? item.content;
   if (!content || content.startsWith("Tool ") && content.endsWith(".")) return undefined;
   return content;
+}
+
+function formatUnknownOutput(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function timelineItemToTasks(item: AgentChatTimelineItem): AgentTaskItem[] {
