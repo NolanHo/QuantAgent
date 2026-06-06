@@ -90,11 +90,6 @@ export function groupAssistantParts(parts: readonly AgentRenderPart[]): Assistan
       blocks.push({ id: `response-${index}`, part, type: "part" });
       return;
     }
-    if (part.type === "subagent") {
-      flushCot();
-      blocks.push({ id: `subagent-${part.groupId ?? part.agentName}-${index}`, part, type: "part" });
-      return;
-    }
     currentCot.push(part);
   });
 

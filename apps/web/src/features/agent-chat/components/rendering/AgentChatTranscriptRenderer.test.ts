@@ -7,7 +7,7 @@ import { groupAssistantParts } from "./AgentChatTranscriptRenderer";
 import { AgentReportArtifactCard } from "./AgentReportArtifactCard";
 
 describe("groupAssistantParts", () => {
-  it("keeps subagent blocks between main COT blocks instead of collecting them at the end", () => {
+  it("keeps subagent nodes inside the main COT instead of splitting the chain", () => {
     const parts: AgentRenderPart[] = [
       { status: "completed", text: "Main before task.", type: "reasoning" },
       { callId: "call_task_1", name: "task", status: "completed", type: "tool" },
@@ -25,11 +25,17 @@ describe("groupAssistantParts", () => {
 
     const blocks = groupAssistantParts(parts);
 
-    expect(blocks.map((block) => block.type)).toEqual(["cot", "part", "cot", "part"]);
-    expect(blocks[0]).toMatchObject({ type: "cot", parts: [{ type: "reasoning" }, { type: "tool" }] });
-    expect(blocks[1]).toMatchObject({ type: "part", part: { groupId: "span_subagent_call_task_1", type: "subagent" } });
-    expect(blocks[2]).toMatchObject({ type: "cot", parts: [{ text: "Main after subagent.", type: "reasoning" }] });
-    expect(blocks[3]).toMatchObject({ type: "part", part: { display: "response", text: "Final answer.", type: "text" } });
+    expect(blocks.map((block) => block.type)).toEqual(["cot", "part"]);
+    expect(blocks[0]).toMatchObject({
+      type: "cot",
+      parts: [
+        { type: "reasoning" },
+        { type: "tool" },
+        { groupId: "span_subagent_call_task_1", type: "subagent" },
+        { text: "Main after subagent.", type: "reasoning" },
+      ],
+    });
+    expect(blocks[1]).toMatchObject({ type: "part", part: { display: "response", text: "Final answer.", type: "text" } });
   });
 
   it("renders report artifacts as expandable cards with markdown content", () => {
