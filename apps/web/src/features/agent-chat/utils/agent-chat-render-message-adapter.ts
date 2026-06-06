@@ -240,7 +240,8 @@ function mergeRuntimeEventIntoSubagent(parts: AgentRenderPart[], event: AgentRun
     return;
   }
   if (event.event_type === "artifact.created") {
-    part.steps.push({ display: "process", text: runtimeContentText(event) || formatUnknownOutput(event.content?.json) || "Artifact created.", type: "text" });
+    part.steps.push(runtimeEventToArtifact(event));
+    part.status = "completed";
     return;
   }
   if (event.event_type === "interrupt.requested" || event.event_type === "run.failed") {
@@ -681,13 +682,43 @@ function timelineItemToArtifact(item: AgentChatTimelineItem): AgentArtifactPart 
 
 function runtimeEventToArtifact(event: AgentRuntimeEventV1): AgentArtifactPart {
   const payload = isRecord(event.content?.json) ? event.content.json : isRecord(event.raw) ? event.raw : {};
+  const artifactRecord = isRecord(payload.artifact) ? payload.artifact : payload;
+  const artifactType = normalizeArtifactType(readString(artifactRecord.artifact_type) ?? readString(artifactRecord.type));
+  const contentMarkdown =
+    readString(artifactRecord.content_markdown) ??
+    readString(artifactRecord.markdown) ??
+    readString(artifactRecord.content) ??
+    runtimeContentText(event);
+  const summary = readString(artifactRecord.summary) ?? summarizeMarkdown(contentMarkdown);
+  const title = readString(artifactRecord.title) ?? (artifactType === "report" ? "分析报告" : "运行产物");
+  const rows = objectRows(artifactRecord);
   return {
     type: "artifact",
-    artifactType: "analysis",
-    title: "运行产物",
+    artifactType,
+    agentName: readString(artifactRecord.agent_display_name) ?? readString(artifactRecord.agent_name) ?? event.actor.display_name,
+    contentMarkdown: contentMarkdown || undefined,
+    groupId: readString(artifactRecord.group_id) ?? event.render.group_id,
+    sourceSeq: typeof artifactRecord.source_seq === "number" ? artifactRecord.source_seq : event.seq,
+    summary: summary || undefined,
+    title,
     tone: "info",
-    rows: objectRows(payload).length ? objectRows(payload) : [{ label: "内容", value: runtimeContentText(event) || formatUnknownOutput(event.content?.json) || "" }],
+    rows: rows.length ? rows : [{ label: "来源", value: event.actor.display_name }],
   };
+}
+
+function normalizeArtifactType(value: null | string): AgentArtifactPart["artifactType"] {
+  if (value === "notification" || value === "order" || value === "report" || value === "risk") return value;
+  return "analysis";
+}
+
+function summarizeMarkdown(value: null | string): string | undefined {
+  if (!value) return undefined;
+  for (const line of value.split("\n")) {
+    const cleaned = line.replace(/^#+\s*/, "").trim();
+    if (cleaned && !cleaned.startsWith("|") && cleaned !== "---") return cleaned.slice(0, 180);
+  }
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact ? compact.slice(0, 180) : undefined;
 }
 
 function runtimeContentText(event: AgentRuntimeEventV1): string {

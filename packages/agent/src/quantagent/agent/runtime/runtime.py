@@ -210,7 +210,7 @@ class AgentRuntime:
                 is_subagent_event = payload.get("actor_type") == "subagent" and payload.get("subagent_name")
                 if event_type == AgentRunEventType.MODEL_DELTA and summary and not is_subagent_event:
                     last_summary += summary
-                elif event_type == AgentRunEventType.RUN_OUTPUT and summary and not is_subagent_event:
+                elif event_type == AgentRunEventType.RUN_OUTPUT and summary and not is_subagent_event and not _is_intermediate_report_output(payload, summary):
                     last_summary = summary
                 yield sequencer.next(
                     agent_run_id=request.agent_run_id,
@@ -557,6 +557,15 @@ def _task_subagent_name(payload: Mapping[str, Any]) -> str | None:
 
 def _configured_subagent_names(request: AgentRunRequest) -> set[str]:
     return {subagent.name for subagent in request.agent_definition.subagents}
+
+
+def _is_intermediate_report_output(payload: Mapping[str, Any], summary: str) -> bool:
+    if payload.get("source") == "stream":
+        return False
+    stripped = summary.strip()
+    if len(stripped) >= 900:
+        return True
+    return len(stripped) >= 420 and any(marker in stripped for marker in ("# ", "## ", "### ", "|", "- ", "1. "))
 
 
 async def _open_deepagents_stream(graph: DeepAgentGraph, input_data: Mapping[str, Any], config: Mapping[str, Any]) -> AsyncIterator[Any]:

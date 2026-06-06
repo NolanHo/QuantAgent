@@ -106,6 +106,8 @@ def normalize_agent_run_event(event: AgentRunEvent, state: AgentRuntimeProtocolS
         owner = _owner_from_event(event, state)
         if owner is not None:
             owner.output = event.content or owner.output
+            if _is_report_like_content(event.content):
+                return _report_artifact_event(event, state, owner=owner, source="subagent_run_output")
             return _event(
                 event,
                 state,
@@ -117,6 +119,8 @@ def normalize_agent_run_event(event: AgentRunEvent, state: AgentRuntimeProtocolS
                 subagent=_subagent_payload(owner),
                 raw=_raw_payload(event.payload),
             )
+        if _is_intermediate_run_output(event) and _is_report_like_content(event.content):
+            return _report_artifact_event(event, state, owner=None, source="main_intermediate_output")
         return _event(
             event,
             state,
@@ -146,6 +150,9 @@ def normalize_agent_run_event(event: AgentRunEvent, state: AgentRuntimeProtocolS
         return runtime_event
     if event.type in {AgentRunEventType.SUBAGENT_STARTED, AgentRunEventType.SUBAGENT_COMPLETED}:
         subagent = _owner_from_event(event, state)
+        if event.type == AgentRunEventType.SUBAGENT_COMPLETED and subagent is not None and _is_report_like_content(event.content):
+            subagent.output = event.content or subagent.output
+            return _report_artifact_event(event, state, owner=subagent, source="subagent_completed_output")
         return _event(
             event,
             state,
@@ -330,6 +337,44 @@ def _event(
     )
 
 
+def _report_artifact_event(
+    event: AgentRunEvent,
+    state: AgentRuntimeProtocolState,
+    *,
+    owner: SubagentSpan | None,
+    source: str,
+) -> AgentRuntimeEventV1:
+    markdown = event.content or ""
+    title = f"{owner.display_name} 报告" if owner is not None else f"{state.request.agent_definition.name} 报告"
+    summary = _report_summary(markdown)
+    payload = {
+        "artifact_id": f"artifact_report_{event.event_id}",
+        "artifact_type": "report",
+        "title": title,
+        "summary": summary,
+        "content_markdown": markdown,
+        "agent_name": owner.name if owner is not None else state.request.agent_definition.name,
+        "agent_display_name": owner.display_name if owner is not None else state.request.agent_definition.name,
+        "group_id": owner.span_id if owner is not None else state.main_span_id,
+        "source": source,
+        "source_event_id": event.event_id,
+        "source_seq": event.seq,
+    }
+    # 中文注释：长报告在协议层产物化，前端只按 artifact.created 渲染卡片，
+    # 不再用正文长度或 namespace 猜测“这是不是报告”。
+    return _event(
+        event,
+        state,
+        event_type="artifact.created",
+        actor=owner_actor(owner, state.request.agent_definition),
+        span=owner_span(owner, state),
+        render=_owner_render(owner, state, "cot", "artifact"),
+        content=AgentRuntimeContent(format="json", text=summary, json=payload, delta_mode="snapshot"),
+        subagent=_subagent_payload(owner),
+        raw={**_raw_payload(event.payload), "artifact": payload},
+    )
+
+
 def _main_actor(definition: AgentDefinition) -> AgentRuntimeActor:
     return AgentRuntimeActor(
         type="main_agent",
@@ -375,6 +420,29 @@ def _task_tool_content(event: AgentRunEvent) -> AgentRuntimeContent | None:
     if event.type == AgentRunEventType.TOOL_COMPLETED:
         return _content_text("SubAgent 已返回结果；详细执行过程在 SubAgent 节点中展示。")
     return _content_text(event.content)
+
+
+def _is_intermediate_run_output(event: AgentRunEvent) -> bool:
+    return event.payload.get("source") != "stream"
+
+
+def _is_report_like_content(text: str | None) -> bool:
+    if not text:
+        return False
+    stripped = text.strip()
+    if len(stripped) >= 900:
+        return True
+    markdown_markers = ("# ", "## ", "### ", "|", "- ", "1. ")
+    return len(stripped) >= 420 and any(marker in stripped for marker in markdown_markers)
+
+
+def _report_summary(markdown: str) -> str:
+    for line in markdown.splitlines():
+        cleaned = line.strip().strip("#").strip()
+        if cleaned and not cleaned.startswith("|") and set(cleaned) != {"-"}:
+            return cleaned[:180]
+    compact = " ".join(markdown.split())
+    return compact[:180] if compact else "报告已生成。"
 
 
 def _subagent_payload(owner: SubagentSpan | None) -> AgentRuntimeSubagent | None:

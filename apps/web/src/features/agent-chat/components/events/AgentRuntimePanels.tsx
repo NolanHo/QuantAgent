@@ -1,6 +1,7 @@
 import { AlertTriangle, Bot, CheckCircle2, Circle, FileText, Hammer, Loader2, RadioTower, SquareStack } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { AgentMarkdown } from "../conversation/AgentMarkdown";
 import { AgentJsonBlock } from "./AgentJsonBlock";
 
 export function AgentRuntimePanels({
@@ -39,7 +40,7 @@ export function AgentRuntimePanels({
         empty="暂无 artifact"
         icon={<FileText aria-hidden className="size-4" />}
         items={artifacts}
-        renderItem={(item, index) => <RuntimeDetailCard item={item} key={itemKey(item, index)} title={runtimeTitle(item, "Artifact")} />}
+        renderItem={(item, index) => <ArtifactRuntimeCard item={item} key={itemKey(item, index)} />}
         title="Artifacts"
       />
       <RuntimeList
@@ -144,6 +145,39 @@ function ToolRunCard({ item }: { item: unknown }) {
   );
 }
 
+function ArtifactRuntimeCard({ item }: { item: unknown }) {
+  const artifact = readRuntimeArtifact(item);
+  if (!artifact) {
+    return <RuntimeDetailCard item={item} title={runtimeTitle(item, "Artifact")} />;
+  }
+  return (
+    <details className="group rounded-md border border-hairline bg-canvas">
+      <summary className="cursor-pointer list-none px-3 py-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="grid min-w-0 gap-1">
+            <div className="truncate text-[13px] font-semibold text-ink">{artifact.title}</div>
+            <div className="flex flex-wrap gap-2 font-mono text-[11px] text-muted">
+              {artifact.agentName ? <span>{artifact.agentName}</span> : null}
+              {artifact.sourceSeq ? <span>seq {artifact.sourceSeq}</span> : null}
+            </div>
+            {artifact.summary ? <div className="line-clamp-2 text-[12px] leading-5 text-muted-strong">{artifact.summary}</div> : null}
+          </div>
+          <RuntimeBadge status="completed" />
+        </div>
+      </summary>
+      <div className="border-t border-hairline p-3">
+        {artifact.contentMarkdown ? (
+          <div className="max-h-[32rem] overflow-auto pr-1 text-[13px] leading-6 text-muted-strong">
+            <AgentMarkdown content={artifact.contentMarkdown} />
+          </div>
+        ) : (
+          <AgentJsonBlock value={item} />
+        )}
+      </div>
+    </details>
+  );
+}
+
 function RuntimeDetailCard({
   item,
   title,
@@ -161,6 +195,29 @@ function RuntimeDetailCard({
       </div>
     </details>
   );
+}
+
+function readRuntimeArtifact(item: unknown): null | {
+  agentName?: string;
+  contentMarkdown?: string;
+  sourceSeq?: number;
+  summary?: string;
+  title: string;
+} {
+  const runtimeEvent = readPath(item, ["runtime_event"]) ?? readPath(item, ["payload", "runtime_event"]);
+  const contentJson = readPath(runtimeEvent, ["content", "json"]);
+  const rawArtifact = readPath(runtimeEvent, ["raw", "artifact"]);
+  const artifact = isRecord(contentJson) ? contentJson : isRecord(rawArtifact) ? rawArtifact : null;
+  if (!artifact) return null;
+  const type = readPath(artifact, ["artifact_type"]) ?? readPath(artifact, ["type"]);
+  if (type !== "report") return null;
+  return {
+    agentName: stringOrUndefined(readPath(artifact, ["agent_display_name"]) ?? readPath(artifact, ["agent_name"])),
+    contentMarkdown: stringOrUndefined(readPath(artifact, ["content_markdown"]) ?? readPath(artifact, ["markdown"]) ?? readPath(artifact, ["content"])),
+    sourceSeq: typeof readPath(artifact, ["source_seq"]) === "number" ? (readPath(artifact, ["source_seq"]) as number) : undefined,
+    summary: stringOrUndefined(readPath(artifact, ["summary"])),
+    title: stringOrUndefined(readPath(artifact, ["title"])) ?? "分析报告",
+  };
 }
 
 function RuntimeEventRow({ item }: { item: unknown }) {
@@ -238,6 +295,14 @@ function readPath(value: unknown, path: string[]): unknown {
     cursor = (cursor as Record<string, unknown>)[key];
   }
   return cursor;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
 }
 
 function itemKey(item: unknown, index: number): string {

@@ -700,6 +700,118 @@ class RuntimeStreamTest(TestCase):
 
         asyncio.run(_run())
 
+    def test_runtime_maps_subagent_long_run_output_to_report_artifact(self) -> None:
+        report = "\n".join(
+            [
+                "# NVIDIA FY2027 Q1 财报研究报告",
+                "",
+                "## 一手材料",
+                "NVIDIA 官方财报显示数据中心业务继续高增长。",
+                "",
+                "| 指标 | 实际 |",
+                "| --- | --- |",
+                "| Revenue | $81.6B |",
+                "",
+                *[f"- 研究要点 {index}: 市场预期和盘后反应需要外部检索交叉验证。" for index in range(40)],
+            ]
+        )
+
+        class CapturingGraph:
+            def stream(self, input_data, config=None, stream_mode=None, subgraphs=False):
+                yield (
+                    "messages",
+                    (
+                        AIMessageChunk(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "task",
+                                    "args": {"subagent_type": "evidence_research_analyst", "description": "检索市场预期"},
+                                    "id": "call_task_1",
+                                }
+                            ],
+                        ),
+                        {},
+                    ),
+                )
+                yield (
+                    ("tools:task_1",),
+                    "updates",
+                    {"agent": {"messages": [AIMessageChunk(content=report)]}},
+                )
+
+        async def _run() -> None:
+            base_request = build_echo_run_request()
+            request = base_request.model_copy(
+                update={
+                    "agent_definition": base_request.agent_definition.model_copy(
+                        update={
+                            "subagents": [
+                                SubAgentDefinition(
+                                    subagent_id="subagent_research",
+                                    name="evidence_research_analyst",
+                                    description="负责公开证据检索。",
+                                    system_prompt="你是 Research Agent。",
+                                    tool_ids=["quantagent.test.echo"],
+                                )
+                            ]
+                        }
+                    ),
+                    "runtime_policy": RuntimePolicy(model=object()),
+                }
+            )
+            runtime = AgentRuntime(deep_agent_factory=lambda _request, _tools: CapturingGraph(), tools=[build_echo_platform_tool()])
+
+            events = [event async for event in runtime.run_stream(request)]
+            artifact = next(event for event in events if event.payload["runtime_event"]["event_type"] == "artifact.created")
+            runtime_event = artifact.payload["runtime_event"]
+
+            self.assertEqual(runtime_event["render"]["lane"], "subagent")
+            self.assertEqual(runtime_event["render"]["target"], "cot")
+            self.assertEqual(runtime_event["render"]["content_kind"], "artifact")
+            self.assertEqual(runtime_event["content"]["json"]["artifact_type"], "report")
+            self.assertEqual(runtime_event["content"]["json"]["content_markdown"], report)
+            self.assertEqual(runtime_event["content"]["json"]["group_id"], "span_subagent_call_task_1")
+            self.assertFalse(
+                any(
+                    event.payload["runtime_event"]["event_type"] in {"agent.message.final", "agent.message.delta"}
+                    and event.content == report
+                    for event in events
+                )
+            )
+
+        asyncio.run(_run())
+
+    def test_runtime_maps_main_intermediate_long_run_output_to_report_artifact(self) -> None:
+        report = "# Main 中途分析报告\n\n" + "\n".join(f"- 分析点 {index}: 这是 MainAgent 中途产出的长报告。" for index in range(45))
+
+        class CapturingGraph:
+            def stream(self, input_data, config=None, stream_mode=None, subgraphs=False):
+                yield ("updates", {"agent": {"messages": [AIMessageChunk(content=report)]}})
+                yield ("messages", (AIMessageChunk(content="最终结论保留为 final。"), {}))
+
+        async def _run() -> None:
+            base_request = build_echo_run_request()
+            request = base_request.model_copy(
+                update={
+                    "agent_definition": base_request.agent_definition.model_copy(update={"tool_ids": [], "subagents": []}),
+                    "tool_profile": base_request.tool_profile.model_copy(update={"tool_bindings": []}),
+                    "runtime_policy": RuntimePolicy(model=object()),
+                }
+            )
+            runtime = AgentRuntime(deep_agent_factory=lambda _request, _tools: CapturingGraph())
+
+            events = [event async for event in runtime.run_stream(request)]
+            artifact = next(event for event in events if event.payload["runtime_event"]["event_type"] == "artifact.created")
+            final = next(event for event in events if event.payload["runtime_event"]["event_type"] == "agent.message.final")
+
+            self.assertEqual(artifact.payload["runtime_event"]["render"]["lane"], "main")
+            self.assertEqual(artifact.payload["runtime_event"]["content"]["json"]["artifact_type"], "report")
+            self.assertEqual(artifact.payload["runtime_event"]["content"]["json"]["content_markdown"], report)
+            self.assertEqual(final.content, "最终结论保留为 final。")
+
+        asyncio.run(_run())
+
     def test_langchain_tool_wrapper_supports_sync_invocation(self) -> None:
         runtime = AgentRuntime(tools=[build_echo_platform_tool()])
         request = build_echo_run_request()

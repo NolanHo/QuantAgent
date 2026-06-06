@@ -66,7 +66,7 @@ export interface AgentSubagentPart {
   status: "completed" | "error" | "running";
   title: string;
   input?: string;
-  steps: Array<AgentReasoningPart | AgentTextPart | AgentToolPart>;
+  steps: Array<AgentArtifactPart | AgentReasoningPart | AgentTextPart | AgentToolPart>;
   output?: string;
 }
 
@@ -103,8 +103,13 @@ export interface AgentDecisionPart {
 
 export interface AgentArtifactPart {
   type: "artifact";
-  artifactType: "analysis" | "notification" | "order" | "risk";
+  artifactType: "analysis" | "notification" | "order" | "report" | "risk";
+  agentName?: string;
+  contentMarkdown?: string;
+  groupId?: string;
   rows: Array<{ label: string; value: string }>;
+  sourceSeq?: number;
+  summary?: string;
   title: string;
   tone?: AgentRenderTone;
 }

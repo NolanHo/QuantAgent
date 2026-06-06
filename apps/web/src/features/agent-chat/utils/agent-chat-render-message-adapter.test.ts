@@ -118,6 +118,69 @@ describe("agentTimelineToRenderMessages", () => {
     ]);
   });
 
+  it("renders subagent report artifacts as report cards inside the subagent node", () => {
+    const report = [
+      "# NVIDIA FY2027 Q1 财报研究报告",
+      "",
+      "| 指标 | 实际 |",
+      "| --- | --- |",
+      "| Revenue | $81.6B |",
+      "",
+      "- 数据中心业务继续高增长。",
+    ].join("\n");
+    const messages = agentTimelineToRenderMessages([
+      item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
+      v1Item({
+        actor: { display_name: "Research Agent", id: "research", name: "evidence_research_analyst", type: "subagent" },
+        content: {
+          delta_mode: "snapshot",
+          format: "json",
+          json: {
+            artifact_id: "artifact_report_1",
+            artifact_type: "report",
+            agent_name: "evidence_research_analyst",
+            content_markdown: report,
+            group_id: "span_subagent_call_task_1",
+            source_seq: 5,
+            summary: "NVIDIA FY2027 Q1 财报研究报告",
+            title: "Research Agent 报告",
+          },
+          text: "NVIDIA FY2027 Q1 财报研究报告",
+        },
+        event_id: "research-report",
+        event_type: "artifact.created",
+        render: { content_kind: "artifact", group_id: "span_subagent_call_task_1", lane: "subagent", target: "cot" },
+        seq: 5,
+        span: { kind: "subagent_run", parent_span_id: "span_main_agent-run-1", span_id: "span_subagent_call_task_1" },
+        subagent: { name: "evidence_research_analyst", subagent_id: "research", task_call_id: "call_task_1" },
+      }),
+      v1Item({
+        event_id: "final-1",
+        event_type: "agent.message.final",
+        content: { delta_mode: "snapshot", format: "markdown", text: "最终结论：需要行动计划。" },
+        render: { content_kind: "message", group_id: "span_main_agent-run-1", lane: "main", target: "final" },
+        seq: 6,
+      }),
+    ]);
+
+    const assistant = messages[1];
+    const subagent = assistant?.parts.find((part) => part.type === "subagent");
+    const artifact = subagent?.type === "subagent" ? subagent.steps.find((step) => step.type === "artifact") : undefined;
+
+    expect(artifact).toMatchObject({
+      agentName: "evidence_research_analyst",
+      artifactType: "report",
+      contentMarkdown: report,
+      groupId: "span_subagent_call_task_1",
+      sourceSeq: 5,
+      summary: "NVIDIA FY2027 Q1 财报研究报告",
+      title: "Research Agent 报告",
+      type: "artifact",
+    });
+    expect(assistant?.parts.filter((part) => part.type === "artifact")).toHaveLength(0);
+    expect(assistant?.parts.filter((part) => part.type === "text" && part.display === "process")).toHaveLength(0);
+  });
+
   it("groups contiguous reasoning chunks and starts a new reasoning step after tool events", () => {
     const messages = agentTimelineToRenderMessages([
       item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),

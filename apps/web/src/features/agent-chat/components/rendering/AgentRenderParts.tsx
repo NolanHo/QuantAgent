@@ -28,6 +28,7 @@ import type {
 } from "../../types";
 import { AgentMarkdown } from "../conversation/AgentMarkdown";
 import { MessageResponse, Reasoning } from "./AgentChatElements";
+import { AgentReportArtifactCard } from "./AgentReportArtifactCard";
 import { AgentSubagentNode, partToAgentChainSteps } from "./agent-chain-of-thought";
 
 export function AgentRenderPartView({ part }: { part: AgentRenderPart }) {
@@ -218,6 +219,9 @@ function DecisionPartView({ part }: { part: AgentDecisionPart }) {
 
 function ArtifactPartView({ part }: { part: AgentArtifactPart }) {
   const Icon = part.artifactType === "notification" ? Bell : part.artifactType === "order" ? ShieldCheck : FileText;
+  if (part.artifactType === "report") {
+      return <AgentReportArtifactCard part={part} />;
+  }
   return (
     <section className={twMerge("rounded-lg border p-3", tonePanelClass(part.tone ?? "neutral"))}>
       <div className="mb-2 flex items-center gap-2 text-body-sm font-bold text-ink">

@@ -24,6 +24,7 @@ import type {
 } from "../../../types";
 import { ChainOfThoughtSearchResult, ChainOfThoughtSearchResults } from "@/components/ai-elements/chain-of-thought";
 import { AgentMarkdown } from "../../conversation/AgentMarkdown";
+import { AgentReportArtifactCard } from "../AgentReportArtifactCard";
 import type { AgentChainStep } from "./agent-chain-types";
 import { AgentSubagentNode } from "./AgentSubagentNode";
 import { AgentToolNode } from "./AgentToolNode";
@@ -164,6 +165,15 @@ function decisionStep(part: AgentDecisionPart): AgentChainStep {
 }
 
 function artifactStep(part: AgentArtifactPart): AgentChainStep {
+  if (part.artifactType === "report") {
+    return {
+      body: <AgentReportArtifactCard compact part={part} />,
+      icon: FileText,
+      id: `artifact-report-${part.groupId ?? part.title}-${part.sourceSeq ?? ""}`,
+      status: "completed",
+      title: "报告已生成",
+    };
+  }
   return {
     body: <KeyValueRows rows={part.rows} />,
     icon: part.artifactType === "notification" ? Bell : part.artifactType === "order" ? ShieldCheck : FileText,
