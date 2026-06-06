@@ -189,10 +189,20 @@ class AgentRuntime:
         platform_tool_call_names: dict[str, str] = {}
         subagent_scope_by_namespace: dict[tuple[str, ...], str] = {}
         pending_task_subagents: dict[str, str] = {}
+        pending_message_buffers: dict[str, dict[str, Any]] = {}
         stream = _open_deepagents_stream(graph, input_data, config)
         last_summary = ""
         async for chunk in stream:
             while tool_events:
+                for buffered_event in _flush_message_buffers(
+                    pending_message_buffers,
+                    request=request,
+                    sequencer=sequencer,
+                    final_flush=False,
+                ):
+                    if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
+                        last_summary += buffered_event.content
+                    yield buffered_event
                 tool_event = tool_events.pop(0)
                 _remember_platform_tool_call(platform_tool_call_names, tool_event)
                 yield tool_event
@@ -208,6 +218,32 @@ class AgentRuntime:
                 if _is_platform_tool_message(event_type, payload, platform_tool_names, platform_tool_call_names):
                     continue
                 is_subagent_event = payload.get("actor_type") == "subagent" and payload.get("subagent_name")
+                if event_type == AgentRunEventType.MODEL_DELTA and summary:
+                    if _should_buffer_message_delta(pending_message_buffers, payload=payload, text=summary):
+                        _append_message_buffer(pending_message_buffers, payload=payload, text=summary)
+                        continue
+                if event_type == AgentRunEventType.RUN_OUTPUT and summary:
+                    dropped = _drop_duplicate_message_buffer(pending_message_buffers, payload=payload, text=summary)
+                    if not dropped:
+                        for buffered_event in _flush_message_buffers(
+                            pending_message_buffers,
+                            request=request,
+                            sequencer=sequencer,
+                            final_flush=False,
+                        ):
+                            if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
+                                last_summary += buffered_event.content
+                            yield buffered_event
+                else:
+                    for buffered_event in _flush_message_buffers(
+                        pending_message_buffers,
+                        request=request,
+                        sequencer=sequencer,
+                        final_flush=False,
+                    ):
+                        if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
+                            last_summary += buffered_event.content
+                        yield buffered_event
                 if event_type == AgentRunEventType.MODEL_DELTA and summary and not is_subagent_event:
                     last_summary += summary
                 elif event_type == AgentRunEventType.RUN_OUTPUT and summary and not is_subagent_event and not _is_intermediate_report_output(payload, summary):
@@ -221,9 +257,27 @@ class AgentRuntime:
                 )
 
         while tool_events:
+            for buffered_event in _flush_message_buffers(
+                pending_message_buffers,
+                request=request,
+                sequencer=sequencer,
+                final_flush=False,
+            ):
+                if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
+                    last_summary += buffered_event.content
+                yield buffered_event
             tool_event = tool_events.pop(0)
             _remember_platform_tool_call(platform_tool_call_names, tool_event)
             yield tool_event
+        for buffered_event in _flush_message_buffers(
+            pending_message_buffers,
+            request=request,
+            sequencer=sequencer,
+            final_flush=True,
+        ):
+            if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
+                last_summary += buffered_event.content
+            yield buffered_event
         yield sequencer.next(
             agent_run_id=request.agent_run_id,
             trace_id=request.trace_id,
@@ -563,6 +617,93 @@ def _is_intermediate_report_output(payload: Mapping[str, Any], summary: str) -> 
     if payload.get("source") == "stream":
         return False
     stripped = summary.strip()
+    if len(stripped) >= 900:
+        return True
+    return len(stripped) >= 420 and any(marker in stripped for marker in ("# ", "## ", "### ", "|", "- ", "1. "))
+
+
+def _append_message_buffer(pending_message_buffers: dict[str, dict[str, Any]], *, payload: Mapping[str, Any], text: str) -> None:
+    key = _message_buffer_key(payload)
+    current = pending_message_buffers.get(key)
+    if current is None:
+        pending_message_buffers[key] = {"payload": dict(payload), "text": text}
+        return
+    current["text"] = f"{current.get('text', '')}{text}"
+    current["payload"] = {**current.get("payload", {}), **dict(payload)}
+
+
+def _should_buffer_message_delta(pending_message_buffers: Mapping[str, dict[str, Any]], *, payload: Mapping[str, Any], text: str) -> bool:
+    key = _message_buffer_key(payload)
+    if key in pending_message_buffers:
+        return True
+    stripped = text.lstrip()
+    return stripped.startswith(("#", "##", "###")) or stripped.startswith(("报告", "研究报告", "分析报告"))
+
+
+def _drop_duplicate_message_buffer(pending_message_buffers: dict[str, dict[str, Any]], *, payload: Mapping[str, Any], text: str) -> bool:
+    key = _message_buffer_key(payload)
+    current = pending_message_buffers.get(key)
+    if current is None:
+        return False
+    buffered_text = str(current.get("text") or "")
+    if buffered_text == text or buffered_text in text or text in buffered_text:
+        pending_message_buffers.pop(key, None)
+        return True
+    return False
+
+
+def _flush_message_buffers(
+    pending_message_buffers: dict[str, dict[str, Any]],
+    *,
+    request: AgentRunRequest,
+    sequencer: EventSequencer,
+    final_flush: bool,
+) -> list[AgentRunEvent]:
+    events: list[AgentRunEvent] = []
+    for key, item in list(pending_message_buffers.items()):
+        text = str(item.get("text") or "")
+        if not text:
+            pending_message_buffers.pop(key, None)
+            continue
+        payload = dict(item.get("payload") or {})
+        if final_flush or not _is_report_like_message(text):
+            events.append(
+                sequencer.next(
+                    agent_run_id=request.agent_run_id,
+                    trace_id=request.trace_id,
+                    event_type=AgentRunEventType.MODEL_DELTA,
+                    payload=payload,
+                    content=text,
+                )
+            )
+            pending_message_buffers.pop(key, None)
+            continue
+        if _is_report_like_message(text):
+            events.append(
+                sequencer.next(
+                    agent_run_id=request.agent_run_id,
+                    trace_id=request.trace_id,
+                    event_type=AgentRunEventType.RUN_OUTPUT,
+                    payload={**payload, "source": "message_buffer"},
+                    content=text,
+                )
+            )
+            pending_message_buffers.pop(key, None)
+    return events
+
+
+def _message_buffer_key(payload: Mapping[str, Any]) -> str:
+    if payload.get("actor_type") == "subagent":
+        subagent_name = payload.get("subagent_name") or payload.get("subagent_id") or "subagent"
+        namespace = payload.get("graph_namespace")
+        if isinstance(namespace, list) and namespace:
+            return f"subagent:{subagent_name}:{'/'.join(str(item) for item in namespace)}"
+        return f"subagent:{subagent_name}"
+    return "main"
+
+
+def _is_report_like_message(text: str) -> bool:
+    stripped = text.strip()
     if len(stripped) >= 900:
         return True
     return len(stripped) >= 420 and any(marker in stripped for marker in ("# ", "## ", "### ", "|", "- ", "1. "))

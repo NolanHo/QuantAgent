@@ -782,6 +782,83 @@ class RuntimeStreamTest(TestCase):
 
         asyncio.run(_run())
 
+    def test_runtime_deduplicates_subagent_report_delta_when_run_output_creates_artifact(self) -> None:
+        report = "\n".join(
+            [
+                "# NVIDIA FY2027 Q1 财报研究报告",
+                "",
+                "## 结论",
+                "Research Agent 形成完整报告。",
+                "",
+                *[f"- 研究要点 {index}: 市场预期、盘后反应和风险均已整理。" for index in range(45)],
+            ]
+        )
+
+        class CapturingGraph:
+            def stream(self, input_data, config=None, stream_mode=None, subgraphs=False):
+                yield (
+                    "messages",
+                    (
+                        AIMessageChunk(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "task",
+                                    "args": {"subagent_type": "evidence_research_analyst", "description": "检索市场预期"},
+                                    "id": "call_task_1",
+                                }
+                            ],
+                        ),
+                        {},
+                    ),
+                )
+                yield (("tools:task_1",), "messages", (AIMessageChunk(content=report[:600]), {}))
+                yield (("tools:task_1",), "messages", (AIMessageChunk(content=report[600:]), {}))
+                yield (
+                    ("tools:task_1",),
+                    "updates",
+                    {"agent": {"messages": [AIMessageChunk(content=report)]}},
+                )
+
+        async def _run() -> None:
+            base_request = build_echo_run_request()
+            request = base_request.model_copy(
+                update={
+                    "agent_definition": base_request.agent_definition.model_copy(
+                        update={
+                            "subagents": [
+                                SubAgentDefinition(
+                                    subagent_id="subagent_research",
+                                    name="evidence_research_analyst",
+                                    description="负责公开证据检索。",
+                                    system_prompt="你是 Research Agent。",
+                                    tool_ids=["quantagent.test.echo"],
+                                )
+                            ]
+                        }
+                    ),
+                    "runtime_policy": RuntimePolicy(model=object()),
+                }
+            )
+            runtime = AgentRuntime(deep_agent_factory=lambda _request, _tools: CapturingGraph(), tools=[build_echo_platform_tool()])
+
+            events = [event async for event in runtime.run_stream(request)]
+            artifact_events = [event for event in events if event.payload["runtime_event"]["event_type"] == "artifact.created"]
+            duplicated_deltas = [
+                event
+                for event in events
+                if event.payload["runtime_event"]["event_type"] == "agent.message.delta"
+                and event.payload["runtime_event"]["render"]["lane"] == "subagent"
+                and "NVIDIA FY2027 Q1 财报研究报告" in (event.content or "")
+            ]
+
+            self.assertEqual(len(artifact_events), 1)
+            self.assertEqual(artifact_events[0].payload["runtime_event"]["render"]["lane"], "subagent")
+            self.assertEqual(artifact_events[0].payload["runtime_event"]["content"]["json"]["content_markdown"], report)
+            self.assertEqual(duplicated_deltas, [])
+
+        asyncio.run(_run())
+
     def test_runtime_maps_main_intermediate_long_run_output_to_report_artifact(self) -> None:
         report = "# Main 中途分析报告\n\n" + "\n".join(f"- 分析点 {index}: 这是 MainAgent 中途产出的长报告。" for index in range(45))
 
