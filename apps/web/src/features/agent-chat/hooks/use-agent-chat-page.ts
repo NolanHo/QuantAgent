@@ -20,7 +20,7 @@ export function useAgentChatPage(search: AgentChatSearch = {}) {
     if (sessionId) return;
 
     void agentChat
-      .createSession({ title: getAgentChatPresetTitle(search.preset) })
+      .createSession({ debug_preset: search.preset ?? null, title: getAgentChatPresetTitle(search.preset) })
       .then((session) => {
         if (cancelled) return;
         setSessionId(session.session_id);
@@ -79,42 +79,12 @@ export function useAgentChatPage(search: AgentChatSearch = {}) {
       errorSummary:
         sessionError ??
         (stream.error instanceof Error ? stream.error.message : stream.error ? "Agent Chat stream failed." : null),
-      messages: Array.isArray(deepAgent.values.timeline)
-        ? (deepAgent.values.timeline as AgentChatTimelineItem[])
-        : deepAgent.messages.map((message, index) => timelineItemFromLangChainMessage(message, index)),
+      // 中文注释：真实 transcript 只能来自 AgentRuntimeEventV1 timeline。
+      // @langchain/react 的 messages 是传输层最终文本缓存，不能作为过程流兜底，否则 SubAgent delta 会被聚合成 Main assistant message。
+      messages: Array.isArray(deepAgent.values.timeline) ? (deepAgent.values.timeline as AgentChatTimelineItem[]) : [],
       sessionId,
       status: stream.isLoading ? "streaming" : stream.error ? "failed" : stream.messages.length > 0 ? "completed" : "idle",
       traceId: typeof deepAgent.values.trace_id === "string" ? deepAgent.values.trace_id : null,
     },
   };
-}
-
-function timelineItemFromLangChainMessage(message: { content?: unknown; id?: string; type?: string }, index: number): AgentChatTimelineItem {
-  const type = message.type ?? "ai";
-  return {
-    content: messageContentToText(message.content),
-    createdAt: new Date(0).toISOString(),
-    id: message.id ?? `${type}_${index}`,
-    kind: "message",
-    payload: {},
-    role: type === "human" ? "user" : type === "tool" ? "tool" : "assistant",
-    runId: null,
-    seq: index + 1,
-    traceId: null,
-    type,
-  };
-}
-
-function messageContentToText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (item && typeof item === "object" && "text" in item && typeof item.text === "string") return item.text;
-        return "";
-      })
-      .join("");
-  }
-  return content === null || content === undefined ? "" : String(content);
 }

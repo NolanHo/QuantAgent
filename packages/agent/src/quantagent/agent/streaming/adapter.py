@@ -58,55 +58,81 @@ def chunk_to_message_summary(chunk: object) -> str | None:
 def iter_deepagents_stream_events(chunk: object) -> list[tuple[AgentRunEventType, dict[str, Any], str | None]]:
     """把 DeepAgents stream chunk 映射成平台事件，隔离版本差异和未知结构。"""
 
-    mode, value = _split_stream_mode(chunk)
+    namespace, mode, value = _split_stream_chunk(chunk)
+    scope_payload = _scope_payload(namespace)
     if mode == "messages":
         events: list[tuple[AgentRunEventType, dict[str, Any], str | None]] = []
         for tool_call in _extract_tool_call_chunks(value):
-            events.append(_tool_call_to_started_event(tool_call, source="messages"))
+            event = _tool_call_to_started_event(tool_call, source="messages")
+            if event is not None:
+                events.append(_with_scope(event, scope_payload))
         for tool_message in _extract_tool_messages(value):
-            events.append(_tool_message_to_completed_event(tool_message, source="messages"))
+            events.append(_with_scope(_tool_message_to_completed_event(tool_message, source="messages"), scope_payload))
         reasoning = _extract_reasoning_content(value)
         if reasoning:
             events.append(
-                (
-                    AgentRunEventType.MODEL_REASONING,
-                    {"reasoning": reasoning, "raw": _json_safe(value), "source": "messages"},
-                    reasoning,
+                _with_scope(
+                    (
+                        AgentRunEventType.MODEL_REASONING,
+                        {"reasoning": reasoning, "raw": _json_safe(value), "source": "messages"},
+                        reasoning,
+                    ),
+                    scope_payload,
                 )
             )
         summary = _extract_assistant_message_content(value)
         if summary:
             events.append(
-                (
-                    AgentRunEventType.MODEL_DELTA,
-                    {"delta": summary, "role": "assistant", "source": "messages"},
-                    summary,
+                _with_scope(
+                    (
+                        AgentRunEventType.MODEL_DELTA,
+                        {"delta": summary, "role": "assistant", "source": "messages"},
+                        summary,
+                    ),
+                    scope_payload,
                 )
             )
         return events
 
     if mode == "updates":
-        return _updates_to_events(value)
+        return [_with_scope(event, scope_payload) for event in _updates_to_events(value)]
 
     reasoning = _extract_reasoning_content(value)
     if reasoning:
         return [
-            (
-                AgentRunEventType.MODEL_REASONING,
-                {"reasoning": reasoning, "raw": _json_safe(value), "source": "default"},
-                reasoning,
+            _with_scope(
+                (
+                    AgentRunEventType.MODEL_REASONING,
+                    {"reasoning": reasoning, "raw": _json_safe(value), "source": "default"},
+                    reasoning,
+                ),
+                scope_payload,
             )
         ]
     summary = chunk_to_message_summary(value)
     if summary:
         return [
-            (
-                AgentRunEventType.MODEL_DELTA,
-                {"delta": summary, "role": "assistant", "source": "default"},
-                summary,
+            _with_scope(
+                (
+                    AgentRunEventType.MODEL_DELTA,
+                    {"delta": summary, "role": "assistant", "source": "default"},
+                    summary,
+                ),
+                scope_payload,
             )
         ]
-    return _updates_to_events(value)
+    return [_with_scope(event, scope_payload) for event in _updates_to_events(value)]
+
+
+def _split_stream_chunk(chunk: object) -> tuple[tuple[str, ...], str | None, object]:
+    if isinstance(chunk, tuple) and len(chunk) == 3 and isinstance(chunk[0], tuple) and isinstance(chunk[1], str):
+        return tuple(str(item) for item in chunk[0]), chunk[1], chunk[2]
+    if isinstance(chunk, tuple) and len(chunk) == 2 and isinstance(chunk[0], tuple):
+        namespace = tuple(str(item) for item in chunk[0])
+        mode, value = _split_stream_mode(chunk[1])
+        return namespace, mode, value
+    mode, value = _split_stream_mode(chunk)
+    return (), mode, value
 
 
 def _split_stream_mode(chunk: object) -> tuple[str | None, object]:
@@ -115,18 +141,44 @@ def _split_stream_mode(chunk: object) -> tuple[str | None, object]:
     return None, chunk
 
 
+def _scope_payload(namespace: tuple[str, ...]) -> dict[str, Any]:
+    if not namespace:
+        return {"actor_type": "main"}
+    payload: dict[str, Any] = {
+        "actor_type": "main",
+        "graph_namespace": list(namespace),
+        "subgraph": True,
+    }
+    subagent_name = _subagent_name_from_namespace(namespace)
+    if subagent_name:
+        payload["actor_type"] = "subagent"
+        payload["subagent_name"] = subagent_name
+    return payload
+
+
+def _subagent_name_from_namespace(namespace: tuple[str, ...]) -> str | None:
+    for item in namespace:
+        name = item.split(":", 1)[0]
+        if name and name not in {"agent", "model", "tools", "tool"}:
+            return name
+    return None
+
+
+def _with_scope(
+    event: tuple[AgentRunEventType, dict[str, Any], str | None],
+    scope_payload: Mapping[str, Any],
+) -> tuple[AgentRunEventType, dict[str, Any], str | None]:
+    if not scope_payload:
+        return event
+    event_type, payload, summary = event
+    return event_type, {**payload, **scope_payload}, summary
+
+
 def _updates_to_events(value: object) -> list[tuple[AgentRunEventType, dict[str, Any], str | None]]:
     events: list[tuple[AgentRunEventType, dict[str, Any], str | None]] = []
     normalized = _json_safe(value)
-    reasoning = _extract_reasoning_content(value)
-    if reasoning:
-        events.append(
-            (
-                AgentRunEventType.MODEL_REASONING,
-                {"reasoning": reasoning, "raw": normalized, "source": "updates"},
-                reasoning,
-            )
-        )
+    # 中文注释：updates 通道通常是 DeepAgents/LangGraph 状态快照，里面可能重复包含
+    # 已经通过 messages 通道流出的累计 reasoning；主 COT 只消费 messages 增量，避免重复拼接。
     todos = _find_key(value, "todos")
     if todos is not None:
         safe_todos = _json_safe(todos)
@@ -139,7 +191,9 @@ def _updates_to_events(value: object) -> list[tuple[AgentRunEventType, dict[str,
             events.append(_tool_message_to_completed_event(tool_message, source="updates"))
 
     for tool_call in _extract_tool_call_chunks(value):
-        events.append(_tool_call_to_started_event(tool_call, source="updates"))
+        event = _tool_call_to_started_event(tool_call, source="updates")
+        if event is not None:
+            events.append(event)
 
     subagents = _find_key(value, "subagents")
     if subagents is not None:
@@ -249,6 +303,9 @@ def _json_safe(value: object) -> Any:
         tool_call_chunks = getattr(value, "tool_call_chunks", None)
         if tool_call_chunks:
             payload["tool_call_chunks"] = _json_safe(tool_call_chunks)
+        tool_calls = getattr(value, "tool_calls", None)
+        if tool_calls:
+            payload["tool_calls"] = _json_safe(tool_calls)
         return payload
     if isinstance(value, str | int | float | bool) or value is None:
         return value
@@ -377,14 +434,14 @@ def _extract_tool_call_chunks(value: object) -> list[Any]:
             chunks.extend(_extract_tool_call_chunks(item))
         return chunks
 
-    raw = getattr(value, "tool_call_chunks", None)
+    raw = getattr(value, "tool_call_chunks", None) or getattr(value, "tool_calls", None)
     if raw:
         safe = _json_safe(raw)
         return safe if isinstance(safe, list) else [safe]
     return []
 
 
-def _tool_call_to_started_event(tool_call: object, *, source: str) -> tuple[AgentRunEventType, dict[str, Any], str | None]:
+def _tool_call_to_started_event(tool_call: object, *, source: str) -> tuple[AgentRunEventType, dict[str, Any], str | None] | None:
     safe = _json_safe(tool_call)
     tool_call_record = safe if isinstance(safe, Mapping) else {"raw": safe}
     args_value = tool_call_record.get("args") or tool_call_record.get("arguments") or tool_call_record.get("input")
@@ -392,6 +449,10 @@ def _tool_call_to_started_event(tool_call: object, *, source: str) -> tuple[Agen
     raw_args = args_value if isinstance(args_value, str) else None
     call_id = _read_non_empty_string(tool_call_record, "id", "tool_call_id", "call_id")
     name = _read_non_empty_string(tool_call_record, "name", "tool_name", "tool_id")
+    if not call_id and not name:
+        return None
+    if isinstance(raw_args, str) and parsed_input is None:
+        return None
     payload: dict[str, Any] = {
         "source": source,
         "raw": safe,
@@ -408,7 +469,7 @@ def _tool_call_to_started_event(tool_call: object, *, source: str) -> tuple[Agen
     if raw_args is not None:
         payload["args_text"] = raw_args
     label = name or call_id or "tool"
-    return (AgentRunEventType.TOOL_STARTED, payload, f"Tool {label} started.")
+    return (AgentRunEventType.TOOL_STARTED, payload, f"工具 {label} 开始调用。")
 
 
 def _tool_message_to_completed_event(tool_message: Mapping[str, Any], *, source: str) -> tuple[AgentRunEventType, dict[str, Any], str | None]:
@@ -446,7 +507,7 @@ def _parse_tool_input(value: object) -> Any:
         try:
             return json.loads(stripped)
         except json.JSONDecodeError:
-            return {"args": value}
+            return None
     return _json_safe(value)
 
 

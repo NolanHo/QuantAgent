@@ -15,7 +15,7 @@ export function AgentMessageList({
         <div className="grid max-w-md gap-2">
           <div className="text-title-sm font-bold text-ink">开始一次 Agent Runtime 对话</div>
           <div className="text-[14px] leading-6 text-muted-strong">
-            主消息流会展示 DeepAgents 的 assistant token、reasoning、tool、todo、SubAgent、artifact、interrupt 和 runtime event。
+            主消息流会展示 DeepAgents 的 assistant token、reasoning、tool、todo、SubAgent、artifact 和 interrupt；原始 runtime event 留在右侧面板。
           </div>
         </div>
       </div>

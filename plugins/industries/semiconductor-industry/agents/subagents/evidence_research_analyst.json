@@ -1,7 +1,7 @@
 {
   "subagent_id": "quantagent.official.industry.semiconductor.subagent.evidence_research_analyst",
   "name": "evidence_research_analyst",
-  "description": "Researches public evidence for a routed semiconductor event and returns compact evidence artifacts.",
+  "description": "为已路由的半导体事件检索公开证据，并返回压缩后的证据产物。",
   "system_prompt_path": "evidence_research_analyst.md",
   "tool_profile_path": "../tool_profiles/evidence_research_analyst.json",
   "skill_paths": [

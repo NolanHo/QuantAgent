@@ -36,3 +36,6 @@ class ToolRuntimeContext(StrictModel):
     trace_id: str = Field(description="Trace id spanning runtime, tool, audit, and logs.")
     tool_profile_id: str = Field(description="Resolved tool profile id.")
     subagent_id: str | None = Field(default=None, description="SubAgent id when tool is executed inside a subagent.")
+    subagent_name: str | None = Field(default=None, description="DeepAgents-visible subagent name when applicable.")
+    span_id: str | None = Field(default=None, description="Protocol span id for this tool execution owner.")
+    parent_span_id: str | None = Field(default=None, description="Parent protocol span id when applicable.")

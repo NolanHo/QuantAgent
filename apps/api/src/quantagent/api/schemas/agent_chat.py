@@ -14,6 +14,7 @@ class AgentChatCreateSessionRequest(StrictModel):
     industry_id: str = Field(default="quantagent.default.industry.general", min_length=1)
     agent_id: str = Field(default="quantagent.default.agent.chat", min_length=1)
     title: str | None = Field(default=None, max_length=240)
+    debug_preset: str | None = Field(default=None, max_length=80)
 
 
 class AgentChatStreamRequest(StrictModel):
@@ -29,6 +30,7 @@ class AgentChatMessageResponse(StrictModel):
     kind: str
     content: str
     payload: dict[str, Any] = Field(default_factory=dict)
+    runtime_event: dict[str, Any] | None = None
     created_at: datetime
 
 
@@ -76,5 +78,6 @@ class AgentChatStreamEvent(StrictModel):
     kind: str
     content: str = ""
     payload: dict[str, Any] = Field(default_factory=dict)
+    runtime_event: dict[str, Any] | None = None
     trace_id: str | None = None
     created_at: datetime

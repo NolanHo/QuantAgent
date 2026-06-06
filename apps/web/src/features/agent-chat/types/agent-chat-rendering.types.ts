@@ -62,6 +62,7 @@ export interface AgentToolPart {
 export interface AgentSubagentPart {
   type: "subagent";
   agentName: string;
+  groupId?: string;
   status: "completed" | "error" | "running";
   title: string;
   input?: string;

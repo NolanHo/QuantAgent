@@ -33,6 +33,7 @@ def create_agent_chat_session(
         _service(request, session).create_session(
             industry_id=payload.industry_id,
             agent_id=payload.agent_id,
+            debug_preset=payload.debug_preset,
             title=payload.title,
         )
     )

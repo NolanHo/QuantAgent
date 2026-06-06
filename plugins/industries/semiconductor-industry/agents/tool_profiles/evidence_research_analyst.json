@@ -6,13 +6,13 @@
     {
       "tool_id": "quantagent.core.tool.get_run_context",
       "name": "get_run_context",
-      "description": "Read bounded event and industry context for the current AgentRun.",
+      "description": "读取当前 AgentRun 的有界事件和行业上下文。",
       "risk_level": "low"
     },
     {
       "tool_id": "quantagent.official.source.tavily.search_web",
       "name": "search_web",
-      "description": "Search public web sources through the configured search plugin.",
+      "description": "通过已配置的搜索插件检索公开网页来源。",
       "risk_level": "medium"
     }
   ]

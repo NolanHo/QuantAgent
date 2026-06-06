@@ -1,6 +1,6 @@
 import { ApiError, type ApiClient } from "@/shared/api";
 
-import type { AgentChatStreamEvent, AgentChatStreamRequest } from "./agent-chat.contracts";
+import type { AgentChatStreamEvent, AgentChatStreamRequest, AgentRuntimeEventV1 } from "./agent-chat.contracts";
 
 export interface StreamAgentChatMessageOptions {
   apiClient: ApiClient;
@@ -65,14 +65,50 @@ export async function* streamAgentChatMessage({
   for await (const chunk of response.body) {
     for (const frame of parser.push(decoder.decode(chunk, { stream: true }))) {
       if (!frame.data) continue;
-      yield JSON.parse(frame.data) as AgentChatStreamEvent;
+      yield normalizeSsePayload(JSON.parse(frame.data) as AgentChatStreamEvent | AgentRuntimeEventV1);
     }
   }
 
   for (const frame of parser.flush()) {
     if (!frame.data) continue;
-    yield JSON.parse(frame.data) as AgentChatStreamEvent;
+    yield normalizeSsePayload(JSON.parse(frame.data) as AgentChatStreamEvent | AgentRuntimeEventV1);
   }
+}
+
+function normalizeSsePayload(value: AgentChatStreamEvent | AgentRuntimeEventV1): AgentChatStreamEvent {
+  if (isRuntimeEventV1(value)) {
+    return runtimeEventToStreamEvent(value);
+  }
+  return value;
+}
+
+function isRuntimeEventV1(value: AgentChatStreamEvent | AgentRuntimeEventV1): value is AgentRuntimeEventV1 {
+  return "schema_version" in value && value.schema_version === "agent-runtime-event.v1";
+}
+
+function runtimeEventToStreamEvent(event: AgentRuntimeEventV1): AgentChatStreamEvent {
+  return {
+    agent_run_id: event.agent_run_id,
+    content: runtimeEventContent(event),
+    created_at: new Date().toISOString(),
+    event_id: event.event_id,
+    kind: event.render.content_kind,
+    payload: { runtime_event: event },
+    role: event.actor.type === "tool" ? "tool" : event.actor.type === "subagent" ? "subagent" : "assistant",
+    run_id: null,
+    runtime_event: event,
+    seq: event.seq,
+    session_id: event.session_id,
+    trace_id: null,
+    type: event.event_type,
+  };
+}
+
+function runtimeEventContent(event: AgentRuntimeEventV1): string {
+  if (typeof event.content?.text === "string") return event.content.text;
+  if (typeof event.tool?.error?.message === "string") return event.tool.error.message;
+  if (typeof event.subagent?.output === "string") return event.subagent.output;
+  return "";
 }
 
 function parseFrame(raw: string): SseFrame | null {
@@ -90,4 +126,3 @@ function parseFrame(raw: string): SseFrame | null {
   frame.data = dataLines.join("\n");
   return frame.data || frame.event || frame.id ? frame : null;
 }
-

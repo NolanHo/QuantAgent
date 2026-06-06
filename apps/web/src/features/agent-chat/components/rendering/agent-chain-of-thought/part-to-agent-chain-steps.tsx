@@ -23,6 +23,7 @@ import type {
   AgentToolPart,
 } from "../../../types";
 import { ChainOfThoughtSearchResult, ChainOfThoughtSearchResults } from "@/components/ai-elements/chain-of-thought";
+import { AgentMarkdown } from "../../conversation/AgentMarkdown";
 import type { AgentChainStep } from "./agent-chain-types";
 import { AgentSubagentNode } from "./AgentSubagentNode";
 import { AgentToolNode } from "./AgentToolNode";
@@ -41,7 +42,7 @@ export function partToAgentChainSteps(part: AgentRenderPart): AgentChainStep[] {
         {
           id: `reasoning-${part.title ?? ""}-${part.text.slice(0, 24)}`,
           status: part.status === "streaming" ? "running" : "completed",
-          title: part.text,
+          title: <ReasoningMarkdown text={part.text} />,
         },
       ];
     case "sources":
@@ -55,12 +56,20 @@ export function partToAgentChainSteps(part: AgentRenderPart): AgentChainStep[] {
         {
           id: `text-${part.text.slice(0, 24)}`,
           status: "completed",
-          title: part.text,
+          title: part.display === "process" ? <ReasoningMarkdown text={part.text} /> : part.text,
         },
       ];
     case "tool":
       return [toolStep(part)];
   }
+}
+
+function ReasoningMarkdown({ text }: { text: string }) {
+  return (
+    <div className="text-body-sm leading-6 text-muted-strong">
+      <AgentMarkdown content={text} />
+    </div>
+  );
 }
 
 function toolStep(part: AgentToolPart): AgentChainStep {
@@ -74,12 +83,16 @@ function toolStep(part: AgentToolPart): AgentChainStep {
 
 function subagentStep(part: AgentSubagentPart): AgentChainStep {
   return {
-    body: <AgentSubagentNode input={part.input} output={part.output} steps={part.steps.flatMap(partToAgentChainSteps)} />,
-    description: part.agentName,
+    body: <AgentSubagentNode agentName={part.agentName} input={part.input} output={part.output} steps={part.steps.flatMap(partToAgentChainSteps)} />,
     icon: Bot,
     id: `subagent-${part.agentName}-${part.title}`,
     status: normalizeStatus(part.status),
-    title: part.title,
+    title: (
+      <div className="grid gap-0.5">
+        <div className="font-semibold text-ink">{part.title}</div>
+        <div className="font-mono text-xs text-muted-strong">{part.agentName}</div>
+      </div>
+    ),
   };
 }
 

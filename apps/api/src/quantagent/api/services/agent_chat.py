@@ -9,15 +9,19 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from quantagent.agent.definitions.models import AgentDefinition, RuntimePolicy
+from quantagent.agent.definitions.models import RuntimePolicy
 from quantagent.agent.models import OpenAICompatibleChatModel
 from quantagent.agent.runtime import AgentRuntime
-from quantagent.agent.runtime.context import RunContextSnapshot
 from quantagent.agent.runtime.requests import AgentRunRequest
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
-from quantagent.agent.tools.profiles import ToolProfile
+from quantagent.agent.tools import build_get_run_context_tool, build_search_web_tool
 from quantagent.api.http.errors import NotFoundError, ServiceUnavailableError
 from quantagent.api.schemas.agent_chat import AgentChatMessageResponse, AgentChatSessionResponse, AgentChatStreamEvent
+from quantagent.api.services.agent_chat_runtime_config import (
+    build_agent_chat_definition,
+    build_agent_chat_run_context,
+    build_agent_chat_tool_profile,
+)
 from quantagent.core.db.models.agent_chat import AgentChatRunORM, AgentChatSessionORM
 from quantagent.core.db.repositories.agent_chat_repository import AgentChatRepository
 from quantagent.core.model_config import (
@@ -37,7 +41,14 @@ class AgentChatService:
         self._repo = AgentChatRepository(session)
         self._encryption_key = encryption_key
 
-    def create_session(self, *, industry_id: str, agent_id: str, title: str | None = None) -> AgentChatSessionResponse:
+    def create_session(
+        self,
+        *,
+        industry_id: str,
+        agent_id: str,
+        title: str | None = None,
+        debug_preset: str | None = None,
+    ) -> AgentChatSessionResponse:
         session_id = f"chat_sess_{uuid4().hex}"
         now = datetime.now(UTC)
         row = AgentChatSessionORM(
@@ -48,7 +59,7 @@ class AgentChatService:
             agent_id=agent_id,
             title=title,
             status="active",
-            metadata_json={},
+            metadata_json={"debug_preset": debug_preset} if debug_preset else {},
             created_at=now,
             updated_at=now,
         )
@@ -104,7 +115,12 @@ class AgentChatService:
 
         try:
             run_request = self._build_run_request(row, run, message=message)
-            runtime = AgentRuntime()
+            runtime = AgentRuntime(
+                tools=[
+                    build_get_run_context_tool(run_request.run_context),
+                    build_search_web_tool(),
+                ]
+            )
             async for event in runtime.run_stream(run_request):
                 display = self._persist_runtime_event(row.session_id, run.run_id, event)
                 self._session.commit()
@@ -153,14 +169,10 @@ class AgentChatService:
             event_id=f"event_chat_{uuid4().hex}",
             industry_id=row.industry_id,
             trace_id=run.trace_id,
-            agent_definition=_default_agent_definition(row.agent_id),
-            run_context=RunContextSnapshot(
-                context_id=f"context_{run.run_id}",
-                sections=[],
-                content="Agent Chat session message.",
-            ),
-            tool_profile=ToolProfile(profile_id="tool_profile_agent_chat", tool_bindings=[]),
-            runtime_policy=RuntimePolicy(model=model, max_subagent_tasks=0),
+            agent_definition=build_agent_chat_definition(row.agent_id),
+            run_context=build_agent_chat_run_context(row, run, message=message),
+            tool_profile=build_agent_chat_tool_profile(),
+            runtime_policy=RuntimePolicy(model=model, max_subagent_tasks=1),
             input_message=message,
         )
 
@@ -200,23 +212,8 @@ class AgentChatService:
         )
 
 
-def _default_agent_definition(agent_id: str) -> AgentDefinition:
-    return AgentDefinition(
-        agent_id=agent_id,
-        version="0.1.0",
-        name="Agent Chat MainAgent",
-        description="General Agent Chat MainAgent for product debugging.",
-        system_prompt=(
-            "You are QuantAgent's MainAgent runtime. Answer the user's request clearly. "
-            "Use available DeepAgents planning and delegation capabilities when configured. "
-            "For MVP debugging, include the concrete information you used and do not hide intermediate runtime details."
-        ),
-        tool_ids=[],
-        subagents=[],
-    )
-
-
 def _message_response(row) -> AgentChatMessageResponse:
+    payload = dict(row.payload or {})
     return AgentChatMessageResponse(
         message_id=row.message_id,
         session_id=row.session_id,
@@ -225,7 +222,8 @@ def _message_response(row) -> AgentChatMessageResponse:
         role=row.role,
         kind=row.kind,
         content=row.content,
-        payload=dict(row.payload or {}),
+        payload=payload,
+        runtime_event=_runtime_event_from_payload(payload),
         created_at=row.created_at,
     )
 
@@ -238,6 +236,7 @@ def _stream_event_from_message(
     agent_run_id: str | None,
     trace_id: str | None,
 ) -> AgentChatStreamEvent:
+    payload = dict(row.payload or {})
     return AgentChatStreamEvent(
         event_id=row.message_id,
         type=type_,
@@ -248,13 +247,21 @@ def _stream_event_from_message(
         role=row.role,
         kind=row.kind,
         content=row.content,
-        payload=dict(row.payload or {}),
+        payload=payload,
+        runtime_event=_runtime_event_from_payload(payload),
         trace_id=trace_id,
         created_at=row.created_at,
     )
 
 
 def _display_from_runtime_event(event: AgentRunEvent) -> tuple[str, str, str]:
+    runtime_event = _runtime_event_from_payload(_json_payload(event.payload))
+    if runtime_event is not None:
+        role = _role_from_runtime_event(runtime_event)
+        kind = str(runtime_event.get("render", {}).get("content_kind") or _kind_from_runtime_event_type(str(runtime_event.get("event_type") or event.type)))
+        content = _content_from_runtime_event(runtime_event)
+        return role, kind, content
+
     if event.type == AgentRunEventType.MODEL_DELTA:
         return "assistant", "delta", event.content or ""
     if event.type == AgentRunEventType.MODEL_REASONING:
@@ -279,7 +286,61 @@ def _display_from_runtime_event(event: AgentRunEvent) -> tuple[str, str, str]:
     return "assistant", "system_event", event.content or json.dumps(event.payload, ensure_ascii=False, default=str)
 
 
+def _role_from_runtime_event(runtime_event: dict[str, object]) -> str:
+    actor = runtime_event.get("actor")
+    actor_type = actor.get("type") if isinstance(actor, dict) else None
+    if actor_type == "tool":
+        return "tool"
+    if actor_type == "subagent":
+        return "subagent"
+    return "assistant"
+
+
+def _kind_from_runtime_event_type(event_type: str) -> str:
+    if event_type == "agent.message.final":
+        return "final"
+    if event_type == "agent.message.delta":
+        return "delta"
+    if event_type == "agent.reasoning.delta":
+        return "reasoning"
+    if event_type.startswith("tool."):
+        return "tool"
+    if event_type.startswith("subagent."):
+        return "subagent"
+    if event_type == "todo.updated":
+        return "todo"
+    if event_type == "artifact.created":
+        return "artifact"
+    if event_type == "interrupt.requested":
+        return "interrupt"
+    if event_type == "run.failed":
+        return "error"
+    return "system_event"
+
+
+def _content_from_runtime_event(runtime_event: dict[str, object]) -> str:
+    content = runtime_event.get("content")
+    if isinstance(content, dict) and isinstance(content.get("text"), str):
+        return content["text"]
+    tool = runtime_event.get("tool")
+    if isinstance(tool, dict):
+        error = tool.get("error")
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            return error["message"]
+        if tool.get("output") is not None:
+            return json.dumps(tool["output"], ensure_ascii=False, default=str)
+    subagent = runtime_event.get("subagent")
+    if isinstance(subagent, dict) and isinstance(subagent.get("output"), str):
+        return subagent["output"]
+    return ""
+
+
 def _encode_sse(event: AgentChatStreamEvent) -> str:
+    if event.runtime_event and event.runtime_event.get("schema_version") == "agent-runtime-event.v1":
+        data = event.runtime_event
+        event_type = str(event.runtime_event.get("event_type") or event.type)
+        event_id = str(event.runtime_event.get("event_id") or event.event_id)
+        return f"event: {event_type}\nid: {event_id}\ndata: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n"
     data = event.model_dump(mode="json")
     return f"event: {event.type}\nid: {event.event_id}\ndata: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n"
 
@@ -287,6 +348,11 @@ def _encode_sse(event: AgentChatStreamEvent) -> str:
 def _json_payload(payload: dict[str, object]) -> dict[str, object]:
     text = json.dumps(payload, ensure_ascii=False, default=str)
     return json.loads(text)
+
+
+def _runtime_event_from_payload(payload: dict[str, object]) -> dict[str, object] | None:
+    value = payload.get("runtime_event")
+    return value if isinstance(value, dict) else None
 
 
 def _error_content(exc: Exception) -> str:

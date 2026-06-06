@@ -767,7 +767,10 @@ class ApiAppTestCase(unittest.TestCase):
         ):
             Base.metadata.create_all(client.app.state.db_engine)
             self._login_with_client(client, self.settings)
-            create_response = client.post("/api/v1/agent-chat/sessions", json={"title": "Stream Chat"})
+            create_response = client.post(
+                "/api/v1/agent-chat/sessions",
+                json={"debug_preset": "nvda-earnings", "title": "Stream Chat"},
+            )
             session_id = create_response.json()["data"]["session_id"]
 
             response = client.post(
@@ -783,13 +786,33 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(len(captured_requests), 1)
         self.assertEqual(captured_requests[0].session_id, session_id)
         self.assertTrue(captured_requests[0].thread_id.startswith("chat_thread_"))
+        self.assertEqual(
+            captured_requests[0].agent_definition.tool_ids,
+            ["quantagent.core.tool.get_run_context"],
+        )
+        self.assertEqual(len(captured_requests[0].agent_definition.subagents), 1)
+        self.assertEqual(captured_requests[0].agent_definition.subagents[0].name, "evidence_research_analyst")
+        self.assertEqual(
+            captured_requests[0].agent_definition.subagents[0].tool_ids,
+            ["quantagent.core.tool.get_run_context", "quantagent.official.source.tavily.search_web"],
+        )
+        self.assertEqual(captured_requests[0].runtime_policy.max_subagent_tasks, 1)
+        self.assertEqual(
+            [binding.name for binding in captured_requests[0].tool_profile.tool_bindings],
+            ["get_run_context", "search_web"],
+        )
+        self.assertIn("first_party_earnings_release", str(captured_requests[0].run_context.model_dump()))
+        self.assertIn("FY2027 Q1", str(captured_requests[0].run_context.model_dump()))
+        self.assertIn("NVIDIA Announces Financial Results for First Quarter Fiscal 2027", str(captured_requests[0].run_context.model_dump()))
+        self.assertIn("route_decision", str(captured_requests[0].run_context.model_dump()))
         session_body = session_response.json()
         self.assertEqual(session_response.status_code, 200)
         transcript = session_body["data"]["messages"]
         self.assertEqual([item["kind"] for item in transcript], ["message", "delta", "final", "system_event"])
         self.assertEqual(transcript[0]["content"], "分析这个事件")
         self.assertEqual(transcript[1]["content"], "hello ")
-        self.assertIn("QuantAgent's MainAgent runtime", captured_requests[0].agent_definition.system_prompt)
+        self.assertIn("第一步必须调用 get_run_context", captured_requests[0].agent_definition.system_prompt)
+        self.assertIn("search_web 因 Tavily key 缺失", captured_requests[0].agent_definition.system_prompt)
 
     def test_agent_chat_message_stream_reports_missing_model_with_raw_debug_content(self) -> None:
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)

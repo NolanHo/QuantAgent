@@ -2,7 +2,7 @@ import type { AgentServerAdapter } from "@langchain/langgraph-sdk";
 
 import type { ApiClient } from "@/shared/api";
 
-import type { AgentChatStreamEvent } from "./agent-chat.contracts";
+import type { AgentChatStreamEvent, AgentRuntimeEventV1 } from "./agent-chat.contracts";
 import { streamAgentChatMessage } from "./agent-chat.stream";
 
 interface AgentChatRuntimeTransportOptions {
@@ -172,8 +172,37 @@ export class AgentChatRuntimeTransport implements AgentServerAdapter {
           sessionId: this.sessionId,
           signal: abortController.signal,
         })) {
+          const runtimeEvent = readRuntimeEvent(rawEvent);
           if (rawEvent.type === "message.appended") {
             this.updateMetadata(rawEvent);
+            continue;
+          }
+
+          if (runtimeEvent) {
+            this.updateRuntimeEvent(rawEvent);
+
+            if (shouldPublishAssistantText(runtimeEvent)) {
+              const text = runtimeEventText(runtimeEvent);
+              if (text) {
+                if (!assistantStarted) {
+                  assistantStarted = true;
+                  this.publish(messageStartEvent({ messageId: assistantMessageId, role: "ai", runId, seq: this.nextSeq() }));
+                  this.publish(contentBlockStartEvent({ messageId: assistantMessageId, runId, seq: this.nextSeq() }));
+                }
+                const nextText = runtimeEvent.content?.delta_mode === "snapshot" ? text : `${assistantText}${text}`;
+                const nextDelta = runtimeEvent.content?.delta_mode === "snapshot" && text.startsWith(assistantText) ? text.slice(assistantText.length) : text;
+                assistantText = nextText;
+                if (nextDelta) this.publish(contentDeltaEvent({ delta: nextDelta, messageId: assistantMessageId, runId, seq: this.nextSeq() }));
+                this.updateAssistantMessage(assistantMessageId, assistantText, rawEvent);
+              }
+            }
+
+            if (runtimeEvent.event_type === "tool.started" || runtimeEvent.event_type === "tool.completed" || runtimeEvent.event_type === "tool.failed") {
+              const event = toolEvent(rawEvent, runId, this.nextSeq());
+              if (event) this.publish(event);
+            }
+            if (runtimeEvent.event_type === "interrupt.requested") this.publish(interruptEvent(rawEvent, runId, this.nextSeq()));
+            if (runtimeEvent.event_type === "run.failed") throw new Error(runtimeEventText(runtimeEvent) || "Agent Chat stream failed.");
             continue;
           }
 
@@ -271,6 +300,20 @@ export class AgentChatRuntimeTransport implements AgentServerAdapter {
     this.publish(valuesEvent(this.latestValues, this.nextSeq()));
   }
 
+  private updateAssistantMessage(messageId: string, assistantText: string, rawEvent: AgentChatStreamEvent): void {
+    this.latestValues = {
+      ...this.latestValues,
+      messages: upsertMessage(this.latestValues.messages, {
+        content: assistantText,
+        id: messageId,
+        type: "ai",
+      }),
+      session_id: rawEvent.session_id,
+      trace_id: rawEvent.trace_id,
+    };
+    this.publish(valuesEvent(this.latestValues, this.nextSeq()));
+  }
+
   private updateMetadata(rawEvent: AgentChatStreamEvent): void {
     this.latestValues = {
       ...this.latestValues,
@@ -305,8 +348,18 @@ export class AgentChatRuntimeTransport implements AgentServerAdapter {
       timeline: mergeTimelineEvent(this.latestValues.timeline, rawEvent),
       trace_id: rawEvent.trace_id,
     };
-    if (rawEvent.kind === "tool") this.latestValues.tools = upsertByToolKey(this.latestValues.tools, rawEvent);
-    if (rawEvent.kind === "interrupt") this.latestValues.interrupts = upsertByEventId(this.latestValues.interrupts, rawEvent);
+    const runtimeEvent = readRuntimeEvent(rawEvent);
+    if (runtimeEvent?.event_type === "todo.updated") this.latestValues.todos = runtimeEvent.content?.json ?? rawEvent.payload.todos ?? [];
+    if (runtimeEvent?.event_type === "artifact.created") this.latestValues.artifacts = upsertByRuntimeGroup(this.latestValues.artifacts, rawEvent);
+    if (runtimeEvent?.event_type === "subagent.started" || runtimeEvent?.event_type === "subagent.completed") {
+      this.latestValues.subagents = upsertByRuntimeGroup(this.latestValues.subagents, rawEvent);
+    }
+    if (runtimeEvent?.event_type === "tool.started" || runtimeEvent?.event_type === "tool.completed" || runtimeEvent?.event_type === "tool.failed") {
+      this.latestValues.tools = upsertByToolKey(this.latestValues.tools, rawEvent);
+    } else if (rawEvent.kind === "tool") {
+      this.latestValues.tools = upsertByToolKey(this.latestValues.tools, rawEvent);
+    }
+    if (runtimeEvent?.event_type === "interrupt.requested" || rawEvent.kind === "interrupt") this.latestValues.interrupts = upsertByEventId(this.latestValues.interrupts, rawEvent);
     this.publish(valuesEvent(this.latestValues, this.nextSeq()));
   }
 }
@@ -349,8 +402,15 @@ function upsertByEventId(current: unknown, event: AgentChatStreamEvent) {
   return items;
 }
 
+function upsertByRuntimeGroup(current: unknown, event: AgentChatStreamEvent) {
+  const runtimeEvent = readRuntimeEvent(event);
+  if (!runtimeEvent) return upsertByEventId(current, event);
+  return upsertByStableKey(current, event, `${runtimeEvent.render.group_id}_${runtimeEvent.event_type}`);
+}
+
 function mergeRuntimeEventIndex(current: unknown, event: AgentChatStreamEvent) {
-  if (event.kind === "tool") {
+  const runtimeEvent = readRuntimeEvent(event);
+  if (runtimeEvent?.event_type === "tool.started" || runtimeEvent?.event_type === "tool.completed" || runtimeEvent?.event_type === "tool.failed" || event.kind === "tool") {
     return upsertByStableKey(current, event, toolTimelineKey(event));
   }
   return upsertByEventId(current, event);
@@ -394,6 +454,7 @@ interface TimelineItem {
   payload: Record<string, unknown>;
   role: string;
   runId: null | string;
+  runtimeEvent?: AgentRuntimeEventV1 | null;
   seq: number;
   traceId?: null | string;
   type: string;
@@ -420,7 +481,8 @@ function upsertTimelineItem(current: unknown, item: TimelineItem) {
 }
 
 function mergeTimelineEvent(current: unknown, rawEvent: AgentChatStreamEvent) {
-  if (rawEvent.kind === "tool") {
+  const runtimeEvent = readRuntimeEvent(rawEvent);
+  if (runtimeEvent?.event_type === "tool.started" || runtimeEvent?.event_type === "tool.completed" || runtimeEvent?.event_type === "tool.failed" || rawEvent.kind === "tool") {
     return upsertTimelineItemByKey(current, timelineItemFromRawEvent(rawEvent), toolTimelineKey(rawEvent));
   }
   return appendTimelineItem(current, timelineItemFromRawEvent(rawEvent));
@@ -448,6 +510,7 @@ function timelineItemFromRawEvent(rawEvent: AgentChatStreamEvent): TimelineItem 
     payload: rawEvent.payload,
     role: rawEvent.role ?? eventRole(rawEvent),
     runId: rawEvent.run_id,
+    runtimeEvent: readRuntimeEvent(rawEvent),
     seq: rawEvent.seq ?? 0,
     traceId: rawEvent.trace_id,
     type: rawEvent.type,
@@ -455,11 +518,22 @@ function timelineItemFromRawEvent(rawEvent: AgentChatStreamEvent): TimelineItem 
 }
 
 function toolTimelineKey(rawEvent: AgentChatStreamEvent): string {
+  const runtimeEvent = readRuntimeEvent(rawEvent);
+  if (runtimeEvent?.tool) {
+    return `tool_${runtimeEvent.agent_run_id}_${runtimeEvent.render.group_id}_${runtimeEvent.tool.call_id}`;
+  }
   const { callId, toolName } = readToolIdentity(rawEvent.payload ?? {});
-  return `tool_${rawEvent.run_id ?? rawEvent.agent_run_id ?? rawEvent.session_id}_${callId ?? toolName ?? rawEvent.type}`;
+  const actorType = readString(rawEvent.payload?.actor_type) ?? "main";
+  const subagentName = actorType === "subagent" ? readString(rawEvent.payload?.subagent_name) ?? readString(rawEvent.payload?.subagent_id) : null;
+  const namespace = Array.isArray(rawEvent.payload?.graph_namespace) ? rawEvent.payload.graph_namespace.join("/") : null;
+  return `tool_${rawEvent.run_id ?? rawEvent.agent_run_id ?? rawEvent.session_id}_${subagentName ?? actorType}_${namespace ?? "root"}_${callId ?? toolName ?? rawEvent.type}`;
 }
 
 function readToolIdentity(payload: Record<string, unknown>): { callId: null | string; toolName: null | string } {
+  const runtimeEvent = readRuntimeEventFromPayload(payload);
+  if (runtimeEvent?.tool) {
+    return { callId: runtimeEvent.tool.call_id, toolName: runtimeEvent.tool.name };
+  }
   const message = payload.message && typeof payload.message === "object" ? (payload.message as Record<string, unknown>) : null;
   const raw = payload.raw && typeof payload.raw === "object" ? (payload.raw as Record<string, unknown>) : null;
   return {
@@ -492,18 +566,47 @@ function readString(value: unknown): string | null {
 }
 
 function readToolInput(payload: Record<string, unknown>): unknown {
+  const runtimeEvent = readRuntimeEventFromPayload(payload);
+  if (runtimeEvent?.tool && runtimeEvent.tool.input !== undefined) return parseMaybeStructured(runtimeEvent.tool.input);
   const direct = payload.input ?? payload.args;
-  if (direct !== undefined) return parseMaybeJson(direct);
+  if (direct !== undefined) return parseMaybeStructured(direct);
   const raw = payload.raw && typeof payload.raw === "object" ? (payload.raw as Record<string, unknown>) : null;
   const rawArgs = raw?.args ?? raw?.arguments ?? raw?.input;
-  return rawArgs === undefined ? undefined : parseMaybeJson(rawArgs);
+  return rawArgs === undefined ? undefined : parseMaybeStructured(rawArgs);
 }
 
 function readToolOutput(payload: Record<string, unknown>): unknown {
+  const runtimeEvent = readRuntimeEventFromPayload(payload);
+  if (runtimeEvent?.tool?.error) return runtimeEvent.tool.error.message;
+  if (runtimeEvent?.tool && runtimeEvent.tool.output !== undefined) return parseMaybeJson(runtimeEvent.tool.output);
   const direct = payload.result ?? payload.output ?? payload.error;
   if (direct !== undefined) return parseMaybeJson(direct);
   const message = payload.message && typeof payload.message === "object" ? (payload.message as Record<string, unknown>) : null;
   return message?.content === undefined ? undefined : parseMaybeJson(message.content);
+}
+
+function readRuntimeEvent(event: AgentChatStreamEvent): AgentRuntimeEventV1 | null {
+  if (event.runtime_event?.schema_version === "agent-runtime-event.v1") return event.runtime_event;
+  return readRuntimeEventFromPayload(event.payload);
+}
+
+function readRuntimeEventFromPayload(payload: Record<string, unknown> | undefined): AgentRuntimeEventV1 | null {
+  const value = payload?.runtime_event;
+  if (value && typeof value === "object" && "schema_version" in value && value.schema_version === "agent-runtime-event.v1") {
+    return value as AgentRuntimeEventV1;
+  }
+  return null;
+}
+
+function runtimeEventText(event: AgentRuntimeEventV1): string {
+  if (typeof event.content?.text === "string") return event.content.text;
+  if (typeof event.tool?.error?.message === "string") return event.tool.error.message;
+  if (typeof event.subagent?.output === "string") return event.subagent.output;
+  return "";
+}
+
+function shouldPublishAssistantText(event: AgentRuntimeEventV1): boolean {
+  return event.event_type === "agent.message.final" && event.render.target === "final";
 }
 
 function parseMaybeJson(value: unknown): unknown {
@@ -515,6 +618,13 @@ function parseMaybeJson(value: unknown): unknown {
   } catch {
     return value;
   }
+}
+
+function parseMaybeStructured(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const parsed = parseMaybeJson(value);
+  if (typeof parsed === "string") return undefined;
+  return parsed;
 }
 
 function readFirstToolCallChunkId(payload: Record<string, unknown>): string | null {

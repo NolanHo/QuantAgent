@@ -138,3 +138,87 @@ class DeepAgentsFactoryTest(TestCase):
         self.assertEqual([tool.name for tool in research_tools], ["get_run_context", "search_web"])
         self.assertNotIn("get_account_context", {tool.name for tool in research_tools})
         self.assertNotIn("submit_action_plan", {tool.name for tool in research_tools})
+
+    def test_default_factory_keeps_search_web_out_of_main_agent_when_only_subagent_requests_it(self) -> None:
+        class DummyGraph:
+            def invoke(self, input_data, config=None):
+                return {}
+
+            def stream(self, input_data, config=None):
+                return iter(())
+
+        class NamedTool:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+        request = build_echo_run_request().model_copy(
+            update={
+                "agent_definition": AgentDefinition(
+                    agent_id="agent_chat_main",
+                    version="0.1.0",
+                    name="Agent Chat MainAgent",
+                    system_prompt="MainAgent 通过 Research Agent 做检索。",
+                    tool_ids=["quantagent.core.tool.get_run_context"],
+                    subagents=[
+                        SubAgentDefinition(
+                            subagent_id="subagent_research",
+                            name="evidence_research_analyst",
+                            description="负责公开证据检索。",
+                            system_prompt="你是 Research Agent。",
+                            tool_ids=["quantagent.core.tool.get_run_context", "quantagent.official.source.tavily.search_web"],
+                        )
+                    ],
+                ),
+                "tool_profile": ToolProfile(
+                    profile_id="tool_profile_agent_chat",
+                    tool_bindings=[
+                        ToolBinding(
+                            tool_id="quantagent.core.tool.get_run_context",
+                            name="get_run_context",
+                            description="读取 run context。",
+                        ),
+                        ToolBinding(
+                            tool_id="quantagent.official.source.tavily.search_web",
+                            name="search_web",
+                            description="检索公开网页。",
+                        ),
+                    ],
+                ),
+                "runtime_policy": RuntimePolicy(model=FakeListChatModel(responses=["done"])),
+            }
+        )
+
+        with patch("deepagents.create_deep_agent", return_value=DummyGraph()) as create_deep_agent:
+            AgentRuntime._default_deep_agent_factory(request, [NamedTool("get_run_context"), NamedTool("search_web")])
+
+        kwargs = create_deep_agent.call_args.kwargs
+        self.assertEqual([tool.name for tool in kwargs["tools"]], ["get_run_context"])
+        self.assertEqual([tool.name for tool in kwargs["subagents"][0]["tools"]], ["get_run_context", "search_web"])
+
+    def test_tool_bundle_builds_subagent_wrappers_with_subagent_scope(self) -> None:
+        runtime = AgentRuntime(tools=[build_echo_platform_tool()])
+        request = build_echo_run_request().model_copy(
+            update={
+                "agent_definition": build_echo_run_request().agent_definition.model_copy(
+                    update={
+                        "subagents": [
+                            SubAgentDefinition(
+                                subagent_id="subagent_research",
+                                name="evidence_research_analyst",
+                                description="负责公开证据检索。",
+                                system_prompt="你是 Research Agent。",
+                                tool_ids=["quantagent.test.echo"],
+                            )
+                        ]
+                    }
+                )
+            }
+        )
+        event_buffer = []
+
+        bundle = runtime._build_deep_agent_tool_bundle(request, EventSequencer(), event_buffer)
+        result = bundle.subagent_tools_by_name["evidence_research_analyst"][0].invoke({"text": "hello"})
+
+        self.assertEqual(result["echo"], "hello")
+        self.assertEqual(event_buffer[0].payload["subagent_id"], "subagent_research")
+        self.assertEqual(event_buffer[0].payload["subagent_name"], "evidence_research_analyst")

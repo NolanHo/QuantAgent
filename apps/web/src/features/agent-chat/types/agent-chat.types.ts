@@ -1,3 +1,5 @@
+import type { AgentRuntimeEventV1 } from "../api/agent-chat.contracts";
+
 export type AgentChatStatus = "idle" | "loading" | "streaming" | "completed" | "failed" | "aborted";
 
 export interface AgentChatTimelineItem {
@@ -9,6 +11,7 @@ export interface AgentChatTimelineItem {
   payload: Record<string, unknown>;
   role: string;
   runId: null | string;
+  runtimeEvent?: AgentRuntimeEventV1 | null;
   seq: number;
   traceId?: null | string;
   type?: string;

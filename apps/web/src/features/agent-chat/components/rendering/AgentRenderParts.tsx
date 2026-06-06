@@ -28,6 +28,7 @@ import type {
 } from "../../types";
 import { AgentMarkdown } from "../conversation/AgentMarkdown";
 import { MessageResponse, Reasoning } from "./AgentChatElements";
+import { AgentSubagentNode, partToAgentChainSteps } from "./agent-chain-of-thought";
 
 export function AgentRenderPartView({ part }: { part: AgentRenderPart }) {
   switch (part.type) {
@@ -58,46 +59,21 @@ export function AgentRenderPartView({ part }: { part: AgentRenderPart }) {
 
 function SubagentPartView({ part }: { part: AgentSubagentPart }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-hairline bg-canvas">
-      <header className="flex items-start justify-between gap-3 border-b border-hairline bg-surface-soft px-3 py-2">
+    <section
+      className="grid gap-2 rounded-lg border border-hairline bg-surface-soft/70 px-3 py-3"
+      data-agent-render-lane="subagent"
+      data-agent-render-group={part.groupId ?? part.agentName}
+    >
+      <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-body-sm font-bold text-ink">{part.title}</div>
           <div className="font-mono text-caption text-muted">{part.agentName}</div>
         </div>
         <StatusPill status={part.status} />
       </header>
-      <div className="grid gap-3 p-3">
-        {part.input ? (
-          <div className="rounded-md border border-hairline bg-canvas px-3 py-2 text-body-sm text-muted-strong">
-            <span className="font-bold text-ink">委托输入：</span>
-            {part.input}
-          </div>
-        ) : null}
-        <div className="grid gap-2 border-l-2 border-hairline pl-3">
-          {part.steps.map((step, index) => (
-            <SubagentStepView key={`${part.agentName}-${step.type}-${index}`} step={step} />
-          ))}
-        </div>
-        {part.output ? (
-          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
-            <AgentMarkdown content={part.output} />
-          </div>
-        ) : null}
-      </div>
+      <AgentSubagentNode agentName={part.agentName} input={part.input} output={part.output} steps={part.steps.flatMap(partToAgentChainSteps)} />
     </section>
   );
-}
-
-function SubagentStepView({ step }: { step: AgentSubagentPart["steps"][number] }) {
-  if (step.type === "reasoning") {
-    return (
-      <Reasoning durationSeconds={step.durationSeconds} isStreaming={step.status === "streaming"} title={step.title ?? "SubAgent Thinking"}>
-        {step.text}
-      </Reasoning>
-    );
-  }
-  if (step.type === "tool") return <ToolPartView part={step} compact />;
-  return <MessageResponse>{step.text}</MessageResponse>;
 }
 
 function TaskListPartView({ part }: { part: AgentTaskListPart }) {

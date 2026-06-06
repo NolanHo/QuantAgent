@@ -3,9 +3,11 @@ import type {
   AgentChatTimelineItem,
   AgentRenderMessage,
   AgentRenderPart,
+  AgentSubagentPart,
   AgentTaskItem,
   AgentToolPart,
 } from "../types";
+import type { AgentRuntimeEventV1 } from "../api/agent-chat.contracts";
 
 export function agentTimelineToRenderMessages(timeline: readonly AgentChatTimelineItem[]): AgentRenderMessage[] {
   const sorted = [...timeline].sort(compareTimelineItems);
@@ -61,8 +63,34 @@ function getAssistantMessage(
 }
 
 function mergeTimelineItemIntoAssistant(message: AgentRenderMessage, item: AgentChatTimelineItem): void {
-  if (item.kind === "delta" || item.kind === "final" || item.kind === "message") {
-    upsertTextPart(message.parts, item.content, item.role === "assistant" ? "response" : "process");
+  const runtimeEvent = readRuntimeEventFromTimelineItem(item);
+  if (runtimeEvent) {
+    mergeRuntimeEventIntoAssistant(message, runtimeEvent);
+    return;
+  }
+
+  if (isNonRenderableRuntimeItem(item)) {
+    return;
+  }
+
+  const subagentName = readSubagentName(item);
+  if (subagentName) {
+    mergeTimelineItemIntoSubagent(message.parts, item, subagentName);
+    return;
+  }
+
+  if (item.kind === "subagent") {
+    upsertSubagentPart(message.parts, timelineItemToSubagentPart(item));
+    return;
+  }
+
+  if (item.kind === "delta") {
+    upsertTextPart(message.parts, item.content, "process");
+    return;
+  }
+
+  if (item.kind === "final" || item.kind === "message") {
+    upsertTextPart(message.parts, item.content, item.kind === "final" && item.role === "assistant" ? "response" : "process");
     return;
   }
 
@@ -72,6 +100,11 @@ function mergeTimelineItemIntoAssistant(message: AgentRenderMessage, item: Agent
   }
 
   if (item.kind === "tool") {
+    const todoTasks = timelineItemToWriteTodosTasks(item);
+    if (todoTasks) {
+      upsertTasksPart(message.parts, todoTasks);
+      return;
+    }
     upsertToolPart(message.parts, timelineItemToToolPart(item));
     return;
   }
@@ -106,23 +139,242 @@ function mergeTimelineItemIntoAssistant(message: AgentRenderMessage, item: Agent
   }
 }
 
-function upsertTextPart(parts: AgentRenderPart[], text: string, display: "process" | "response" = "process"): void {
+function readRuntimeEventFromTimelineItem(item: AgentChatTimelineItem): AgentRuntimeEventV1 | null {
+  if (item.runtimeEvent?.schema_version === "agent-runtime-event.v1") return item.runtimeEvent;
+  const value = item.payload.runtime_event;
+  if (value && typeof value === "object" && "schema_version" in value && value.schema_version === "agent-runtime-event.v1") {
+    return value as AgentRuntimeEventV1;
+  }
+  return null;
+}
+
+function mergeRuntimeEventIntoAssistant(message: AgentRenderMessage, event: AgentRuntimeEventV1): void {
+  if (event.render.target === "side_panel") return;
+
+  if (event.render.lane === "subagent") {
+    mergeRuntimeEventIntoSubagent(message.parts, event);
+    return;
+  }
+
+  if (event.render.target === "final") {
+    const text = runtimeContentText(event);
+    if (text) upsertTextPart(message.parts, text, "response", event.content?.delta_mode);
+    return;
+  }
+
+  if (event.render.lane !== "main") return;
+
+  if (event.event_type === "agent.reasoning.delta") {
+    appendReasoningPart(message.parts, runtimeContentText(event), event.event_type, event.content?.delta_mode);
+    return;
+  }
+  if (event.event_type === "agent.message.delta") {
+    upsertTextPart(message.parts, runtimeContentText(event), "process", event.content?.delta_mode);
+    return;
+  }
+  if (event.event_type === "todo.updated") {
+    upsertTasksPart(message.parts, runtimeEventToTasks(event));
+    return;
+  }
+  if (event.event_type === "tool.started" || event.event_type === "tool.completed" || event.event_type === "tool.failed") {
+    const todoTasks = runtimeEventToWriteTodosTasks(event);
+    if (todoTasks) {
+      upsertTasksPart(message.parts, todoTasks);
+      return;
+    }
+    upsertToolPart(message.parts, runtimeEventToToolPart(event));
+    return;
+  }
+  if (event.event_type === "artifact.created") {
+    message.parts.push(runtimeEventToArtifact(event));
+    return;
+  }
+  if (event.event_type === "interrupt.requested" || event.event_type === "run.failed") {
+    message.parts.push({
+      type: "notice",
+      title: event.event_type === "run.failed" ? "运行失败" : "需要人工处理",
+      tone: event.event_type === "run.failed" ? "danger" : "warning",
+      text: runtimeContentText(event),
+    });
+  }
+}
+
+function mergeRuntimeEventIntoSubagent(parts: AgentRenderPart[], event: AgentRuntimeEventV1): void {
+  const part = ensureRuntimeSubagentPart(parts, event);
+  if (event.event_type === "subagent.started") {
+    part.status = "running";
+    part.input = event.subagent?.input ?? part.input;
+    return;
+  }
+  if (event.event_type === "subagent.completed") {
+    part.status = "completed";
+    part.output = event.subagent?.output ?? runtimeContentText(event) ?? part.output;
+    return;
+  }
+  if (event.event_type === "agent.reasoning.delta") {
+    appendReasoningPart(part.steps, runtimeContentText(event), event.event_type, event.content?.delta_mode);
+    part.status = "running";
+    return;
+  }
+  if (event.event_type === "agent.message.delta") {
+    upsertTextPart(part.steps, runtimeContentText(event), "process", event.content?.delta_mode);
+    part.status = "running";
+    return;
+  }
+  if (event.event_type === "todo.updated") {
+    const tasks = runtimeEventToTasks(event);
+    if (tasks.length) {
+      upsertTasksTextPart(part.steps, tasks);
+      part.status = "running";
+    }
+    return;
+  }
+  if (event.event_type === "tool.started" || event.event_type === "tool.completed" || event.event_type === "tool.failed") {
+    const todoTasks = runtimeEventToWriteTodosTasks(event);
+    if (todoTasks) {
+      upsertTasksTextPart(part.steps, todoTasks);
+      return;
+    }
+    upsertToolPart(part.steps, runtimeEventToToolPart(event));
+    part.status = event.event_type === "tool.failed" ? "error" : event.event_type === "tool.completed" ? "completed" : "running";
+    return;
+  }
+  if (event.event_type === "artifact.created") {
+    part.steps.push({ display: "process", text: runtimeContentText(event) || formatUnknownOutput(event.content?.json) || "Artifact created.", type: "text" });
+    return;
+  }
+  if (event.event_type === "interrupt.requested" || event.event_type === "run.failed") {
+    part.status = event.event_type === "run.failed" ? "error" : part.status;
+    part.steps.push({ display: "process", text: runtimeContentText(event), type: "text" });
+  }
+}
+
+function mergeTimelineItemIntoSubagent(parts: AgentRenderPart[], item: AgentChatTimelineItem, subagentName: string): void {
+  const part = ensureSubagentPart(parts, subagentName, timelineItemToSubagentTitle(item, subagentName));
+  if (item.kind === "reasoning") {
+    appendReasoningPart(part.steps, item.content, item.type);
+    part.status = item.type?.includes("failed") ? "error" : "running";
+    return;
+  }
+  if (item.kind === "tool") {
+    const todoTasks = timelineItemToWriteTodosTasks(item);
+    if (todoTasks) {
+      part.steps.push({ display: "process", text: formatSubagentTasks(todoTasks), type: "text" });
+      part.status = "running";
+      return;
+    }
+    upsertToolPart(part.steps, timelineItemToToolPart(item));
+    part.status = item.type === "tool.failed" ? "error" : item.type === "tool.completed" ? "completed" : "running";
+    return;
+  }
+  if (item.kind === "delta" || item.kind === "message") {
+    upsertTextPart(part.steps, item.content, "process");
+    part.status = "running";
+    return;
+  }
+  if (item.kind === "final") {
+    part.output = item.content || part.output;
+    part.status = "completed";
+    return;
+  }
+  if (item.kind === "subagent") {
+    const next = timelineItemToSubagentPart(item);
+    part.input = next.input ?? part.input;
+    part.output = next.output ?? part.output;
+    part.status = next.status;
+  }
+}
+
+function ensureSubagentPart(parts: AgentRenderPart[], agentName: string, title: string): AgentSubagentPart {
+  const existing = parts.find((part) => part.type === "subagent" && part.agentName === agentName);
+  if (existing?.type === "subagent") return existing;
+  const next: AgentSubagentPart = {
+    agentName,
+    status: "running",
+    steps: [],
+    title,
+    type: "subagent",
+  };
+  parts.push(next);
+  return next;
+}
+
+function ensureRuntimeSubagentPart(parts: AgentRenderPart[], event: AgentRuntimeEventV1): AgentSubagentPart {
+  const groupId = event.render.group_id;
+  const agentName = event.subagent?.name ?? (event.actor.type === "subagent" ? event.actor.name : event.actor.id);
+  const existing = parts.find((part) => part.type === "subagent" && (part.groupId === groupId || part.agentName === agentName));
+  if (existing?.type === "subagent") {
+    existing.groupId = existing.groupId ?? groupId;
+    return existing;
+  }
+  const next: AgentSubagentPart = {
+    agentName,
+    groupId,
+    input: event.subagent?.input ?? undefined,
+    status: event.event_type === "tool.failed" || event.event_type === "run.failed" ? "error" : "running",
+    steps: [],
+    title: event.actor.type === "subagent" ? event.actor.display_name : event.subagent?.name ?? "SubAgent",
+    type: "subagent",
+  };
+  parts.push(next);
+  return next;
+}
+
+function isNonRenderableRuntimeItem(item: AgentChatTimelineItem): boolean {
+  return item.kind === "system_event" || item.type === "run.started" || item.type === "run.completed";
+}
+
+function upsertTextPart(
+  parts: AgentRenderPart[] | AgentSubagentPart["steps"],
+  text: string,
+  display: "process" | "response" = "process",
+  deltaMode: "append" | "snapshot" | null | undefined = "snapshot",
+): void {
   if (!text) return;
-  const existing = parts.find((part) => part.type === "text" && part.display === display);
-  if (existing?.type === "text") {
-    existing.text = text.length >= existing.text.length ? text : existing.text;
+  const previous = parts.at(-1);
+  if (previous?.type === "text" && previous.display === display) {
+    previous.text = mergeTextSnapshot(previous.text, text, deltaMode);
     return;
   }
   parts.push({ type: "text", display, text });
 }
 
-function appendReasoningPart(parts: AgentRenderPart[], text: string, eventType?: string): void {
+function mergeTextSnapshot(current: string, next: string, deltaMode: "append" | "snapshot" | null | undefined = "append"): string {
+  if (!current) return next;
+  if (!next) return current;
+  if (deltaMode === "append") return `${current}${next}`;
+  if (next.startsWith(current)) return next;
+  if (current.includes(next)) return current;
+  return `${current}${next}`;
+}
+
+function appendReasoningPart(
+  parts: AgentRenderPart[] | AgentSubagentPart["steps"],
+  text: string,
+  eventType?: string,
+  deltaMode: "append" | "snapshot" | null | undefined = "snapshot",
+): void {
   if (!text) return;
+  const previous = parts.at(-1);
+  if (previous?.type === "reasoning") {
+    previous.text = mergeReasoningText(previous.text, text, deltaMode);
+    previous.status = eventType?.includes("streaming") ? "streaming" : previous.status ?? "completed";
+    return;
+  }
   parts.push({
     type: "reasoning",
     status: eventType?.includes("streaming") ? "streaming" : "completed",
     text,
   });
+}
+
+function mergeReasoningText(current: string, next: string, deltaMode: "append" | "snapshot" | null | undefined = "append"): string {
+  if (!current) return next;
+  if (!next) return current;
+  if (deltaMode === "append") return `${current}${next}`;
+  if (next.startsWith(current)) return next;
+  if (current.includes(next)) return current;
+  return `${current}${next}`;
 }
 
 function upsertToolPart(parts: AgentRenderPart[], next: AgentToolPart): void {
@@ -162,6 +414,94 @@ function upsertTasksPart(parts: AgentRenderPart[], tasks: AgentTaskItem[]): void
   parts.push({ type: "tasks", title: "运行计划", tasks });
 }
 
+function upsertTasksTextPart(parts: AgentSubagentPart["steps"], tasks: AgentTaskItem[]): void {
+  if (!tasks.length) return;
+  const text = formatSubagentTasks(tasks);
+  const existing = parts.find((part) => part.type === "text" && part.display === "process" && part.text.includes("- ["));
+  if (existing?.type === "text") {
+    existing.text = text;
+    return;
+  }
+  parts.push({ display: "process", text, type: "text" });
+}
+
+function upsertSubagentPart(parts: AgentRenderPart[], next: AgentSubagentPart): void {
+  const current = ensureSubagentPart(parts, next.agentName, next.title);
+  current.input = next.input ?? current.input;
+  current.output = next.output ?? current.output;
+  current.status = next.status;
+  if (next.steps.length) current.steps = mergeSubagentSteps(current.steps, next.steps);
+}
+
+function mergeSubagentSteps(
+  current: AgentSubagentPart["steps"],
+  next: AgentSubagentPart["steps"],
+): AgentSubagentPart["steps"] {
+  const merged = current.slice();
+  for (const step of next) {
+    if (step.type === "tool") upsertToolPart(merged, step);
+    else merged.push(step);
+  }
+  return merged;
+}
+
+function timelineItemToSubagentPart(item: AgentChatTimelineItem): AgentSubagentPart {
+  const agentName = readSubagentName(item) ?? readString(item.payload.name) ?? "subagent";
+  const subagents = Array.isArray(item.payload.subagents) ? item.payload.subagents : [];
+  const matched = subagents.find((subagent) => isRecord(subagent) && readString(subagent.name) === agentName);
+  const record = isRecord(matched) ? matched : isRecord(item.payload) ? item.payload : {};
+  return {
+    agentName,
+    input: readString(record.input) ?? readString(record.task) ?? readString(record.instruction) ?? undefined,
+    output: readString(record.output) ?? readString(record.result) ?? item.content,
+    status: item.type === "subagent.started" ? "running" : item.type === "subagent.completed" ? "completed" : "running",
+    steps: [],
+    title: timelineItemToSubagentTitle(item, agentName),
+    type: "subagent",
+  };
+}
+
+function timelineItemToSubagentTitle(item: AgentChatTimelineItem, agentName: string): string {
+  if (agentName === "evidence_research_analyst") return "Research Agent";
+  return readString(item.payload.title) ?? agentName;
+}
+
+function readSubagentName(item: AgentChatTimelineItem): string | null {
+  if (readString(item.payload.actor_type) !== "subagent") return null;
+  const direct = readString(item.payload.subagent_name) ?? readString(item.payload.subagent) ?? readString(item.payload.subagent_id);
+  if (direct && !isReservedGraphNodeName(direct)) return direct;
+  return null;
+}
+
+function isReservedGraphNodeName(name: string): boolean {
+  return ["agent", "model", "tool", "tools"].includes(name);
+}
+
+function formatSubagentTasks(tasks: AgentTaskItem[]): string {
+  return tasks.map((task) => `- [${task.status === "completed" ? "x" : " "}] ${task.label}`).join("\n");
+}
+
+function timelineItemToWriteTodosTasks(item: AgentChatTimelineItem): AgentTaskItem[] | null {
+  const identity = readToolIdentity(item.payload);
+  if (identity.toolName !== "write_todos") return null;
+  const candidates = [item.payload.input, item.payload.args, item.payload.result, item.payload.output, item.payload.message, item.content];
+  for (const candidate of candidates) {
+    const todos = extractTodos(candidate);
+    if (todos.length) return todos;
+  }
+  return [];
+}
+
+function runtimeEventToWriteTodosTasks(event: AgentRuntimeEventV1): AgentTaskItem[] | null {
+  if (event.tool?.name !== "write_todos") return null;
+  const candidates = [event.tool.input, event.tool.output, event.content?.json, event.content?.text];
+  for (const candidate of candidates) {
+    const todos = extractTodos(candidate);
+    if (todos.length) return todos;
+  }
+  return [];
+}
+
 function timelineItemToToolPart(item: AgentChatTimelineItem): AgentToolPart {
   const identity = readToolIdentity(item.payload);
   const status = item.type === "tool.started" ? "running" : item.type === "tool.failed" ? "error" : "completed";
@@ -175,6 +515,19 @@ function timelineItemToToolPart(item: AgentChatTimelineItem): AgentToolPart {
     description: status === "running" ? item.content : undefined,
     input,
     output,
+  };
+}
+
+function runtimeEventToToolPart(event: AgentRuntimeEventV1): AgentToolPart {
+  const status = event.event_type === "tool.started" ? "running" : event.event_type === "tool.failed" ? "error" : "completed";
+  return {
+    type: "tool",
+    callId: event.tool?.call_id ?? event.event_id,
+    name: event.tool?.name ?? event.actor.name,
+    status,
+    description: status === "running" ? runtimeContentText(event) : undefined,
+    input: recordOrUndefined(event.tool?.input),
+    output: status === "running" ? undefined : runtimeToolOutput(event),
   };
 }
 
@@ -205,11 +558,11 @@ function readToolIdentity(payload: Record<string, unknown>): { callId: null | st
 function readToolInput(payload: Record<string, unknown>): Record<string, unknown> | undefined {
   const direct = payload.input ?? payload.args;
   if (isRecord(direct)) return direct;
-  if (typeof direct === "string" && direct) return { args: direct };
+  if (typeof direct === "string" && direct) return parseJsonRecord(direct) ?? undefined;
   const raw = isRecord(payload.raw) ? payload.raw : null;
   const rawArgs = raw?.args ?? raw?.arguments ?? raw?.input;
   if (isRecord(rawArgs)) return rawArgs;
-  if (typeof rawArgs === "string" && rawArgs) return parseJsonRecord(rawArgs) ?? { args: rawArgs };
+  if (typeof rawArgs === "string" && rawArgs) return parseJsonRecord(rawArgs) ?? undefined;
   const compact: Record<string, unknown> = {};
   for (const key of ["query", "symbol", "symbols", "window"]) {
     const value = payload[key];
@@ -239,16 +592,44 @@ function formatUnknownOutput(value: unknown): string | undefined {
 }
 
 function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  const parsed = parseJsonUnknown(value);
+  return isRecord(parsed) ? parsed : undefined;
+}
+
+function parseJsonUnknown(value: string): unknown | undefined {
   try {
-    const parsed = JSON.parse(value) as unknown;
-    return isRecord(parsed) ? parsed : undefined;
+    return JSON.parse(value) as unknown;
   } catch {
     return undefined;
   }
 }
 
 function timelineItemToTasks(item: AgentChatTimelineItem): AgentTaskItem[] {
-  const raw = Array.isArray(item.payload.todos) ? item.payload.todos : [];
+  return normalizeTodos(Array.isArray(item.payload.todos) ? item.payload.todos : []);
+}
+
+function runtimeEventToTasks(event: AgentRuntimeEventV1): AgentTaskItem[] {
+  const value = event.content?.json ?? event.raw;
+  return Array.isArray(value) ? normalizeTodos(value) : extractTodos(value);
+}
+
+function extractTodos(value: unknown): AgentTaskItem[] {
+  if (isRecord(value)) {
+    if (Array.isArray(value.todos)) return normalizeTodos(value.todos);
+    if (typeof value.content === "string") return extractTodos(value.content);
+    if (value.result !== undefined) return extractTodos(value.result);
+    if (value.output !== undefined) return extractTodos(value.output);
+  }
+  if (typeof value === "string") {
+    const parsed = parseJsonUnknown(value);
+    if (parsed !== undefined) return extractTodos(parsed);
+    const listLiteral = extractPythonTodoListLiteral(value);
+    if (listLiteral) return normalizeTodos(parsePythonTodoList(listLiteral));
+  }
+  return [];
+}
+
+function normalizeTodos(raw: unknown[]): AgentTaskItem[] {
   return raw
     .map((todo, index): AgentTaskItem | null => {
       if (!isRecord(todo)) return null;
@@ -264,6 +645,30 @@ function timelineItemToTasks(item: AgentChatTimelineItem): AgentTaskItem[] {
     .filter((task): task is AgentTaskItem => Boolean(task));
 }
 
+function extractPythonTodoListLiteral(value: string): string | null {
+  const marker = "Updated todo list to ";
+  const markerIndex = value.indexOf(marker);
+  const start = value.indexOf("[", markerIndex >= 0 ? markerIndex + marker.length : 0);
+  const end = value.lastIndexOf("]");
+  if (start < 0 || end <= start) return null;
+  return value.slice(start, end + 1);
+}
+
+function parsePythonTodoList(value: string): unknown[] {
+  try {
+    const jsonLike = value
+      .replaceAll("\\", "\\\\")
+      .replaceAll("'", "\"")
+      .replace(/\bNone\b/g, "null")
+      .replace(/\bTrue\b/g, "true")
+      .replace(/\bFalse\b/g, "false");
+    const parsed = JSON.parse(jsonLike) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function timelineItemToArtifact(item: AgentChatTimelineItem): AgentArtifactPart {
   return {
     type: "artifact",
@@ -272,6 +677,34 @@ function timelineItemToArtifact(item: AgentChatTimelineItem): AgentArtifactPart 
     tone: "info",
     rows: objectRows(item.payload).length ? objectRows(item.payload) : [{ label: "内容", value: item.content }],
   };
+}
+
+function runtimeEventToArtifact(event: AgentRuntimeEventV1): AgentArtifactPart {
+  const payload = isRecord(event.content?.json) ? event.content.json : isRecord(event.raw) ? event.raw : {};
+  return {
+    type: "artifact",
+    artifactType: "analysis",
+    title: "运行产物",
+    tone: "info",
+    rows: objectRows(payload).length ? objectRows(payload) : [{ label: "内容", value: runtimeContentText(event) || formatUnknownOutput(event.content?.json) || "" }],
+  };
+}
+
+function runtimeContentText(event: AgentRuntimeEventV1): string {
+  if (typeof event.content?.text === "string") return event.content.text;
+  if (typeof event.tool?.error?.message === "string") return event.tool.error.message;
+  if (typeof event.subagent?.output === "string") return event.subagent.output;
+  return "";
+}
+
+function runtimeToolOutput(event: AgentRuntimeEventV1): string | undefined {
+  if (event.tool?.error) return event.tool.error.message;
+  return formatUnknownOutput(event.tool?.output ?? event.content?.json ?? event.content?.text);
+}
+
+function recordOrUndefined(value: unknown): Record<string, unknown> | undefined {
+  if (isRecord(value)) return value;
+  return undefined;
 }
 
 function objectRows(payload: Record<string, unknown>): Array<{ label: string; value: string }> {

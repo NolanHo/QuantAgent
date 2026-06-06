@@ -9,7 +9,7 @@ export function AgentChainOfThought({ parts }: { parts: readonly AgentRenderPart
   if (!steps.length) return null;
 
   return (
-    <ChainOfThought defaultOpen>
+    <ChainOfThought data-agent-render-lane="main" data-agent-render-target="cot" defaultOpen>
       <ChainOfThoughtHeader>思考与执行过程 · {steps.length} steps</ChainOfThoughtHeader>
       <ChainOfThoughtContent>
         <AgentChainStepList steps={steps} />

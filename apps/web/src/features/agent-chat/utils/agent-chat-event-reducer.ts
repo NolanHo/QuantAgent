@@ -1,4 +1,5 @@
 import type { AgentChatMessageResponse, AgentChatSessionResponse, AgentChatStreamEvent } from "../api";
+import type { AgentRuntimeEventV1 } from "../api/agent-chat.contracts";
 import type { AgentChatDisplayMessage, AgentChatState } from "../types";
 
 export function createInitialAgentChatState(): AgentChatState {
@@ -46,6 +47,7 @@ function messageFromResponse(message: AgentChatMessageResponse): AgentChatDispla
     payload: message.payload,
     role: message.role,
     runId: message.run_id,
+    runtimeEvent: message.runtime_event ?? readRuntimeEventFromPayload(message.payload),
     seq: message.seq,
   };
 }
@@ -59,12 +61,20 @@ function messageFromEvent(event: AgentChatStreamEvent): AgentChatDisplayMessage 
     payload: event.payload,
     role: event.role ?? "assistant",
     runId: event.run_id,
+    runtimeEvent: event.runtime_event ?? readRuntimeEventFromPayload(event.payload),
     seq: event.seq ?? Number.MAX_SAFE_INTEGER,
     traceId: event.trace_id,
   };
 }
 
+function readRuntimeEventFromPayload(payload: Record<string, unknown>): AgentRuntimeEventV1 | null {
+  const value = payload.runtime_event;
+  if (value && typeof value === "object" && "schema_version" in value && value.schema_version === "agent-runtime-event.v1") {
+    return value as AgentRuntimeEventV1;
+  }
+  return null;
+}
+
 function mergeMessage(messages: AgentChatDisplayMessage[], message: AgentChatDisplayMessage): AgentChatDisplayMessage[] {
   return [...messages.filter((item) => item.id !== message.id), message].sort((left, right) => left.seq - right.seq);
 }
-

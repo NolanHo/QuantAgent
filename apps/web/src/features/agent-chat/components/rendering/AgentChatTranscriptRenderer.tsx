@@ -3,6 +3,18 @@ import { Conversation, ConversationContent, ConversationDownload, ConversationEm
 import { AgentChainOfThought } from "./agent-chain-of-thought";
 import { AgentRenderPartView } from "./AgentRenderParts";
 
+type AssistantRenderBlock =
+  | {
+      id: string;
+      parts: AgentRenderPart[];
+      type: "cot";
+    }
+  | {
+      id: string;
+      part: AgentRenderPart;
+      type: "part";
+    };
+
 export function AgentChatTranscriptRenderer({
   className,
   contentClassName,
@@ -45,17 +57,49 @@ function MessageParts({ message }: { message: AgentRenderMessage }) {
     );
   }
 
-  const processParts = message.parts.filter((part) => !(part.type === "text" && part.display === "response"));
-  const responseParts = message.parts.filter((part) => part.type === "text" && part.display === "response");
+  const blocks = groupAssistantParts(message.parts);
 
   return (
     <>
-      {processParts.length ? <AgentChainOfThought parts={processParts} /> : null}
-      {responseParts.map((part, index) => (
-        <AgentRenderPartView key={`${message.id}-response-${index}`} part={part} />
-      ))}
+      {blocks.map((block) =>
+        block.type === "cot" ? (
+          <AgentChainOfThought key={`${message.id}-${block.id}`} parts={block.parts} />
+        ) : (
+          <AgentRenderPartView key={`${message.id}-${block.id}`} part={block.part} />
+        ),
+      )}
     </>
   );
+}
+
+export function groupAssistantParts(parts: readonly AgentRenderPart[]): AssistantRenderBlock[] {
+  const blocks: AssistantRenderBlock[] = [];
+  let currentCot: AgentRenderPart[] = [];
+  let cotIndex = 0;
+
+  const flushCot = () => {
+    if (!currentCot.length) return;
+    blocks.push({ id: `cot-${cotIndex}`, parts: currentCot, type: "cot" });
+    cotIndex += 1;
+    currentCot = [];
+  };
+
+  parts.forEach((part, index) => {
+    if (part.type === "text" && part.display === "response") {
+      flushCot();
+      blocks.push({ id: `response-${index}`, part, type: "part" });
+      return;
+    }
+    if (part.type === "subagent") {
+      flushCot();
+      blocks.push({ id: `subagent-${part.groupId ?? part.agentName}-${index}`, part, type: "part" });
+      return;
+    }
+    currentCot.push(part);
+  });
+
+  flushCot();
+  return blocks;
 }
 
 function messagesToMarkdown(messages: readonly AgentRenderMessage[]) {

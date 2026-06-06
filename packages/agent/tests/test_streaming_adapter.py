@@ -36,6 +36,7 @@ class StreamingAdapterTest(TestCase):
 
         self.assertEqual(events[0][0], AgentRunEventType.MODEL_DELTA)
         self.assertEqual(events[0][1]["delta"], "hello")
+        self.assertEqual(events[0][1]["actor_type"], "main")
 
     def test_iter_deepagents_stream_events_maps_reasoning_chunks(self) -> None:
         events = iter_deepagents_stream_events(
@@ -44,6 +45,22 @@ class StreamingAdapterTest(TestCase):
 
         self.assertEqual(events[0][0], AgentRunEventType.MODEL_REASONING)
         self.assertEqual(events[0][1]["reasoning"], "先判断缺口。")
+        self.assertEqual(events[0][1]["actor_type"], "main")
+
+    def test_iter_deepagents_stream_events_preserves_subgraph_scope(self) -> None:
+        events = iter_deepagents_stream_events(
+            (
+                ("evidence_research_analyst:task_1",),
+                "messages",
+                (AIMessageChunk(content="", additional_kwargs={"reasoning_content": "Research Agent 开始检索。"}), {}),
+            )
+        )
+
+        self.assertEqual(events[0][0], AgentRunEventType.MODEL_REASONING)
+        self.assertEqual(events[0][1]["actor_type"], "subagent")
+        self.assertEqual(events[0][1]["subagent_name"], "evidence_research_analyst")
+        self.assertEqual(events[0][1]["graph_namespace"], ["evidence_research_analyst:task_1"])
+        self.assertTrue(events[0][1]["subgraph"])
 
     def test_iter_deepagents_stream_events_maps_tool_call_chunks_from_messages(self) -> None:
         events = iter_deepagents_stream_events(
@@ -64,6 +81,65 @@ class StreamingAdapterTest(TestCase):
         self.assertEqual(events[0][1]["name"], "write_todos")
         self.assertEqual(events[0][1]["input"], {"todos": []})
 
+    def test_iter_deepagents_stream_events_maps_tool_calls_from_messages(self) -> None:
+        events = iter_deepagents_stream_events(
+            (
+                "messages",
+                (
+                    AIMessageChunk(
+                        content="",
+                        tool_calls=[{"name": "search_web", "args": {"query": "NVDA earnings consensus"}, "id": "call_search_1"}],
+                    ),
+                    {},
+                ),
+            )
+        )
+
+        self.assertEqual(events[0][0], AgentRunEventType.TOOL_STARTED)
+        self.assertEqual(events[0][1]["tool_call_id"], "call_search_1")
+        self.assertEqual(events[0][1]["name"], "search_web")
+        self.assertEqual(events[0][1]["input"], {"query": "NVDA earnings consensus"})
+
+    def test_iter_deepagents_stream_events_preserves_subgraph_scope_for_tools(self) -> None:
+        events = iter_deepagents_stream_events(
+            (
+                ("evidence_research_analyst:task_1",),
+                "messages",
+                (
+                    AIMessageChunk(
+                        content="",
+                        tool_calls=[{"name": "search_web", "args": {"query": "NVDA earnings consensus"}, "id": "call_search_1"}],
+                    ),
+                    {},
+                ),
+            )
+        )
+
+        self.assertEqual(events[0][0], AgentRunEventType.TOOL_STARTED)
+        self.assertEqual(events[0][1]["actor_type"], "subagent")
+        self.assertEqual(events[0][1]["subagent_name"], "evidence_research_analyst")
+        self.assertEqual(events[0][1]["name"], "search_web")
+
+    def test_iter_deepagents_stream_events_does_not_treat_tools_namespace_as_subagent(self) -> None:
+        events = iter_deepagents_stream_events(
+            (
+                ("tools:task_1",),
+                "messages",
+                (
+                    AIMessageChunk(
+                        content="",
+                        tool_calls=[{"name": "search_web", "args": {"query": "NVDA earnings consensus"}, "id": "call_search_1"}],
+                    ),
+                    {},
+                ),
+            )
+        )
+
+        self.assertEqual(events[0][0], AgentRunEventType.TOOL_STARTED)
+        self.assertEqual(events[0][1]["actor_type"], "main")
+        self.assertNotIn("subagent_name", events[0][1])
+        self.assertEqual(events[0][1]["graph_namespace"], ["tools:task_1"])
+
     def test_iter_deepagents_stream_events_maps_tool_call_chunks_from_updates(self) -> None:
         events = iter_deepagents_stream_events(
             ("updates", {"tool_call_chunks": [{"name": "write_todos", "args": "{\"todos\":[]}", "id": "call_1"}]})
@@ -72,6 +148,13 @@ class StreamingAdapterTest(TestCase):
         self.assertEqual(events[0][0], AgentRunEventType.TOOL_STARTED)
         self.assertEqual(events[0][1]["tool_call_id"], "call_1")
         self.assertEqual(events[0][1]["input"], {"todos": []})
+
+    def test_iter_deepagents_stream_events_ignores_partial_tool_arg_chunks(self) -> None:
+        events = iter_deepagents_stream_events(
+            ("messages", (AIMessageChunk(content="", tool_call_chunks=[{"name": "get_run_context", "args": "}", "id": "call_1"}]), {}))
+        )
+
+        self.assertEqual(events, [])
 
     def test_iter_deepagents_stream_events_maps_tool_messages_in_messages_channel(self) -> None:
         events = iter_deepagents_stream_events(("messages", (ToolMessage(content='{"ok":true}', tool_call_id="call_1"), {})))
@@ -85,6 +168,13 @@ class StreamingAdapterTest(TestCase):
 
         self.assertEqual(events[0][0], AgentRunEventType.TODO_UPDATED)
         self.assertEqual(events[0][1]["todos"][0]["content"], "检查")
+
+    def test_iter_deepagents_stream_events_does_not_emit_reasoning_from_updates_snapshot(self) -> None:
+        events = iter_deepagents_stream_events(
+            ("updates", {"agent": {"messages": [AIMessage(content="", additional_kwargs={"reasoning_content": "累计 reasoning"})]}})
+        )
+
+        self.assertNotIn(AgentRunEventType.MODEL_REASONING, [event[0] for event in events])
 
     def test_iter_deepagents_stream_events_preserves_unknown_updates(self) -> None:
         events = iter_deepagents_stream_events(("updates", {"unexpected": {"raw": "payload"}}))
