@@ -30,9 +30,9 @@ class SearchWebInput(StrictModel):
     query: str = Field(min_length=3, max_length=500, description="窄范围公开网页检索 query。")
     topic: Literal["news", "general", "finance", "company", "regulation"] = Field(
         default="general",
-        description="检索意图，用于 provider 参数、缓存和审计分组。",
+        description="业务检索意图；运行时会映射到 provider 支持的 topic，用于缓存和审计分组。",
     )
-    time_window: str | None = Field(default=None, description="检索时间窗口，例如 1h、24h、7d 或自定义范围。")
+    time_window: str | None = Field(default=None, description="检索时间窗口，例如 1h、24h、7d；provider 不支持的自定义范围会被忽略。")
     max_results: int | None = Field(default=None, ge=1, le=10, description="请求返回结果数量；运行时可以调低。")
     include_answer: bool = Field(default=False, description="是否请求 provider answer；answer 只能作为线索，不能直接当事实。")
     include_raw_content: bool = Field(default=False, description="MVP 默认不请求 raw content，避免工具结果过大。")

@@ -15,6 +15,14 @@ from quantagent.agent.tools.schemas import SearchWebInput
 
 
 SEARCH_WEB_TOOL_ID = "quantagent.official.source.tavily.search_web"
+_TAVILY_TOPIC_BY_INTENT = {
+    "finance": "finance",
+    "news": "news",
+    # 中文注释：company/regulation 是 QuantAgent 的业务检索意图，不是 Tavily 原生 topic。
+    # Tavily Search 当前只接受 general/news/finance，直接透传会触发 400。
+    "company": "finance",
+    "regulation": "news",
+}
 
 
 def build_search_web_tool(*, api_key: str | None = None, timeout_seconds: float = 10.0) -> PlatformTool[SearchWebInput]:
@@ -63,13 +71,63 @@ def _request_payload(input_data: SearchWebInput, api_key: str) -> dict[str, Any]
         "include_answer": input_data.include_answer,
         "include_raw_content": input_data.include_raw_content,
     }
-    if input_data.topic != "general":
-        payload["topic"] = input_data.topic
+    provider_topic = _tavily_topic(input_data.topic)
+    if provider_topic != "general":
+        payload["topic"] = provider_topic
+    time_range = _tavily_time_range(input_data.time_window)
+    if time_range:
+        payload["time_range"] = time_range
     if input_data.domains_allowlist:
         payload["include_domains"] = input_data.domains_allowlist
     if input_data.domains_blocklist:
         payload["exclude_domains"] = input_data.domains_blocklist
     return payload
+
+
+def _tavily_topic(topic: str) -> str:
+    return _TAVILY_TOPIC_BY_INTENT.get(topic, "general")
+
+
+def _tavily_time_range(time_window: str | None) -> str | None:
+    if not time_window:
+        return None
+
+    normalized = time_window.strip().lower().replace(" ", "")
+    exact = {
+        "day": "day",
+        "week": "week",
+        "month": "month",
+        "year": "year",
+        "d": "day",
+        "w": "week",
+        "m": "month",
+        "y": "year",
+        "24h": "day",
+        "1d": "day",
+        "7d": "week",
+        "30d": "month",
+        "365d": "year",
+    }
+    if normalized in exact:
+        return exact[normalized]
+
+    if normalized.endswith("h"):
+        return "day"
+
+    if normalized.endswith("d"):
+        try:
+            days = int(normalized[:-1])
+        except ValueError:
+            return None
+        if days <= 1:
+            return "day"
+        if days <= 7:
+            return "week"
+        if days <= 31:
+            return "month"
+        return "year"
+
+    return None
 
 
 def _post_json(url: str, payload: dict[str, Any], *, timeout_seconds: float) -> dict[str, Any]:

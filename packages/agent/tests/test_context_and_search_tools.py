@@ -9,6 +9,8 @@ from quantagent.agent.streaming.adapter import EventSequencer
 from quantagent.agent.streaming.events import AgentRunEventType
 from quantagent.agent.tools import build_get_run_context_tool, build_search_web_tool
 from quantagent.agent.tools.adapter import ToolAdapter
+from quantagent.agent.tools.schemas import SearchWebInput
+from quantagent.agent.tools.search import _request_payload
 
 
 class ContextAndSearchToolsTest(TestCase):
@@ -84,6 +86,37 @@ class ContextAndSearchToolsTest(TestCase):
             self.assertEqual(events[-1].payload["input"]["query"], "NVIDIA earnings consensus")
 
         asyncio.run(_run())
+
+    def test_search_web_maps_business_topic_and_time_window_to_tavily_payload(self) -> None:
+        input_data = SearchWebInput(
+            query="NVIDIA H20 export control China impact outlook May 2026",
+            topic="regulation",
+            time_window="7d",
+            max_results=5,
+            include_answer=False,
+            include_raw_content=False,
+            domains_allowlist=[],
+            domains_blocklist=[],
+        )
+
+        payload = _request_payload(input_data, "test-key")
+
+        self.assertEqual(payload["topic"], "news")
+        self.assertEqual(payload["time_range"], "week")
+        self.assertNotIn("include_domains", payload)
+        self.assertNotIn("exclude_domains", payload)
+
+    def test_search_web_maps_company_topic_to_finance_without_unsupported_time_range(self) -> None:
+        input_data = SearchWebInput(
+            query="NVIDIA company guidance data center outlook",
+            topic="company",
+            time_window="custom:earnings-window",
+        )
+
+        payload = _request_payload(input_data, "test-key")
+
+        self.assertEqual(payload["topic"], "finance")
+        self.assertNotIn("time_range", payload)
 
 
 def _runtime_context() -> ToolRuntimeContext:
