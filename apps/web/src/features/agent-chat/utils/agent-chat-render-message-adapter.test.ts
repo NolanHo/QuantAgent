@@ -788,6 +788,16 @@ describe("agentTimelineToRenderMessages", () => {
         title: "行动提交结果",
       },
     ]);
+    expect(messages[1]?.parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "execute_then_notify",
+          status: "auto_approved",
+          title: "行动结果",
+          type: "decision",
+        }),
+      ]),
+    );
   });
 
   it("summarizes structured tool output instead of rendering a full JSON dump", () => {

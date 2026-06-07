@@ -1,6 +1,7 @@
 import type {
   AgentArtifactPart,
   AgentChatTimelineItem,
+  AgentDecisionPart,
   AgentRenderMessage,
   AgentRenderPart,
   AgentSubagentPart,
@@ -186,7 +187,10 @@ function mergeRuntimeEventIntoAssistant(message: AgentRenderMessage, event: Agen
     return;
   }
   if (event.event_type === "artifact.created") {
-    upsertArtifactPart(message.parts, runtimeEventToArtifact(event));
+    const artifact = runtimeEventToArtifact(event);
+    upsertArtifactPart(message.parts, artifact);
+    const decision = runtimeEventToDecision(event, artifact);
+    if (decision) upsertDecisionPart(message.parts, decision);
     return;
   }
   if (event.event_type === "interrupt.requested" || event.event_type === "run.failed") {
@@ -443,6 +447,15 @@ function upsertArtifactPart(parts: AgentRenderPart[] | AgentSubagentPart["steps"
   const current = parts[index];
   if (current?.type !== "artifact") return;
   parts[index] = mergeArtifactPart(current, next);
+}
+
+function upsertDecisionPart(parts: AgentRenderPart[], next: AgentDecisionPart): void {
+  const index = parts.findIndex((part) => part.type === "decision" && part.title === next.title);
+  if (index < 0) {
+    parts.push(next);
+    return;
+  }
+  parts[index] = next;
 }
 
 function mergeArtifactPart(current: AgentArtifactPart, next: AgentArtifactPart): AgentArtifactPart {
@@ -792,6 +805,34 @@ function runtimeEventToArtifact(event: AgentRuntimeEventV1): AgentArtifactPart {
     tone: "info",
     rows: rows.length ? rows : [{ label: "来源", value: event.actor.display_name }],
   };
+}
+
+function runtimeEventToDecision(event: AgentRuntimeEventV1, artifact: AgentArtifactPart): AgentDecisionPart | null {
+  if (artifact.artifactType !== "submission") return null;
+  const payload = runtimeArtifactPayload(event);
+  const resolvedMode = readString(payload.resolved_mode);
+  const status: AgentDecisionPart["status"] =
+    resolvedMode === "execute_then_notify"
+      ? "auto_approved"
+      : resolvedMode === "approval_required" || resolvedMode === "approval_with_timeout"
+        ? "needs_human"
+        : resolvedMode === "blocked"
+          ? "blocked"
+          : "no_action";
+  return {
+    action: resolvedMode ?? "submission",
+    confidence: 0.92,
+    rationale: readString(payload.summary) ?? artifact.summary ?? "行动计划已提交到平台状态机。",
+    risk: readString(isRecord(payload.policy_gate) ? payload.policy_gate.reason : undefined) ?? "MVP 使用 dry-run/mock 执行边界。",
+    status,
+    title: "行动结果",
+    type: "decision",
+  };
+}
+
+function runtimeArtifactPayload(event: AgentRuntimeEventV1): Record<string, unknown> {
+  const payload = isRecord(event.content?.json) ? event.content.json : isRecord(event.raw) ? event.raw : {};
+  return isRecord(payload.payload) ? payload.payload : {};
 }
 
 function normalizeArtifactType(value: null | string): AgentArtifactPart["artifactType"] {
