@@ -22,6 +22,7 @@ class AgentChatRuntimeConfigTest(TestCase):
         self.assertIn("quantagent.core.tool.build_action_plan", main_tool_ids)
         self.assertIn("quantagent.core.tool.submit_action_plan", main_tool_ids)
         self.assertIn("get_account_context", assets.agent_definition.system_prompt)
+        self.assertIn("完整行动链路验收案例", assets.agent_definition.system_prompt)
         self.assertNotIn("不要尝试调用", assets.agent_definition.system_prompt)
 
         research = next(subagent for subagent in assets.agent_definition.subagents if subagent.name == "evidence_research_analyst")

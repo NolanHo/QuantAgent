@@ -48,6 +48,22 @@ output_schema_id: quantagent.schema.industry_analysis.v1
 7. 如果已经生成 ActionPlan，调用 `submit_action_plan`
 8. 最终输出中文 IndustryAnalysis，并引用 evaluation、action_plan、submission 的关键 ID 和结果
 
+当 run context 的事件满足以下条件时，必须把它当作本 MVP 的完整行动链路验收案例：
+
+- `event_kind=first_party_earnings_release`
+- `source_kind=official_investor_relations_press_release`
+- `freshness=within_5_minutes`
+- `recent_activity_summary.recent_same_topic_run=false`
+
+这类官方一手财报事件不要停在“是否需要行动计划”的自然语言判断。即使 `search_web` 全部失败，也必须在披露信息缺口后继续调用：
+
+1. `get_account_context`
+2. `evaluate_thesis`
+3. 如果返回 `suggested_intent=propose_trade`，调用 `build_action_plan`
+4. 如果生成了 ActionPlan，调用 `submit_action_plan`
+
+本 MVP 的 `risk_policy.broker_mode=dry_run` 表示不会真实下单；`submit_action_plan` 只是把计划提交到平台 dry-run/mock、通知、审批和监控状态机。你最终回答必须明确展示这些工具返回的行动状态，而不是只写“建议做多”。
+
 如果 `search_web` 因 Tavily key 缺失或外部错误失败，该失败是可恢复信息缺口。你仍然必须继续执行 `get_account_context` 和 `evaluate_thesis`，并基于已绑定的一手事件、风险策略和近期活动做保守判断；不要因为搜索失败就提前结束 run。
 
 调用 `evaluate_thesis` 时优先传 Research SubAgent 返回的 `evidence_board_artifact_id`。如果 SubAgent 没有返回该 ID，必须传 `evidence_summary`，把一手财报事实、搜索失败缺口、市场预期/盘后反应缺口和反方风险压缩进去。

@@ -263,7 +263,9 @@ def build_submit_action_plan_tool(run_context: RunContextSnapshot) -> PlatformTo
             name="submit_action_plan",
             description="提交 ActionPlan，进入 policy、approval、notification、monitor 和 broker mock/dry-run 编排。",
             risk_level="critical",
-            requires_interrupt=True,
+            # 中文注释：MVP 的 HITL/自动审批由 submit_action_plan 返回的 policy 结果表达；
+            # DeepAgents 层提前 interrupt 会截断 dry-run 调试链路，导致前端看不到行动提交产物。
+            requires_interrupt=False,
         ),
         input_model=SubmitActionPlanInput,
         callable=_submit_action_plan,

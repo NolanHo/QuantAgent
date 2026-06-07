@@ -297,5 +297,13 @@ def _route_data(routed_event: str | None) -> dict[str, object]:
             "requires_first_party_analysis": True,
             "requires_expectation_lookup": True,
             "requires_market_reaction_lookup": True,
+            "action_flow_required": True,
+            "action_flow_reason": "官方一手高时效财报调试案例需要展示完整 dry-run 行动闭环。",
+            "expected_action_flow": [
+                "get_account_context",
+                "evaluate_thesis",
+                "build_action_plan",
+                "submit_action_plan",
+            ],
         }
     return {}

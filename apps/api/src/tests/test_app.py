@@ -801,7 +801,14 @@ class ApiAppTestCase(unittest.TestCase):
         )
         self.assertEqual(
             captured_requests[0].agent_definition.tool_ids,
-            ["quantagent.core.tool.get_run_context", "quantagent.official.source.tavily.search_web"],
+            [
+                "quantagent.core.tool.get_run_context",
+                "quantagent.official.source.tavily.search_web",
+                "quantagent.core.tool.get_account_context",
+                "quantagent.core.tool.evaluate_thesis",
+                "quantagent.core.tool.build_action_plan",
+                "quantagent.core.tool.submit_action_plan",
+            ],
         )
         self.assertEqual(len(captured_requests[0].agent_definition.subagents), 1)
         self.assertEqual(captured_requests[0].agent_definition.subagents[0].name, "evidence_research_analyst")
@@ -812,12 +819,21 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(captured_requests[0].runtime_policy.max_subagent_tasks, 1)
         self.assertEqual(
             [binding.name for binding in captured_requests[0].tool_profile.tool_bindings],
-            ["get_run_context", "search_web"],
+            [
+                "get_run_context",
+                "search_web",
+                "get_account_context",
+                "evaluate_thesis",
+                "build_action_plan",
+                "submit_action_plan",
+            ],
         )
         self.assertIn("first_party_earnings_release", str(captured_requests[0].run_context.model_dump()))
         self.assertIn("FY2027 Q1", str(captured_requests[0].run_context.model_dump()))
         self.assertIn("NVIDIA Announces Financial Results for First Quarter Fiscal 2027", str(captured_requests[0].run_context.model_dump()))
         self.assertIn("route_decision", str(captured_requests[0].run_context.model_dump()))
+        self.assertIn("action_flow_required", str(captured_requests[0].run_context.model_dump()))
+        self.assertIn("submit_action_plan", str(captured_requests[0].run_context.model_dump()))
         session_body = session_response.json()
         self.assertEqual(session_response.status_code, 200)
         transcript = session_body["data"]["messages"]
@@ -825,8 +841,18 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(transcript[0]["content"], "分析这个事件")
         self.assertEqual(transcript[1]["content"], "hello ")
         self.assertIn("你是 QuantAgent 的半导体行业 MainAgent", captured_requests[0].agent_definition.system_prompt)
-        self.assertIn("Agent Chat MVP 运行约束", captured_requests[0].agent_definition.system_prompt)
-        self.assertEqual([tool.binding.name for tool in captured_tools], ["get_run_context", "search_web"])
+        self.assertIn("完整行动链路验收案例", captured_requests[0].agent_definition.system_prompt)
+        self.assertEqual(
+            [tool.binding.name for tool in captured_tools],
+            [
+                "get_run_context",
+                "search_web",
+                "get_account_context",
+                "evaluate_thesis",
+                "build_action_plan",
+                "submit_action_plan",
+            ],
+        )
 
     def test_agent_chat_uses_saved_tavily_plugin_config_for_search_tool(self) -> None:
         from quantagent.agent.runtime.context import ToolRuntimeContext
