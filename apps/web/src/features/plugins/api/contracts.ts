@@ -54,6 +54,8 @@ export type PluginRecordResponse = {
 };
 
 export type PluginConfigSnapshotResponse = {
+  config_state?: string;
+  missing_required?: string[];
   masked_paths?: string[];
   updated_at?: string;
   values: PluginConfigValueMap;

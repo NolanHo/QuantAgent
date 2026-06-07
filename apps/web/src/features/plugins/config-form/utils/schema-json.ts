@@ -138,6 +138,22 @@ function inferReadOnly(path: string, schema: PluginConfigJsonSchema, metadata: F
   return SYSTEM_MANAGED_FIELD_PATHS.has(path)
 }
 
+function inferSensitive(path: string, schema: PluginConfigJsonSchema, metadata: FieldMetadata): boolean | undefined {
+  if (metadata.sensitive !== undefined) {
+    return metadata.sensitive
+  }
+
+  if (schema.sensitive !== undefined) {
+    return schema.sensitive
+  }
+
+  const normalized = path.toLowerCase()
+  return normalized.includes('api_key') ||
+    normalized.includes('token') ||
+    normalized.includes('secret') ||
+    normalized.includes('password')
+}
+
 function inferReadOnlySupportNote(
   path: string,
   schema: PluginConfigJsonSchema,
@@ -259,6 +275,7 @@ export function flattenJsonSchema(
         ? [metadata.placeholder]
         : makeExamples(sample, fieldType)
     const readOnly = inferReadOnly(path, childSchema, metadata)
+    const sensitive = inferSensitive(path, childSchema, metadata)
     const readOnlySupportNote = inferReadOnlySupportNote(path, childSchema, metadata)
 
     if (fieldType === 'object') {
@@ -276,7 +293,7 @@ export function flattenJsonSchema(
         type: fieldType,
         required: required.has(key),
         readOnly,
-        sensitive: metadata.sensitive,
+        sensitive,
         placeholder: metadata.placeholder,
         propertyKeyPattern: fieldType === 'record' ? propertyKeyPatternFromJsonSchema(childSchema) : undefined,
         defaultValue: childSchema.default,
@@ -307,6 +324,7 @@ export function flattenJsonSchema(
 }
 
 const fieldLabelMap: Record<string, string> = {
+  api_key: 'API Key',
   api_key_ref: 'API Key 引用',
   channel_allowlist: '频道白名单',
   default_max_results: '默认最大结果数',
@@ -351,6 +369,7 @@ const copyMap: Record<string, string> = {
   'RSS Source Config': 'RSS 数据源配置',
   'Secret reference that resolves to the full Discord webhook URL.': '解析为完整 Discord webhook URL 的 secret 引用。',
   'Tavily Source Tool Config': 'Tavily 数据源工具配置',
+  'Tavily API key. The platform stores it encrypted and injects it before plugin load.': 'Tavily API key。平台会加密保存，并在插件运行前注入。',
 }
 
 function localizeFieldLabel(path: string, label: string): string {

@@ -33,6 +33,11 @@ from quantagent.core.model_config import (
     ModelProviderModelORM,
 )
 from quantagent.core.model_config.repository import ModelProviderRepository
+from quantagent.core.plugin_config import PluginConfigService, PluginConfigServiceError
+
+
+TAVILY_PLUGIN_ID = "quantagent.official.source.tavily"
+TAVILY_API_KEY_PATH = "api_key"
 
 
 class AgentChatService:
@@ -125,7 +130,7 @@ class AgentChatService:
             runtime = AgentRuntime(
                 tools=[
                     build_get_run_context_tool(run_request.run_context),
-                    build_search_web_tool(),
+                    build_search_web_tool(api_key=self._resolve_tavily_api_key()),
                 ]
             )
             async for event in runtime.run_stream(run_request):
@@ -203,6 +208,16 @@ class AgentChatService:
             agent_run_id=event.agent_run_id,
             trace_id=event.trace_id,
         )
+
+    def _resolve_tavily_api_key(self) -> str | None:
+        try:
+            return PluginConfigService(self._session, encryption_key=self._encryption_key).resolve_secret(
+                plugin_id=TAVILY_PLUGIN_ID,
+                path=TAVILY_API_KEY_PATH,
+            )
+        except PluginConfigServiceError:
+            # Tavily key 缺失或解密失败只影响 search_web；不要让整个 Agent Chat run 失败。
+            return None
 
     @staticmethod
     def _session_response(row: AgentChatSessionORM, messages: list) -> AgentChatSessionResponse:

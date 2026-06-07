@@ -1,12 +1,16 @@
 import { useCallback, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useApis } from "@/app/runtime";
 import {
   buildPluginConfigUpdatePayload,
   createSchemaSnapshotFromRegistrySchema,
   isSameValueMap,
+  pluginConfigKeys,
   PluginConfigValidationError,
   toPluginConfigValidationResult,
+  toPluginConfigSaveResult,
+  toPluginConfigSnapshot,
   usePluginConfigDraftState,
   usePluginConfigSaveMutation,
   usePluginConfigSchemaQuery,
@@ -15,14 +19,11 @@ import {
 } from "@/features/plugins/config-form";
 
 import { formatApiError } from "../utils/plugin-detail-format";
-import {
-  loadMockPluginConfig,
-  saveMockPluginConfig,
-  validateMockPluginConfig,
-} from "../utils/plugin-config-mock";
+import { pluginDetailKeys } from "../queries/plugin-detail.keys";
 
 export function usePluginConfigEditorPanel(pluginId: string) {
   const { plugins: pluginsApi } = useApis();
+  const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
   const schemaQuery = usePluginConfigSchemaQuery(pluginId, async (currentPluginId) =>
     createSchemaSnapshotFromRegistrySchema(
@@ -31,12 +32,9 @@ export function usePluginConfigEditorPanel(pluginId: string) {
     ),
   );
   const schema = schemaQuery.data ?? null;
-  const configQuery = usePluginCurrentConfigQuery(pluginId, async () => {
-    if (!schema) {
-      throw new Error("加载 mock 配置前需要先准备配置结构。");
-    }
-    return loadMockPluginConfig(schema);
-  });
+  const configQuery = usePluginCurrentConfigQuery(pluginId, async (currentPluginId) =>
+    toPluginConfigSnapshot(await pluginsApi.fetchConfig(currentPluginId)),
+  );
   const config = configQuery.data ?? null;
   const {
     draftValues,
@@ -61,14 +59,23 @@ export function usePluginConfigEditorPanel(pluginId: string) {
       }
 
       return toPluginConfigValidationResult(
-        await validateMockPluginConfig(schemaSnapshot, values),
+        await pluginsApi.validateConfig(
+          pluginId,
+          buildPluginConfigUpdatePayload(schemaSnapshot, values),
+        ),
       );
     },
   );
 
   const saveMutation = usePluginConfigSaveMutation(
     schema,
-    async (schemaSnapshot, values) => saveMockPluginConfig(schemaSnapshot, values),
+    async (schemaSnapshot, values) =>
+      toPluginConfigSaveResult(
+        await pluginsApi.updateConfig(
+          pluginId,
+          buildPluginConfigUpdatePayload(schemaSnapshot, values),
+        ),
+      ),
   );
 
   const canReset = Boolean(config) && !isSameValueMap(draftValues, initialDraftValues);
@@ -78,8 +85,10 @@ export function usePluginConfigEditorPanel(pluginId: string) {
 
   const summaryRows = useMemo(
     () => [
-      { label: "数据来源", value: "Mock 配置快照" },
+      { label: "数据来源", value: "后端配置值 API" },
       { label: "Schema 来源", value: schema?.schemaSource === "registry-api" ? "真实 config-schema" : "-" },
+      { label: "配置状态", value: config?.configState ?? "-" },
+      { label: "缺失必填", value: config?.missingRequired?.length ? config.missingRequired.join(" / ") : "0" },
       { label: "字段数量", value: schema ? String(schema.fields.length) : "-" },
       { label: "版本标签", value: config?.versionTag ?? "-" },
     ],
@@ -99,7 +108,7 @@ export function usePluginConfigEditorPanel(pluginId: string) {
     try {
       const result = await validationMutation.mutateAsync(draftValues);
       setIssues(result.issues);
-      setMessage(result.ok ? "Mock 校验通过，当前字段结构可提交到后续真实接口。" : null);
+      setMessage(result.ok ? "配置校验通过。" : null);
       return result.ok;
     } catch (error) {
       if (error instanceof PluginConfigValidationError) {
@@ -125,11 +134,14 @@ export function usePluginConfigEditorPanel(pluginId: string) {
 
     try {
       const result = await saveMutation.mutateAsync(draftValues);
+      await queryClient.invalidateQueries({ queryKey: pluginDetailKeys.detail(pluginId) });
+      await queryClient.invalidateQueries({ queryKey: pluginDetailKeys.config(pluginId) });
+      await queryClient.invalidateQueries({ queryKey: pluginConfigKeys.config(pluginId) });
       const nextConfig = await configQuery.refetch();
       if (nextConfig.data) {
         resetDraftState(nextConfig.data);
       }
-      setMessage(`Mock 保存成功，版本标签：${result.versionTag}`);
+      setMessage(`保存成功，版本标签：${result.versionTag}`);
       return true;
     } catch (error) {
       if (error instanceof PluginConfigValidationError) {
@@ -140,7 +152,7 @@ export function usePluginConfigEditorPanel(pluginId: string) {
       setMessage(formatApiError(error));
       return false;
     }
-  }, [applyValidationError, configQuery, draftValues, resetDraftState, saveMutation, schema, validateDraft]);
+  }, [applyValidationError, configQuery, draftValues, pluginId, queryClient, resetDraftState, saveMutation, schema, validateDraft]);
 
   const resetDraft = useCallback(() => {
     if (!config) {

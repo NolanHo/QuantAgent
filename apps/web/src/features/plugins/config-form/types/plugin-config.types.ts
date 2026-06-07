@@ -32,6 +32,7 @@ export type PluginConfigJsonSchema = {
   properties?: Record<string, PluginConfigJsonSchema>
   propertyNames?: PluginConfigJsonSchema
   required?: string[]
+  sensitive?: boolean
   title?: string
   type?: string | string[]
 }
@@ -87,6 +88,8 @@ export type PluginConfigSchemaSnapshot = {
 export type PluginConfigValueMap = Record<string, string>
 
 export type PluginConfigSnapshot = {
+  configState?: string
+  missingRequired?: string[]
   values: PluginConfigValueMap
   maskedPaths: string[]
   versionTag: string

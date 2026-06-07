@@ -47,7 +47,9 @@ export function toPluginConfigSnapshot(
   response: PluginConfigSnapshotResponse,
 ): PluginConfigSnapshot {
   return {
+    configState: response.config_state,
     maskedPaths: response.masked_paths ?? [],
+    missingRequired: response.missing_required ?? [],
     values: response.values,
     versionTag: response.version_tag ?? response.updated_at ?? "remote",
   };

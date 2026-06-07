@@ -3,9 +3,10 @@
   "title": "Tavily Source Tool Config",
   "type": "object",
   "properties": {
-    "api_key_ref": {
+    "api_key": {
       "type": "string",
-      "description": "Platform-resolved Tavily API key value. Platform validates and injects before plugin load.",
+      "description": "Tavily API key. The platform stores it encrypted and injects it before plugin load.",
+      "sensitive": true,
       "minLength": 1
     },
     "timeout_seconds": {
@@ -34,6 +35,6 @@
       "default": false
     }
   },
-  "required": ["api_key_ref"],
+  "required": ["api_key"],
   "additionalProperties": false
 }

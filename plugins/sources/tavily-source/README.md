@@ -8,7 +8,7 @@
 - 只消费平台传入的校验后配置 / `effective_config`。
 - 返回 `plugin-sdk` 定义的 `SourceFetchResult`，保持 source 插件 DTO 契约一致。
 - **不负责** `RawEvent` 入库、去重、`SourceBinding`、`Event Bus`、权限或生命周期。
-- **不负责** Tavily API key 的获取、验证或管理（由平台在 `api_key_ref` 配置中注入）。
+- **不负责** Tavily API key 的获取、验证或管理（由平台保存 `api_key` 后加密存储，并在运行时注入）。
 - **不负责** 调度、重试、跨插件调用或 ToolRegistry 集成。
 
 ## 能力说明
@@ -53,7 +53,7 @@
 ## 最小配置
 
 ```yaml
-api_key_ref: "your-tavily-api-key"  # 必需，平台注入
+api_key: "your-tavily-api-key"      # 必需，平台加密保存并运行时注入
 timeout_seconds: 10                  # 可选，默认 10
 default_max_results: 5              # 可选，默认 5
 default_search_depth: "basic"       # 可选，默认 "basic"
@@ -121,7 +121,7 @@ plugin, error = asyncio.run(
     PluginRuntimeService().load_plugin(
         tavily_record,
         request_id="test-load",
-        config={"api_key_ref": "test-key"},
+        config={"api_key": "test-key"},
         metadata={"origin": "test"},
     )
 )

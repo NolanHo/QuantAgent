@@ -731,8 +731,12 @@ class ApiAppTestCase(unittest.TestCase):
         self.addCleanup(lambda: os.unlink(database_file.name))
         app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
         captured_requests = []
+        captured_tools = []
 
         class FakeAgentRuntime:
+            def __init__(self, *, tools):
+                captured_tools.extend(tools)
+
             async def run_stream(self, request):
                 captured_requests.append(request)
                 yield AgentRunEvent(
@@ -763,7 +767,7 @@ class ApiAppTestCase(unittest.TestCase):
         with (
             TestClient(app) as client,
             patch("quantagent.api.services.agent_chat._model_from_config", return_value=object()),
-            patch("quantagent.api.services.agent_chat.AgentRuntime", return_value=FakeAgentRuntime()),
+            patch("quantagent.api.services.agent_chat.AgentRuntime", FakeAgentRuntime),
         ):
             Base.metadata.create_all(client.app.state.db_engine)
             self._login_with_client(client, self.settings)
@@ -822,6 +826,76 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(transcript[1]["content"], "hello ")
         self.assertIn("你是 QuantAgent 的半导体行业 MainAgent", captured_requests[0].agent_definition.system_prompt)
         self.assertIn("Agent Chat MVP 运行约束", captured_requests[0].agent_definition.system_prompt)
+        self.assertEqual([tool.binding.name for tool in captured_tools], ["get_run_context", "search_web"])
+
+    def test_agent_chat_uses_saved_tavily_plugin_config_for_search_tool(self) -> None:
+        from quantagent.agent.runtime.context import ToolRuntimeContext
+
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            MODEL_CONFIG_ENCRYPTION_KEY=ModelConfigCrypto.generate_key(),
+        )
+        app = create_app(settings)
+        captured_tools = []
+        captured_payloads = []
+
+        class FakeAgentRuntime:
+            def __init__(self, *, tools):
+                captured_tools.extend(tools)
+
+            async def run_stream(self, _request):
+                return
+                yield
+
+        def fake_post_json(_url, payload, *, timeout_seconds):
+            captured_payloads.append(payload)
+            return {"results": [{"title": "Consensus", "url": "https://example.com", "content": "NVDA beat consensus."}]}
+
+        with (
+            TestClient(app) as client,
+            patch("quantagent.api.services.agent_chat._model_from_config", return_value=object()),
+            patch("quantagent.api.services.agent_chat.AgentRuntime", FakeAgentRuntime),
+            patch("quantagent.agent.tools.search._post_json", side_effect=fake_post_json),
+        ):
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+            client.put(
+                "/api/v1/plugins/quantagent.official.source.tavily/config-values",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={"values": {"api_key": "tvly-agent-chat-secret"}},
+            )
+            create_response = client.post("/api/v1/agent-chat/sessions", json={"title": "Configured Tavily"})
+            session_id = create_response.json()["data"]["session_id"]
+            stream_response = client.post(
+                f"/api/v1/agent-chat/sessions/{session_id}/messages/stream",
+                json={"message": "分析这个事件"},
+            )
+            search_tool = next(tool for tool in captured_tools if tool.binding.name == "search_web")
+            search_result = asyncio.run(
+                search_tool.callable(
+                    search_tool.input_model.model_validate({"query": "NVDA earnings consensus"}),
+                    ToolRuntimeContext(
+                        session_id="session",
+                        thread_id="thread",
+                        workspace_id="workspace",
+                        agent_run_id="run",
+                        event_id="event",
+                        industry_id="industry",
+                        agent_id="agent",
+                        trace_id="trace",
+                        tool_profile_id="tool_profile",
+                    ),
+                )
+            )
+
+        self.assertEqual(stream_response.status_code, 200)
+        self.assertEqual(captured_payloads[0]["api_key"], "tvly-agent-chat-secret")
+        self.assertTrue(search_result["ok"])
+        self.assertNotIn("tvly-agent-chat-secret", stream_response.text)
 
     def test_agent_chat_message_stream_reports_missing_model_with_raw_debug_content(self) -> None:
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -2176,6 +2250,106 @@ class ApiAppTestCase(unittest.TestCase):
             body["error"]["details"]["plugin"]["last_error"]["code"],
             "PLUGIN_CONFIG_SCHEMA_NOT_FOUND",
         )
+
+    def test_plugin_config_values_save_masks_secret_and_updates_detail_state(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(
+            DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}",
+            MODEL_CONFIG_ENCRYPTION_KEY=ModelConfigCrypto.generate_key(),
+        )
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+
+            initial_response = client.get("/api/v1/plugins/quantagent.official.source.tavily/config-values")
+            validate_response = client.post(
+                "/api/v1/plugins/quantagent.official.source.tavily/config:validate",
+                json={"values": {"api_key": "", "timeout_seconds": "abc"}},
+            )
+            forbidden_response = client.put(
+                "/api/v1/plugins/quantagent.official.source.tavily/config-values",
+                json={"values": {"api_key": "tvly-secret"}},
+            )
+            save_response = client.put(
+                "/api/v1/plugins/quantagent.official.source.tavily/config-values",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={
+                    "values": {
+                        "api_key": "tvly-secret",
+                        "timeout_seconds": "12",
+                        "default_max_results": "7",
+                        "default_search_depth": "advanced",
+                        "include_favicon": "true",
+                        "include_raw_content": "false",
+                    }
+                },
+            )
+            snapshot_response = client.get("/api/v1/plugins/quantagent.official.source.tavily/config-values")
+            detail_response = client.get("/api/v1/plugins/quantagent.official.source.tavily")
+
+            session = client.app.state.db_session_factory()
+            try:
+                row = session.execute(Base.metadata.tables["plugin_configs"].select()).mappings().one()
+            finally:
+                session.close()
+
+        initial_body = initial_response.json()
+        self.assertEqual(initial_response.status_code, 200)
+        self.assertEqual(initial_body["data"]["config_state"], "missing_required")
+        self.assertIn("api_key", initial_body["data"]["missing_required"])
+
+        validate_body = validate_response.json()
+        self.assertEqual(validate_response.status_code, 200)
+        self.assertFalse(validate_body["data"]["ok"])
+        self.assertTrue(validate_body["data"]["issues"])
+
+        self.assertEqual(forbidden_response.status_code, 403)
+
+        save_body = save_response.json()
+        self.assertEqual(save_response.status_code, 200)
+        self.assertNotIn("tvly-secret", str(save_body))
+        self.assertNotEqual(row["encrypted_values"].get("api_key"), "tvly-secret")
+        self.assertEqual(row["values"]["timeout_seconds"], 12.0)
+
+        snapshot_body = snapshot_response.json()
+        self.assertEqual(snapshot_response.status_code, 200)
+        self.assertEqual(snapshot_body["data"]["values"]["api_key"], "********")
+        self.assertEqual(snapshot_body["data"]["values"]["default_max_results"], "7")
+        self.assertIn("api_key", snapshot_body["data"]["masked_paths"])
+        self.assertNotIn("tvly-secret", str(snapshot_body))
+
+        detail_body = detail_response.json()
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_body["data"]["config_summary"]["config_state"], "valid")
+        self.assertEqual(detail_body["data"]["config_summary"]["missing_required_count"], 0)
+        self.assertNotIn("tvly-secret", str(detail_body))
+
+    def test_plugin_config_values_requires_encryption_key_for_secret_save(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            login_response = client.post("/api/v1/auth/login", json={"password": settings.AUTH_ADMIN_PASSWORD})
+            csrf_token = login_response.json()["data"]["csrf_token"]
+            response = client.put(
+                "/api/v1/plugins/quantagent.official.source.tavily/config-values",
+                headers={settings.AUTH_CSRF_HEADER_NAME: csrf_token},
+                json={"values": {"api_key": "tvly-secret"}},
+            )
+
+        body = response.json()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(body["error"]["details"]["code"], "PLUGIN_CONFIG_ENCRYPTION_UNAVAILABLE")
+        self.assertNotIn("tvly-secret", str(body))
 
     def test_model_providers_require_session(self) -> None:
         response = self.client.get("/api/v1/models/providers")

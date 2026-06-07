@@ -8,6 +8,7 @@ from quantagent.core.db.models.approval import (
     ApprovalRequestORM,
 )
 from quantagent.core.db.models.event_intake import EventIntakeRoutedEventORM
+from quantagent.core.db.models.plugin_config import PluginConfigORM
 from quantagent.core.db.models.raw_event_capture import RawEventCaptureORM
 from quantagent.core.db.models.raw_event import RawEventORM
 from quantagent.core.db.models.scheduler_run import SchedulerRunORM
@@ -24,6 +25,7 @@ __all__ = [
     "ApprovalInputORM",
     "ApprovalRequestORM",
     "EventIntakeRoutedEventORM",
+    "PluginConfigORM",
     "RawEventCaptureORM",
     "RawEventORM",
     "SchedulerRunORM",

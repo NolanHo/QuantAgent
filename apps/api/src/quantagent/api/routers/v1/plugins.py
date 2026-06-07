@@ -4,10 +4,20 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy.orm import Session
 
-from quantagent.api.auth import CurrentActor, get_current_actor, require_csrf
+from quantagent.api.auth import PLUGIN_CONFIGURE_CAPABILITY, CurrentActor, get_current_actor, require_capability, require_csrf
+from quantagent.api.config.settings import Settings
+from quantagent.api.db import get_db_session
 from quantagent.api.http.errors import BadRequestError, NotFoundError
 from quantagent.api.http.responses import ApiResponse
+from quantagent.api.schemas.plugin_config_values import (
+    PluginConfigSnapshotResponse,
+    PluginConfigUpdateRequest,
+    PluginConfigUpdateResponse,
+    PluginConfigValidateRequest,
+    PluginConfigValidateResponse,
+)
 from quantagent.api.schemas.plugin_detail import (
     PluginAuditViewResponse,
     PluginConfigViewResponse,
@@ -24,6 +34,7 @@ from quantagent.api.schemas.plugins import (
     SourceBindingManifestResponse,
 )
 from quantagent.api.services.plugin_detail import PluginDetailApiService
+from quantagent.api.services.plugin_config_values import PluginConfigValuesApiService
 from quantagent.api.services.plugin_registry import find_repo_root, get_plugin_registry
 from quantagent.core.registry import (
     PluginError,
@@ -55,6 +66,7 @@ def get_plugin(
     detail = PluginDetailApiService(get_plugin_registry(request)).get_plugin_detail(plugin_id, actor)
     if detail is None:
         raise NotFoundError("Plugin not found", details={"plugin_id": plugin_id})
+    detail = _overlay_detail_config_if_available(request, plugin_id, detail)
     return ApiResponse.success(detail)
 
 
@@ -68,6 +80,7 @@ def get_plugin_config(
     config_view = PluginDetailApiService(get_plugin_registry(request)).get_plugin_config(plugin_id, actor)
     if config_view is None:
         raise NotFoundError("Plugin not found", details={"plugin_id": plugin_id})
+    config_view = _overlay_config_view_if_available(request, plugin_id, config_view)
     return ApiResponse.success(config_view)
 
 
@@ -130,6 +143,53 @@ def get_plugin_config_schema(plugin_id: str, request: Request) -> ApiResponse[di
     return ApiResponse.success(schema)
 
 
+@router.get(
+    "/{plugin_id}/config-values",
+    response_model=ApiResponse[PluginConfigSnapshotResponse],
+    dependencies=[Depends(require_capability(PLUGIN_CONFIGURE_CAPABILITY))],
+)
+def get_plugin_config_values(
+    plugin_id: str,
+    request: Request,
+    session: Session = Depends(get_db_session),
+) -> ApiResponse[PluginConfigSnapshotResponse]:
+    """返回 schema-driven form 使用的真实配置值快照。"""
+    return ApiResponse.success(_config_values_service(request, session).get_config_values(plugin_id))
+
+
+@router.post(
+    "/{plugin_id}/config:validate",
+    response_model=ApiResponse[PluginConfigValidateResponse],
+    dependencies=[Depends(require_capability(PLUGIN_CONFIGURE_CAPABILITY))],
+)
+def validate_plugin_config_values(
+    plugin_id: str,
+    payload: PluginConfigValidateRequest,
+    request: Request,
+    session: Session = Depends(get_db_session),
+) -> ApiResponse[PluginConfigValidateResponse]:
+    """校验配置草稿，不写入持久化配置。"""
+    return ApiResponse.success(_config_values_service(request, session).validate_config(plugin_id, payload.values))
+
+
+@router.put(
+    "/{plugin_id}/config-values",
+    response_model=ApiResponse[PluginConfigUpdateResponse],
+    dependencies=[Depends(require_capability(PLUGIN_CONFIGURE_CAPABILITY))],
+)
+def update_plugin_config_values(
+    plugin_id: str,
+    payload: PluginConfigUpdateRequest,
+    request: Request,
+    session: Session = Depends(get_db_session),
+    _actor: CurrentActor = Depends(require_csrf),
+) -> ApiResponse[PluginConfigUpdateResponse]:
+    """保存真实插件配置值；敏感字段由 core service 加密。"""
+    result = _config_values_service(request, session).update_config(plugin_id, payload.values)
+    session.commit()
+    return ApiResponse.success(result)
+
+
 @router.post("/actions/rescan", response_model=ApiResponse[PluginRescanResponse])
 def rescan_plugins(
     request: Request,
@@ -153,6 +213,46 @@ def _require_plugin(registry: PluginRegistry, plugin_id: str) -> PluginRecord:
     if record is None:
         raise NotFoundError("Plugin not found", details={"plugin_id": plugin_id})
     return record
+
+
+def _config_values_service(request: Request, session: Session) -> PluginConfigValuesApiService:
+    settings = getattr(request.app.state, "settings", None)
+    encryption_key = settings.MODEL_CONFIG_ENCRYPTION_KEY if isinstance(settings, Settings) else None
+    return PluginConfigValuesApiService(
+        registry=get_plugin_registry(request),
+        session=session,
+        encryption_key=encryption_key,
+    )
+
+
+def _overlay_detail_config_if_available(
+    request: Request,
+    plugin_id: str,
+    detail: PluginDetailResponse,
+) -> PluginDetailResponse:
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if session_factory is None:
+        return detail
+    session = session_factory()
+    try:
+        return _config_values_service(request, session).overlay_detail(plugin_id, detail)
+    finally:
+        session.close()
+
+
+def _overlay_config_view_if_available(
+    request: Request,
+    plugin_id: str,
+    view: PluginConfigViewResponse,
+) -> PluginConfigViewResponse:
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if session_factory is None:
+        return view
+    session = session_factory()
+    try:
+        return _config_values_service(request, session).overlay_config_view(plugin_id, view)
+    finally:
+        session.close()
 
 
 def _record_response(record: PluginRecord) -> PluginRecordResponse:
