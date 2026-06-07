@@ -347,15 +347,18 @@ def _report_artifact_event(
     markdown = event.content or ""
     title = f"{owner.display_name} 报告" if owner is not None else f"{state.request.agent_definition.name} 报告"
     summary = _report_summary(markdown)
+    group_id = owner.span_id if owner is not None else state.main_span_id
+    report_key = "run_report"
     payload = {
-        "artifact_id": f"artifact_report_{event.event_id}",
+        "artifact_id": f"artifact_report_{group_id}_{report_key}",
         "artifact_type": "report",
+        "report_key": report_key,
         "title": title,
         "summary": summary,
         "content_markdown": markdown,
         "agent_name": owner.name if owner is not None else state.request.agent_definition.name,
         "agent_display_name": owner.display_name if owner is not None else state.request.agent_definition.name,
-        "group_id": owner.span_id if owner is not None else state.main_span_id,
+        "group_id": group_id,
         "source": source,
         "source_event_id": event.event_id,
         "source_seq": event.seq,
@@ -430,10 +433,18 @@ def _is_report_like_content(text: str | None) -> bool:
     if not text:
         return False
     stripped = text.strip()
-    if len(stripped) >= 900:
+    title = _report_summary(stripped)
+    report_terms = ("报告", "简报", "总结", "结论", "分析", "IndustryAnalysis", "Research")
+    has_report_title = any(term in title for term in report_terms)
+    table_lines = sum(1 for line in stripped.splitlines() if line.strip().startswith("|"))
+    heading_lines = sum(1 for line in stripped.splitlines() if line.lstrip().startswith("#"))
+    list_lines = sum(1 for line in stripped.splitlines() if line.lstrip().startswith(("- ", "1. ")))
+    if table_lines >= 3 and (heading_lines >= 1 or has_report_title):
         return True
-    markdown_markers = ("# ", "## ", "### ", "|", "- ", "1. ")
-    return len(stripped) >= 420 and any(marker in stripped for marker in markdown_markers)
+    if len(stripped) < 420:
+        return False
+    # 中文注释：只把结构化长文产物化；普通长段落继续作为 COT 正文，避免过程内容被误吞成报告。
+    return has_report_title or table_lines >= 2 or heading_lines >= 2 or (heading_lines >= 1 and list_lines >= 3)
 
 
 def _report_summary(markdown: str) -> str:

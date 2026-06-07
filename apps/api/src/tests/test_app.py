@@ -769,7 +769,12 @@ class ApiAppTestCase(unittest.TestCase):
             self._login_with_client(client, self.settings)
             create_response = client.post(
                 "/api/v1/agent-chat/sessions",
-                json={"debug_preset": "nvda-earnings", "title": "Stream Chat"},
+                json={
+                    "agent_id": "quantagent.official.industry.semiconductor.agent.main",
+                    "industry_id": "quantagent.official.industry.semiconductor",
+                    "routed_event_preset": "nvda-earnings",
+                    "title": "Stream Chat",
+                },
             )
             session_id = create_response.json()["data"]["session_id"]
 
@@ -787,8 +792,12 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(captured_requests[0].session_id, session_id)
         self.assertTrue(captured_requests[0].thread_id.startswith("chat_thread_"))
         self.assertEqual(
+            captured_requests[0].agent_definition.agent_id,
+            "quantagent.official.industry.semiconductor.agent.main",
+        )
+        self.assertEqual(
             captured_requests[0].agent_definition.tool_ids,
-            ["quantagent.core.tool.get_run_context"],
+            ["quantagent.core.tool.get_run_context", "quantagent.official.source.tavily.search_web"],
         )
         self.assertEqual(len(captured_requests[0].agent_definition.subagents), 1)
         self.assertEqual(captured_requests[0].agent_definition.subagents[0].name, "evidence_research_analyst")
@@ -811,8 +820,8 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual([item["kind"] for item in transcript], ["message", "delta", "final", "system_event"])
         self.assertEqual(transcript[0]["content"], "分析这个事件")
         self.assertEqual(transcript[1]["content"], "hello ")
-        self.assertIn("第一步必须调用 get_run_context", captured_requests[0].agent_definition.system_prompt)
-        self.assertIn("search_web 因 Tavily key 缺失", captured_requests[0].agent_definition.system_prompt)
+        self.assertIn("你是 QuantAgent 的半导体行业 MainAgent", captured_requests[0].agent_definition.system_prompt)
+        self.assertIn("Agent Chat MVP 运行约束", captured_requests[0].agent_definition.system_prompt)
 
     def test_agent_chat_message_stream_reports_missing_model_with_raw_debug_content(self) -> None:
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)

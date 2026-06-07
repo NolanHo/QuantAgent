@@ -4,8 +4,23 @@ from collections.abc import Iterator
 from unittest import TestCase
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 
 from quantagent.agent.models.openai_compatible import OpenAICompatibleChatModel
+
+
+class EmptyArgs(BaseModel):
+    pass
+
+
+class NamedTool(BaseTool):
+    name: str
+    description: str = "test tool"
+    args_schema: type[BaseModel] = EmptyArgs
+
+    def _run(self) -> str:
+        return "ok"
 
 
 class StreamingOpenAICompatibleChatModel(OpenAICompatibleChatModel):
@@ -92,3 +107,20 @@ class OpenAICompatibleChatModelTest(TestCase):
         self.assertEqual(tool_calls[0]["id"], "call_1")
         self.assertEqual(tool_calls[0]["function"]["name"], "write_todos")
         self.assertEqual(tool_calls[0]["function"]["arguments"], '{"todos": []}')
+
+    def test_bind_tools_filters_deepagents_filesystem_tools(self) -> None:
+        model = OpenAICompatibleChatModel(api_key="test-key", model_name="test-model")
+
+        bound = model.bind_tools(
+            [
+                NamedTool(name="write_todos"),
+                NamedTool(name="get_run_context"),
+                NamedTool(name="glob"),
+                NamedTool(name="write_file"),
+                NamedTool(name="search_web"),
+            ]
+        )
+        payload = bound._completion_payload([HumanMessage(content="hi")])
+
+        tool_names = [tool["function"]["name"] for tool in payload["tools"]]
+        self.assertEqual(tool_names, ["write_todos", "get_run_context", "search_web"])

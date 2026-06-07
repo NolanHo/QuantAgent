@@ -18,9 +18,9 @@ from quantagent.agent.tools import build_get_run_context_tool, build_search_web_
 from quantagent.api.http.errors import NotFoundError, ServiceUnavailableError
 from quantagent.api.schemas.agent_chat import AgentChatMessageResponse, AgentChatSessionResponse, AgentChatStreamEvent
 from quantagent.api.services.agent_chat_runtime_config import (
-    build_agent_chat_definition,
+    build_agent_chat_assets,
     build_agent_chat_run_context,
-    build_agent_chat_tool_profile,
+    normalize_routed_event_preset,
 )
 from quantagent.core.db.models.agent_chat import AgentChatRunORM, AgentChatSessionORM
 from quantagent.core.db.repositories.agent_chat_repository import AgentChatRepository
@@ -48,9 +48,16 @@ class AgentChatService:
         agent_id: str,
         title: str | None = None,
         debug_preset: str | None = None,
+        routed_event_preset: str | None = None,
     ) -> AgentChatSessionResponse:
         session_id = f"chat_sess_{uuid4().hex}"
         now = datetime.now(UTC)
+        resolved_routed_event = normalize_routed_event_preset(routed_event_preset or debug_preset)
+        metadata: dict[str, object] = {}
+        if resolved_routed_event:
+            metadata["routed_event_preset"] = resolved_routed_event
+        if debug_preset:
+            metadata["debug_preset"] = debug_preset
         row = AgentChatSessionORM(
             session_id=session_id,
             thread_id=f"chat_thread_{uuid4().hex}",
@@ -59,7 +66,7 @@ class AgentChatService:
             agent_id=agent_id,
             title=title,
             status="active",
-            metadata_json={"debug_preset": debug_preset} if debug_preset else {},
+            metadata_json=metadata,
             created_at=now,
             updated_at=now,
         )
@@ -161,6 +168,7 @@ class AgentChatService:
             timeout_seconds=60.0,
             session=self._session,
         )
+        assets = build_agent_chat_assets(industry_id=row.industry_id, agent_id=row.agent_id)
         return AgentRunRequest(
             session_id=row.session_id,
             thread_id=row.thread_id,
@@ -169,9 +177,9 @@ class AgentChatService:
             event_id=f"event_chat_{uuid4().hex}",
             industry_id=row.industry_id,
             trace_id=run.trace_id,
-            agent_definition=build_agent_chat_definition(row.agent_id),
+            agent_definition=assets.agent_definition,
             run_context=build_agent_chat_run_context(row, run, message=message),
-            tool_profile=build_agent_chat_tool_profile(),
+            tool_profile=assets.tool_profile,
             runtime_policy=RuntimePolicy(model=model, max_subagent_tasks=1),
             input_message=message,
         )

@@ -20,7 +20,7 @@ collect_evidence(event_ref="/input/event.json", industry_id="semiconductor", ...
 
 ## 为什么不把所有信息传递都做成文件
 
-DeepAgents workspace 适合存放中间产物，例如 evidence board、subagent report、draft analysis。它不适合成为所有业务工具的参数协议。
+Run artifact 适合存放中间产物，例如 evidence board、subagent report、draft analysis。DeepAgents 文件系统工具不适合作为业务上下文入口，MVP 默认不向模型暴露 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep` 或 `execute`。
 
 推荐规则：
 
@@ -30,14 +30,14 @@ DeepAgents workspace 适合存放中间产物，例如 evidence board、subagent
 | Tavily 搜索结果 | `search_web` 直接返回；结果大时自动保存为 artifact |
 | 行情快照 | `get_market_snapshot` 直接返回；bars 较大时保存为 artifact |
 | 账户、仓位、近期动作、通知 | `get_account_context` 直接返回压缩摘要 |
-| SubAgent 报告、EvidenceBoard、IndustryAnalysis | Agent 产物，可写入 workspace 或 run artifact |
+| SubAgent 报告、EvidenceBoard、IndustryAnalysis | Agent 产物，写入 run artifact |
 | 审批、通知、broker 请求 | 只通过 `submit_action_plan` 进入平台状态机 |
 
-这样能减少模型手写路径和 ref 的错误，同时保留 DeepAgents workspace 对复杂推理的帮助。
+这样能减少模型手写路径和 ref 的错误，同时把复杂推理产物收敛到可审计 artifact。
 
 ## Run Artifact
 
-建议平台提供轻量 artifact 机制，作为 DeepAgents workspace 和业务数据库之间的桥。
+建议平台提供轻量 artifact 机制，作为 Agent 中间产物和业务数据库之间的桥。
 
 ```text
 RunArtifact
@@ -207,11 +207,11 @@ quantagent.official.source.tavily.search_web
 
 ## 与 DeepAgents 的关系
 
-DeepAgents 的 `write_todos`、`task`、workspace 和 skills 仍然是编排核心：
+DeepAgents 的 `write_todos`、`task` 和 skills 仍然是编排核心：
 
 - `write_todos` 规划多次检索、SubAgent 调用和停止条件。
 - `task` 把搜索、行情或行业映射任务交给专门 SubAgent。
-- workspace 保存 Agent 自己整理出的 evidence board 和报告。
+- run artifact 保存 Agent 自己整理出的 evidence board 和报告。
 - skills 告诉 Agent 如何判断证据质量、行业影响链和风险。
 
-平台工具负责外部世界访问和动作边界；DeepAgents workspace 负责 Agent 内部协作材料。两者不要混成一个“大 State”。
+平台工具负责外部世界访问和动作边界；run artifact 负责 Agent 内部协作材料。两者不要混成一个“大 State”。

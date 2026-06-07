@@ -350,7 +350,9 @@ export class AgentChatRuntimeTransport implements AgentServerAdapter {
     };
     const runtimeEvent = readRuntimeEvent(rawEvent);
     if (runtimeEvent?.event_type === "todo.updated") this.latestValues.todos = runtimeEvent.content?.json ?? rawEvent.payload.todos ?? [];
-    if (runtimeEvent?.event_type === "artifact.created") this.latestValues.artifacts = upsertByRuntimeGroup(this.latestValues.artifacts, rawEvent);
+    if (runtimeEvent?.event_type === "artifact.created" && hasRuntimeArtifactPayload(runtimeEvent)) {
+      this.latestValues.artifacts = upsertByArtifactKey(this.latestValues.artifacts, rawEvent);
+    }
     if (runtimeEvent?.event_type === "subagent.started" || runtimeEvent?.event_type === "subagent.completed") {
       this.latestValues.subagents = upsertByRuntimeGroup(this.latestValues.subagents, rawEvent);
     }
@@ -408,10 +410,27 @@ function upsertByRuntimeGroup(current: unknown, event: AgentChatStreamEvent) {
   return upsertByStableKey(current, event, `${runtimeEvent.render.group_id}_${runtimeEvent.event_type}`);
 }
 
+function upsertByArtifactKey(current: unknown, event: AgentChatStreamEvent) {
+  const runtimeEvent = readRuntimeEvent(event);
+  if (!runtimeEvent) return upsertByEventId(current, event);
+  const artifact = runtimeArtifactRecord(runtimeEvent);
+  const artifactType = stringValue(artifact?.artifact_type);
+  const artifactId = stringValue(artifact?.artifact_id);
+  // 中文注释：报告是一次 Agent 执行组内持续更新的产物；标题和 artifact_id 可能随模型格式修正变化。
+  const key =
+    artifactType === "report"
+      ? artifactTimelineKey(event)
+      : artifactId ?? `${runtimeEvent.render.group_id}_${runtimeEvent.event_type}_${runtimeEvent.seq}`;
+  return upsertByStableKey(current, event, key);
+}
+
 function mergeRuntimeEventIndex(current: unknown, event: AgentChatStreamEvent) {
   const runtimeEvent = readRuntimeEvent(event);
   if (runtimeEvent?.event_type === "tool.started" || runtimeEvent?.event_type === "tool.completed" || runtimeEvent?.event_type === "tool.failed" || event.kind === "tool") {
     return upsertByStableKey(current, event, toolTimelineKey(event));
+  }
+  if (runtimeEvent?.event_type === "artifact.created" && hasRuntimeArtifactPayload(runtimeEvent)) {
+    return upsertByStableKey(current, event, artifactTimelineKey(event));
   }
   return upsertByEventId(current, event);
 }
@@ -430,7 +449,33 @@ function upsertByStableKey(current: unknown, event: AgentChatStreamEvent, key: s
 
 function stableEventKey(event: AgentChatStreamEvent): string {
   if (event.kind === "tool") return toolTimelineKey(event);
+  const runtimeEvent = readRuntimeEvent(event);
+  if (runtimeEvent?.event_type === "artifact.created" && hasRuntimeArtifactPayload(runtimeEvent)) return artifactTimelineKey(event);
   return event.event_id;
+}
+
+function runtimeArtifactRecord(runtimeEvent: NonNullable<ReturnType<typeof readRuntimeEvent>>): Record<string, unknown> | null {
+  const contentJson = runtimeEvent.content?.json;
+  if (contentJson && typeof contentJson === "object" && !Array.isArray(contentJson)) {
+    const record = contentJson as Record<string, unknown>;
+    const nested = record.artifact;
+    return nested && typeof nested === "object" && !Array.isArray(nested) ? (nested as Record<string, unknown>) : record;
+  }
+  const raw = runtimeEvent.raw;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const artifact = (raw as Record<string, unknown>).artifact;
+    return artifact && typeof artifact === "object" && !Array.isArray(artifact) ? (artifact as Record<string, unknown>) : null;
+  }
+  return null;
+}
+
+function hasRuntimeArtifactPayload(runtimeEvent: NonNullable<ReturnType<typeof readRuntimeEvent>>): boolean {
+  const artifact = runtimeArtifactRecord(runtimeEvent);
+  return Boolean(artifact && (stringValue(artifact.artifact_type) || stringValue(artifact.type) || stringValue(artifact.artifact_id) || stringValue(artifact.title)));
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
 }
 
 function upsertByToolKey(current: unknown, event: AgentChatStreamEvent) {
@@ -485,6 +530,9 @@ function mergeTimelineEvent(current: unknown, rawEvent: AgentChatStreamEvent) {
   if (runtimeEvent?.event_type === "tool.started" || runtimeEvent?.event_type === "tool.completed" || runtimeEvent?.event_type === "tool.failed" || rawEvent.kind === "tool") {
     return upsertTimelineItemByKey(current, timelineItemFromRawEvent(rawEvent), toolTimelineKey(rawEvent));
   }
+  if (runtimeEvent?.event_type === "artifact.created" && hasRuntimeArtifactPayload(runtimeEvent)) {
+    return upsertTimelineItemByKey(current, timelineItemFromRawEvent(rawEvent), artifactTimelineKey(rawEvent));
+  }
   return appendTimelineItem(current, timelineItemFromRawEvent(rawEvent));
 }
 
@@ -527,6 +575,18 @@ function toolTimelineKey(rawEvent: AgentChatStreamEvent): string {
   const subagentName = actorType === "subagent" ? readString(rawEvent.payload?.subagent_name) ?? readString(rawEvent.payload?.subagent_id) : null;
   const namespace = Array.isArray(rawEvent.payload?.graph_namespace) ? rawEvent.payload.graph_namespace.join("/") : null;
   return `tool_${rawEvent.run_id ?? rawEvent.agent_run_id ?? rawEvent.session_id}_${subagentName ?? actorType}_${namespace ?? "root"}_${callId ?? toolName ?? rawEvent.type}`;
+}
+
+function artifactTimelineKey(rawEvent: AgentChatStreamEvent): string {
+  const runtimeEvent = readRuntimeEvent(rawEvent);
+  if (!runtimeEvent) return `artifact_${rawEvent.event_id}`;
+  const artifact = runtimeArtifactRecord(runtimeEvent);
+  const artifactType = stringValue(artifact?.artifact_type);
+  const artifactId = stringValue(artifact?.artifact_id);
+  if (artifactType === "report") {
+    return `artifact_${runtimeEvent.agent_run_id}_${runtimeEvent.render.group_id}_report`;
+  }
+  return `artifact_${runtimeEvent.agent_run_id}_${artifactId ?? `${runtimeEvent.render.group_id}_${runtimeEvent.seq}`}`;
 }
 
 function readToolIdentity(payload: Record<string, unknown>): { callId: null | string; toolName: null | string } {

@@ -8,7 +8,6 @@
 - optional 的 RSS expansion feed 模板
 - optional 的 Readability 正文增强模板
 - 半导体 MainAgent / Research SubAgent prompt 资产
-- MainAgent / Research SubAgent tool profile
 - 半导体行业 skill、mapping 和 NVDA 财报链路 fixture
 
 ## 资产边界
@@ -17,7 +16,7 @@
 
 - 在 `plugin.yaml` 中声明 `source_bindings` 元信息
 - 在 `templates/source_bindings/` 中提供默认模板文件
-- 在 `agents/` 中声明 MainAgent、Research SubAgent 和 tool profile
+- 在 `agents/` 中声明 MainAgent 和 Research SubAgent
 - 在 `skills/` 中提供 DeepAgents skill 目录
 - 在 `mappings/` 中提供可交易标的和主题映射
 - 在 `fixtures/` 中提供无外部依赖的 NVDA 财报链路测试数据
@@ -41,14 +40,9 @@ plugins/industries/semiconductor-industry/
   industry_plugin.py
   README.md
   agents/
-    main.json
     main.md
     subagents/
-      evidence_research_analyst.json
       evidence_research_analyst.md
-    tool_profiles/
-      main.json
-      evidence_research_analyst.json
   skills/
     market-analysis/SKILL.md
     evidence-research/SKILL.md
@@ -67,7 +61,7 @@ plugins/industries/semiconductor-industry/
 
 ## Agent 资产说明
 
-`agents/main.json` 和 `agents/subagents/evidence_research_analyst.json` 是机器可读资产，测试或平台 loader 会把它们转换为通用 `AgentDefinition` / `SubAgentDefinition` / `ToolProfile`。Markdown 文件只承载 prompt 文本和人工可读说明。
+`agents/main.md` 和 `agents/subagents/evidence_research_analyst.md` 是机器可读资产和 prompt 真源。它们的 YAML frontmatter 声明 Agent id、tools、skill、SubAgent 和输出 schema；Markdown 正文承载 system prompt。测试或平台 loader 会把它们转换为通用 `AgentDefinition` / `SubAgentDefinition`，再由平台工具定义解析出运行时 `ToolProfile`。
 
 当前 MVP 只固定一个可选 SubAgent：
 

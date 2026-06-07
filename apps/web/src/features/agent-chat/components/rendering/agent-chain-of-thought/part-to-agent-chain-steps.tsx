@@ -169,7 +169,7 @@ function artifactStep(part: AgentArtifactPart): AgentChainStep {
     return {
       body: <AgentReportArtifactCard compact part={part} />,
       icon: FileText,
-      id: `artifact-report-${part.groupId ?? part.title}-${part.sourceSeq ?? ""}`,
+      id: `artifact-report-${part.groupId ?? part.artifactId ?? part.title}`,
       status: "completed",
       title: "报告已生成",
     };

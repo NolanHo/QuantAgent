@@ -1,90 +1,85 @@
 from __future__ import annotations
 
-from quantagent.agent.definitions.models import AgentDefinition, SubAgentDefinition
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+
+from quantagent.agent.definitions.assets import (
+    filter_agent_assets_by_available_tools,
+    load_agent_assets_from_directory,
+)
+from quantagent.agent.definitions.models import AgentDefinition
 from quantagent.agent.runtime.context import RunContextSection, RunContextSnapshot
 from quantagent.agent.tools import GET_RUN_CONTEXT_TOOL_ID, SEARCH_WEB_TOOL_ID
-from quantagent.agent.tools.profiles import ToolBinding, ToolProfile
+from quantagent.agent.tools.profiles import ToolProfile
 from quantagent.core.db.models.agent_chat import AgentChatRunORM, AgentChatSessionORM
 
+SEMICONDUCTOR_INDUSTRY_ID = "quantagent.official.industry.semiconductor"
+SEMICONDUCTOR_MAIN_AGENT_ID = "quantagent.official.industry.semiconductor.agent.main"
+NVDA_EARNINGS_ROUTED_EVENT = "nvda-earnings"
+NVDA_MEDIA_FOLLOWUP_ROUTED_EVENT = "nvda-media-followup"
 
-def build_agent_chat_definition(agent_id: str) -> AgentDefinition:
-    return AgentDefinition(
-        agent_id=agent_id,
-        version="0.1.0",
-        name="Agent Chat MainAgent",
-        description="用于产品调试和事件分析的通用行业 MainAgent。",
-        system_prompt=(
-            "你是 QuantAgent 的行业 MainAgent，当前运行在真实 AgentRuntime / DeepAgents 链路中。"
-            "除 ticker、URL、财务指标名、工具名和必要原文引用外，所有思考表达、工具前后说明和最终回答都必须使用中文。"
-            "把用户消息视为一次已路由事件的分析请求。第一步必须调用 get_run_context，读取 event、route、industry、risk、tool_profile、market_mapping、recent_activity 等已经绑定到本次 run 的上下文；不要让用户或模型手动传 run_id、thread_id、workspace_id。"
-            "对于多步骤任务，使用 DeepAgents 的 write_todos 创建并更新计划；计划内容使用中文，状态要随分析进展更新。"
-            "需要补充外部证据时，优先通过 DeepAgents 的 task 工具委派 evidence_research_analyst；任务说明必须一次性写清事件摘要、要检索的市场预期/第一手来源/盘前盘后反应/冲突报道、搜索预算、输出格式和停止条件。"
-            "MainAgent 不直接调用 search_web；公开证据检索必须由 Research Agent 执行。"
-            "如果 Research Agent 或 search_web 因 Tavily key 缺失或外部错误失败，把它视为可恢复的信息缺口，不要中断整次分析；基于已绑定上下文给出保守结论。"
-            "不要使用 ls、grep、read_file 等文件系统工具寻找业务事件上下文，除非用户明确要求分析工作区文件。"
-            "最终回答用中文，至少包含：简洁结论、关键依据、信息缺口/风险点、是否需要行动计划、是否需要通知用户。"
-            "MVP 调试阶段要明确写出你依赖了哪些上下文和哪些工具缺口。"
-        ),
-        tool_ids=[GET_RUN_CONTEXT_TOOL_ID],
-        subagents=[_build_evidence_research_subagent()],
+_SUPPORTED_ROUTED_EVENTS = {NVDA_EARNINGS_ROUTED_EVENT, NVDA_MEDIA_FOLLOWUP_ROUTED_EVENT}
+_AVAILABLE_AGENT_CHAT_TOOL_IDS = {GET_RUN_CONTEXT_TOOL_ID, SEARCH_WEB_TOOL_ID}
+
+
+@dataclass(frozen=True)
+class AgentChatRuntimeAssets:
+    agent_definition: AgentDefinition
+    tool_profile: ToolProfile
+    subagent_tool_profiles: dict[str, ToolProfile]
+
+
+def default_industry_id() -> str:
+    return SEMICONDUCTOR_INDUSTRY_ID
+
+
+def default_agent_id() -> str:
+    return SEMICONDUCTOR_MAIN_AGENT_ID
+
+
+def default_routed_event_preset() -> str:
+    return NVDA_EARNINGS_ROUTED_EVENT
+
+
+def normalize_routed_event_preset(value: str | None) -> str | None:
+    if value in _SUPPORTED_ROUTED_EVENTS:
+        return value
+    return None
+
+
+def build_agent_chat_assets(*, industry_id: str, agent_id: str) -> AgentChatRuntimeAssets:
+    if industry_id != SEMICONDUCTOR_INDUSTRY_ID or agent_id != SEMICONDUCTOR_MAIN_AGENT_ID:
+        raise ValueError(f"unsupported Agent Chat industry/agent selection: {industry_id} / {agent_id}")
+
+    loaded = _load_semiconductor_assets()
+    agent_definition, tool_profile, subagent_profiles = filter_agent_assets_by_available_tools(
+        loaded.agent_definition,
+        loaded.tool_profile,
+        loaded.subagent_tool_profiles,
+        available_tool_ids=_AVAILABLE_AGENT_CHAT_TOOL_IDS,
     )
-
-
-def build_agent_chat_tool_profile() -> ToolProfile:
-    return ToolProfile(
-        profile_id="tool_profile_agent_chat",
-        tool_bindings=[
-            ToolBinding(
-                tool_id=GET_RUN_CONTEXT_TOOL_ID,
-                name="get_run_context",
-                description="读取当前 AgentRun 已绑定的事件、路由、行业、风险、工具、市场映射和近期活动上下文。",
-            ),
-            ToolBinding(
-                tool_id=SEARCH_WEB_TOOL_ID,
-                name="search_web",
-                description="使用 Tavily 检索公开网页证据；缺少 key 或外部失败属于可恢复的信息缺口。",
-            ),
-        ],
-    )
-
-
-def _build_evidence_research_subagent() -> SubAgentDefinition:
-    return SubAgentDefinition(
-        subagent_id="quantagent.agent_chat.subagent.evidence_research_analyst",
-        name="evidence_research_analyst",
-        description="检索并压缩已路由事件的公开证据，返回中文研究报告、关键发现、反方观点和信息缺口。",
-        system_prompt=(
-            "你是 QuantAgent Agent Chat 的 Research Agent，由 MainAgent 通过 DeepAgents task 工具创建。"
-            "除 ticker、URL、财务指标名、工具名、schema 字段和必要原文引用外，所有思考表达、工具前后说明和最终报告都必须使用中文。"
-            "你只负责公开证据检索和压缩，不生成交易计划、不读取账户、不提交动作、不宣称通知或审批状态。"
-            "先调用 get_run_context 读取 event、route、industry、tool_profile、market_mapping 和 recent_activity 中与你的研究任务相关的摘要。"
-            "使用 search_web 设计多次窄 query，覆盖市场预期、第一手来源、盘前/盘后反应、冲突报道和反方观点；不要只做一个宽泛查询。"
-            "不要使用 ls、glob、grep、read_file、write_file、edit_file 等文件系统工具寻找业务上下文；业务上下文只能来自 get_run_context，外部公开证据只能来自 search_web。"
-            "如果 search_web 不可用，不要尝试用文件系统工具替代检索。"
-            "如果 search_web 因 Tavily key 缺失或外部错误失败，把它视为可恢复的信息缺口，明确说明缺口后返回基于已绑定上下文的保守研究结论。"
-            "返回时使用中文，包含：研究结论、已确认事实、参考点、冲突/反方观点、信息缺口、使用过的 search_ids 或上下文 ID。"
-            "不要返回完整搜索 dump、secret 或完整 provider raw response。"
-        ),
-        tool_ids=[GET_RUN_CONTEXT_TOOL_ID, SEARCH_WEB_TOOL_ID],
+    return AgentChatRuntimeAssets(
+        agent_definition=_agent_definition_for_chat_mvp(agent_definition),
+        tool_profile=tool_profile,
+        subagent_tool_profiles=subagent_profiles,
     )
 
 
 def build_agent_chat_run_context(row: AgentChatSessionORM, run: AgentChatRunORM, *, message: str) -> RunContextSnapshot:
-    preset = _debug_preset(row)
+    routed_event = _routed_event_preset(row)
     sections = [
-        _event_context_section(preset, message),
+        _event_context_section(routed_event, message),
         RunContextSection(
             name="route_context",
-            summary=(
-                _route_summary(preset)
-            ),
+            summary=_route_summary(routed_event),
             data={
                 "session_id": row.session_id,
                 "thread_id": row.thread_id,
                 "workspace_id": row.workspace_id,
                 "agent_run_id": run.agent_run_id,
-                "debug_preset": preset,
-                **_route_data(preset),
+                "routed_event_preset": routed_event,
+                **_route_data(routed_event),
             },
         ),
         RunContextSection(
@@ -110,10 +105,10 @@ def build_agent_chat_run_context(row: AgentChatSessionORM, run: AgentChatRunORM,
         ),
         RunContextSection(
             name="tool_profile",
-            summary="当前平台业务工具是 get_run_context 和 search_web。DeepAgents 内置工具存在，但不作为业务上下文来源。",
+            summary="当前 Agent Chat 已注册业务工具是 get_run_context 和 search_web。DeepAgents 内置工具存在，但不作为业务上下文来源。",
             data={"tools": [GET_RUN_CONTEXT_TOOL_ID, SEARCH_WEB_TOOL_ID]},
         ),
-        _recent_activity_section(preset),
+        _recent_activity_section(routed_event),
     ]
     return RunContextSnapshot(
         context_id=f"context_{run.run_id}",
@@ -122,14 +117,50 @@ def build_agent_chat_run_context(row: AgentChatSessionORM, run: AgentChatRunORM,
     )
 
 
-def _debug_preset(row: AgentChatSessionORM) -> str | None:
+@dataclass(frozen=True)
+class _LoadedAssets:
+    agent_definition: AgentDefinition
+    tool_profile: ToolProfile
+    subagent_tool_profiles: dict[str, ToolProfile]
+
+
+@lru_cache(maxsize=1)
+def _load_semiconductor_assets() -> _LoadedAssets:
+    agent_dir = _repo_root() / "plugins" / "industries" / "semiconductor-industry" / "agents"
+    agent_definition, tool_profile, subagent_profiles = load_agent_assets_from_directory(agent_dir)
+    return _LoadedAssets(
+        agent_definition=agent_definition,
+        tool_profile=tool_profile,
+        subagent_tool_profiles=subagent_profiles,
+    )
+
+
+def _repo_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "plugins" / "industries").is_dir() and (parent / "pyproject.toml").is_file():
+            return parent
+    raise RuntimeError("repo root with plugins/industries not found")
+
+
+def _agent_definition_for_chat_mvp(agent_definition: AgentDefinition) -> AgentDefinition:
+    suffix = (
+        "\n\n"
+        "Agent Chat MVP 运行约束：当前真实调试链路只注册 get_run_context 和 search_web 两个业务工具。"
+        "如果完整行业 prompt 中提到 get_account_context、evaluate_thesis、build_action_plan 或 submit_action_plan，"
+        "本轮只能把它们视为后续正式行动闭环能力，不要尝试调用。"
+        "当你判断需要行动计划或通知时，请输出草案和缺失工具说明，而不是声明已经提交、审批、通知或成交。"
+    )
+    return agent_definition.model_copy(update={"system_prompt": f"{agent_definition.system_prompt}{suffix}"})
+
+
+def _routed_event_preset(row: AgentChatSessionORM) -> str | None:
     metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
-    preset = metadata.get("debug_preset")
-    return preset if isinstance(preset, str) and preset else None
+    value = metadata.get("routed_event_preset") or metadata.get("debug_preset")
+    return normalize_routed_event_preset(value if isinstance(value, str) else None)
 
 
-def _event_context_section(preset: str | None, message: str) -> RunContextSection:
-    if preset == "nvda-earnings":
+def _event_context_section(routed_event: str | None, message: str) -> RunContextSection:
+    if routed_event == NVDA_EARNINGS_ROUTED_EVENT:
         return RunContextSection(
             name="event",
             summary=(
@@ -180,7 +211,7 @@ def _event_context_section(preset: str | None, message: str) -> RunContextSectio
                 "user_message": message,
             },
         )
-    if preset == "nvda-media-followup":
+    if routed_event == NVDA_MEDIA_FOLLOWUP_ROUTED_EVENT:
         return RunContextSection(
             name="event",
             summary=(
@@ -203,8 +234,8 @@ def _event_context_section(preset: str | None, message: str) -> RunContextSectio
     )
 
 
-def _recent_activity_section(preset: str | None) -> RunContextSection:
-    if preset == "nvda-media-followup":
+def _recent_activity_section(routed_event: str | None) -> RunContextSection:
+    if routed_event == NVDA_MEDIA_FOLLOWUP_ROUTED_EVENT:
         summary = (
             "模拟近期活动：同一 NVIDIA 财报主题已有 prior run 处理过官方一手公告，已发送摘要通知，"
             "并可能已经产出行动计划判断。除非出现新增事实，否则应把媒体跟进视为高概率重复信息。"
@@ -221,8 +252,8 @@ def _recent_activity_section(preset: str | None) -> RunContextSection:
     return RunContextSection(name="recent_activity_summary", summary=summary, data=data)
 
 
-def _route_summary(preset: str | None) -> str:
-    if preset == "nvda-earnings":
+def _route_summary(routed_event: str | None) -> str:
+    if routed_event == NVDA_EARNINGS_ROUTED_EVENT:
         return (
             "Router / Intake 已将 NVIDIA 官方 FY2027 Q1 财报公告识别为高时效的一手半导体事件，"
             "并路由给 Industry MainAgent。Debug Chat 正在复现路由后的交接。"
@@ -233,8 +264,8 @@ def _route_summary(preset: str | None) -> str:
     )
 
 
-def _route_data(preset: str | None) -> dict[str, object]:
-    if preset == "nvda-earnings":
+def _route_data(routed_event: str | None) -> dict[str, object]:
+    if routed_event == NVDA_EARNINGS_ROUTED_EVENT:
         return {
             "route_decision": "route",
             "target_industries": ["semiconductor"],

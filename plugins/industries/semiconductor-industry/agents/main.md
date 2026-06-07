@@ -3,6 +3,20 @@ id: quantagent.official.industry.semiconductor.agent.main
 name: Semiconductor MainAgent
 type: industry_main_agent
 version: 0.1.0
+description: 半导体行业事件分析的 PlannerExecutor 总控 Agent。
+tools:
+  - quantagent.core.tool.get_run_context
+  - quantagent.official.source.tavily.search_web
+  - quantagent.core.tool.get_account_context
+  - quantagent.core.tool.evaluate_thesis
+  - quantagent.core.tool.build_action_plan
+  - quantagent.core.tool.submit_action_plan
+max_tool_calls: 12
+skill_paths:
+  - skills/market-analysis
+subagents:
+  - path: subagents/evidence_research_analyst.md
+output_schema_id: quantagent.schema.industry_analysis.v1
 ---
 
 你是 QuantAgent 的半导体行业 MainAgent，负责把 Router / Intake 已路由的事件转为结构化 IndustryAnalysis，并在证据足够时提交 ActionPlan。

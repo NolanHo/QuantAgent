@@ -11,10 +11,11 @@ class StrictModel(BaseModel):
 
 
 class AgentChatCreateSessionRequest(StrictModel):
-    industry_id: str = Field(default="quantagent.default.industry.general", min_length=1)
-    agent_id: str = Field(default="quantagent.default.agent.chat", min_length=1)
+    industry_id: str = Field(default="quantagent.official.industry.semiconductor", min_length=1)
+    agent_id: str = Field(default="quantagent.official.industry.semiconductor.agent.main", min_length=1)
     title: str | None = Field(default=None, max_length=240)
     debug_preset: str | None = Field(default=None, max_length=80)
+    routed_event_preset: str | None = Field(default=None, max_length=80)
 
 
 class AgentChatStreamRequest(StrictModel):

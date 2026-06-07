@@ -26,14 +26,16 @@ export interface DeepAgentChatState extends Record<string, unknown> {
 
 export function useDeepAgentsChatStream({
   apiClient,
+  configKey,
   sessionId,
 }: {
   apiClient: ApiClient;
+  configKey?: string;
   sessionId: string | null;
 }) {
   const localThreadId = useMemo(
-    () => (sessionId ? `agent_chat_ui_thread_${sessionId}` : "agent-chat-uninitialized"),
-    [sessionId],
+    () => (sessionId ? `agent_chat_ui_thread_${sessionId}_${configKey ?? "default"}` : "agent-chat-uninitialized"),
+    [configKey, sessionId],
   );
 
   const streamOptions = useMemo(

@@ -115,7 +115,7 @@ function mergeTimelineItemIntoAssistant(message: AgentRenderMessage, item: Agent
   }
 
   if (item.kind === "artifact") {
-    message.parts.push(timelineItemToArtifact(item));
+    upsertArtifactPart(message.parts, timelineItemToArtifact(item));
     return;
   }
 
@@ -186,7 +186,7 @@ function mergeRuntimeEventIntoAssistant(message: AgentRenderMessage, event: Agen
     return;
   }
   if (event.event_type === "artifact.created") {
-    message.parts.push(runtimeEventToArtifact(event));
+    upsertArtifactPart(message.parts, runtimeEventToArtifact(event));
     return;
   }
   if (event.event_type === "interrupt.requested" || event.event_type === "run.failed") {
@@ -240,7 +240,7 @@ function mergeRuntimeEventIntoSubagent(parts: AgentRenderPart[], event: AgentRun
     return;
   }
   if (event.event_type === "artifact.created") {
-    part.steps.push(runtimeEventToArtifact(event));
+    upsertArtifactPart(part.steps, runtimeEventToArtifact(event));
     part.status = "completed";
     return;
   }
@@ -434,6 +434,46 @@ function upsertSubagentPart(parts: AgentRenderPart[], next: AgentSubagentPart): 
   if (next.steps.length) current.steps = mergeSubagentSteps(current.steps, next.steps);
 }
 
+function upsertArtifactPart(parts: AgentRenderPart[] | AgentSubagentPart["steps"], next: AgentArtifactPart): void {
+  const index = parts.findIndex((part) => part.type === "artifact" && artifactIdentity(part) === artifactIdentity(next));
+  if (index < 0) {
+    parts.push(next);
+    return;
+  }
+  const current = parts[index];
+  if (current?.type !== "artifact") return;
+  parts[index] = mergeArtifactPart(current, next);
+}
+
+function mergeArtifactPart(current: AgentArtifactPart, next: AgentArtifactPart): AgentArtifactPart {
+  const currentMarkdownLength = current.contentMarkdown?.length ?? 0;
+  const nextMarkdownLength = next.contentMarkdown?.length ?? 0;
+  const currentSeq = current.sourceSeq ?? 0;
+  const nextSeq = next.sourceSeq ?? 0;
+  const preferred =
+    current.artifactType === "report" && next.artifactType === "report" && nextSeq >= currentSeq
+      ? next
+      : nextMarkdownLength >= currentMarkdownLength
+        ? next
+        : current;
+  const fallback = preferred === next ? current : next;
+  return {
+    ...fallback,
+    ...preferred,
+    artifactId: preferred.artifactId ?? fallback.artifactId,
+    contentMarkdown: preferred.contentMarkdown ?? fallback.contentMarkdown,
+    rows: preferred.rows.length ? preferred.rows : fallback.rows,
+    sourceSeq: Math.max(preferred.sourceSeq ?? 0, fallback.sourceSeq ?? 0) || undefined,
+    summary: preferred.summary ?? fallback.summary,
+  };
+}
+
+function artifactIdentity(part: AgentArtifactPart): string {
+  if (part.artifactType === "report") return `report:${part.groupId ?? ""}`;
+  if (part.artifactId) return part.artifactId;
+  return `${part.artifactType}:${part.groupId ?? ""}:${part.title}`;
+}
+
 function mergeSubagentSteps(
   current: AgentSubagentPart["steps"],
   next: AgentSubagentPart["steps"],
@@ -441,6 +481,7 @@ function mergeSubagentSteps(
   const merged = current.slice();
   for (const step of next) {
     if (step.type === "tool") upsertToolPart(merged, step);
+    else if (step.type === "artifact") upsertArtifactPart(merged, step);
     else merged.push(step);
   }
   return merged;
@@ -673,6 +714,7 @@ function parsePythonTodoList(value: string): unknown[] {
 function timelineItemToArtifact(item: AgentChatTimelineItem): AgentArtifactPart {
   return {
     type: "artifact",
+    artifactId: readString(item.payload.artifact_id) ?? undefined,
     artifactType: "analysis",
     title: readableEventTitle(item.kind),
     tone: "info",
@@ -694,6 +736,7 @@ function runtimeEventToArtifact(event: AgentRuntimeEventV1): AgentArtifactPart {
   const rows = objectRows(artifactRecord);
   return {
     type: "artifact",
+    artifactId: readString(artifactRecord.artifact_id) ?? undefined,
     artifactType,
     agentName: readString(artifactRecord.agent_display_name) ?? readString(artifactRecord.agent_name) ?? event.actor.display_name,
     contentMarkdown: contentMarkdown || undefined,

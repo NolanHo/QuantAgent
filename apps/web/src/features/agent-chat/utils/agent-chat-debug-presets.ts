@@ -1,9 +1,32 @@
-import type { AgentChatDebugPreset, AgentChatSearch } from "../types";
+import type {
+  AgentChatIndustryAgentId,
+  AgentChatRoutedEventPreset,
+  AgentChatSearch,
+} from "../types";
+
+export const semiconductorMainAgentId: AgentChatIndustryAgentId =
+  "quantagent.official.industry.semiconductor.agent.main";
+
+export const semiconductorIndustryId = "quantagent.official.industry.semiconductor";
+
+export const agentChatIndustryAgentOptions: Array<{
+  agentId: AgentChatIndustryAgentId;
+  description: string;
+  industryId: string;
+  label: string;
+}> = [
+  {
+    agentId: semiconductorMainAgentId,
+    description: "半导体行业 MainAgent，从行业插件资产加载 prompt、tool profile、skills 和 Research SubAgent。",
+    industryId: semiconductorIndustryId,
+    label: "半导体 MainAgent",
+  },
+];
 
 export const agentChatDebugPresetOptions: Array<{
   description: string;
   label: string;
-  preset: AgentChatDebugPreset;
+  preset: AgentChatRoutedEventPreset;
 }> = [
   {
     description: "第一手官方财报事件，默认用于验证检索市场预期、摘要和行动计划。",
@@ -18,11 +41,17 @@ export const agentChatDebugPresetOptions: Array<{
 ];
 
 export function normalizeAgentChatSearch(search: Record<string, unknown>): AgentChatSearch {
-  const preset = typeof search.preset === "string" && isAgentChatDebugPreset(search.preset) ? search.preset : null;
-  return { preset };
+  const agent = typeof search.agent === "string" && isAgentChatIndustryAgentId(search.agent) ? search.agent : semiconductorMainAgentId;
+  const routedEvent =
+    typeof search.routedEvent === "string" && isAgentChatRoutedEventPreset(search.routedEvent)
+      ? search.routedEvent
+      : typeof search.preset === "string" && isAgentChatRoutedEventPreset(search.preset)
+        ? search.preset
+        : "nvda-earnings";
+  return { agent, preset: routedEvent, routedEvent };
 }
 
-export function getAgentChatPresetMessage(preset: AgentChatDebugPreset | null | undefined): string {
+export function getAgentChatPresetMessage(preset: AgentChatRoutedEventPreset | null | undefined): string {
   if (preset === "nvda-earnings") {
     return [
       "调试事件：英伟达官方财报发布后 5 分钟内进入系统。",
@@ -40,12 +69,24 @@ export function getAgentChatPresetMessage(preset: AgentChatDebugPreset | null | 
   return "分析这个事件，并给出面向调试的简洁结论。";
 }
 
-export function getAgentChatPresetTitle(preset: AgentChatDebugPreset | null | undefined): string {
+export function getAgentChatPresetTitle(preset: AgentChatRoutedEventPreset | null | undefined): string {
   if (preset === "nvda-earnings") return "Agent Chat · 英伟达财报调试";
   if (preset === "nvda-media-followup") return "Agent Chat · 媒体跟进调试";
   return "Agent Chat";
 }
 
-function isAgentChatDebugPreset(value: string): value is AgentChatDebugPreset {
+export function getAgentChatIndustryAgentOption(agentId: AgentChatIndustryAgentId | null | undefined) {
+  return agentChatIndustryAgentOptions.find((option) => option.agentId === agentId) ?? agentChatIndustryAgentOptions[0];
+}
+
+export function getAgentChatRoutedEventOption(preset: AgentChatRoutedEventPreset | null | undefined) {
+  return agentChatDebugPresetOptions.find((option) => option.preset === preset) ?? agentChatDebugPresetOptions[0];
+}
+
+function isAgentChatIndustryAgentId(value: string): value is AgentChatIndustryAgentId {
+  return value === semiconductorMainAgentId;
+}
+
+function isAgentChatRoutedEventPreset(value: string): value is AgentChatRoutedEventPreset {
   return value === "nvda-earnings" || value === "nvda-media-followup";
 }

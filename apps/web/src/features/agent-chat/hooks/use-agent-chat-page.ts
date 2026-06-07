@@ -3,24 +3,50 @@ import { useEffect, useState } from "react";
 import { useAppRuntime, useApis } from "@/app/runtime";
 
 import type { AgentChatSearch, AgentChatTimelineItem } from "../types";
-import { getAgentChatPresetMessage, getAgentChatPresetTitle } from "../utils";
+import {
+  getAgentChatIndustryAgentOption,
+  getAgentChatPresetMessage,
+  getAgentChatPresetTitle,
+  getAgentChatRoutedEventOption,
+  semiconductorIndustryId,
+  semiconductorMainAgentId,
+} from "../utils";
 import { useDeepAgentsChatStream } from "./use-deepagents-chat-stream";
 
 export function useAgentChatPage(search: AgentChatSearch = {}) {
   const runtime = useAppRuntime();
   const { agentChat } = useApis();
-  const [draftMessage, setDraftMessage] = useState(() => getAgentChatPresetMessage(search.preset));
+  const selectedAgentId = search.agent ?? semiconductorMainAgentId;
+  const selectedRoutedEvent = search.routedEvent ?? search.preset ?? "nvda-earnings";
+  const selectedAgent = getAgentChatIndustryAgentOption(selectedAgentId);
+  const selectedRoutedEventOption = getAgentChatRoutedEventOption(selectedRoutedEvent);
+  const [draftMessage, setDraftMessage] = useState(() => getAgentChatPresetMessage(selectedRoutedEvent));
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const deepAgent = useDeepAgentsChatStream({ apiClient: runtime.apiClient, sessionId });
+  const deepAgent = useDeepAgentsChatStream({
+    apiClient: runtime.apiClient,
+    configKey: `${selectedAgentId}:${selectedRoutedEvent}`,
+    sessionId,
+  });
   const { stream } = deepAgent;
+
+  useEffect(() => {
+    setSessionId(null);
+    setSessionError(null);
+    setDraftMessage(getAgentChatPresetMessage(selectedRoutedEvent));
+  }, [selectedAgentId, selectedRoutedEvent]);
 
   useEffect(() => {
     let cancelled = false;
     if (sessionId) return;
 
     void agentChat
-      .createSession({ debug_preset: search.preset ?? null, title: getAgentChatPresetTitle(search.preset) })
+      .createSession({
+        agent_id: selectedAgent.agentId,
+        industry_id: selectedAgent.industryId || semiconductorIndustryId,
+        routed_event_preset: selectedRoutedEvent,
+        title: getAgentChatPresetTitle(selectedRoutedEvent),
+      })
       .then((session) => {
         if (cancelled) return;
         setSessionId(session.session_id);
@@ -33,7 +59,7 @@ export function useAgentChatPage(search: AgentChatSearch = {}) {
     return () => {
       cancelled = true;
     };
-  }, [agentChat, search.preset, sessionId]);
+  }, [agentChat, selectedAgent.agentId, selectedAgent.industryId, selectedRoutedEvent, sessionId]);
 
   async function sendMessage() {
     const message = draftMessage.trim();
@@ -52,6 +78,8 @@ export function useAgentChatPage(search: AgentChatSearch = {}) {
     canSend: Boolean(draftMessage.trim()) && !stream.isLoading && Boolean(sessionId),
     draftMessage,
     debugPreset: search.preset ?? null,
+    selectedAgent,
+    selectedRoutedEvent: selectedRoutedEventOption,
     runtime: {
       artifacts: Array.isArray(deepAgent.values.artifacts) ? deepAgent.values.artifacts : [],
       interrupts: stream.interrupts.length

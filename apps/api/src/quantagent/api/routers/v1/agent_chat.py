@@ -34,6 +34,7 @@ def create_agent_chat_session(
             industry_id=payload.industry_id,
             agent_id=payload.agent_id,
             debug_preset=payload.debug_preset,
+            routed_event_preset=payload.routed_event_preset,
             title=payload.title,
         )
     )

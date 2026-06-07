@@ -2,6 +2,7 @@ export interface AgentChatCreateSessionRequest {
   agent_id?: string;
   debug_preset?: string | null;
   industry_id?: string;
+  routed_event_preset?: string | null;
   title?: string | null;
 }
 

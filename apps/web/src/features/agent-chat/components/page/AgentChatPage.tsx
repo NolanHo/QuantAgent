@@ -1,11 +1,20 @@
 import { useAgentChatPage } from "../../hooks";
-import type { AgentChatSearch } from "../../types";
+import type { AgentChatIndustryAgentId, AgentChatRoutedEventPreset, AgentChatSearch } from "../../types";
 import { AgentChatComposer } from "../composer/AgentChatComposer";
 import { AgentMessageList } from "../conversation/AgentMessageList";
 import { AgentRuntimePanels } from "../events/AgentRuntimePanels";
 import { AgentChatErrorState } from "../states/AgentChatStates";
+import { AgentChatDebugControls } from "./AgentChatDebugControls";
 
-export function AgentChatPage({ search = {} }: { search?: AgentChatSearch }) {
+export function AgentChatPage({
+  onAgentChange,
+  onRoutedEventChange,
+  search = {},
+}: {
+  onAgentChange?(agentId: AgentChatIndustryAgentId): void;
+  onRoutedEventChange?(preset: AgentChatRoutedEventPreset): void;
+  search?: AgentChatSearch;
+}) {
   const page = useAgentChatPage(search);
 
   return (
@@ -14,11 +23,17 @@ export function AgentChatPage({ search = {} }: { search?: AgentChatSearch }) {
         <p className="page-kicker">Agent Runtime</p>
         <h1 className="page-title">Agent Chat</h1>
         <p className="page-description">
-          {page.debugPreset
-            ? `真实 AgentRuntime / DeepAgents 流式对话入口。当前调试预设：${page.debugPreset}。`
-            : "真实 AgentRuntime / DeepAgents 流式对话入口。"}
+          真实 AgentRuntime / DeepAgents 流式对话入口。当前从行业插件资产加载 {page.selectedAgent.label}，
+          routedEvent 为 {page.selectedRoutedEvent.label}。
         </p>
       </section>
+
+      <AgentChatDebugControls
+        agentId={page.selectedAgent.agentId}
+        routedEventPreset={page.selectedRoutedEvent.preset}
+        onAgentChange={(value) => onAgentChange?.(value)}
+        onRoutedEventChange={(value) => onRoutedEventChange?.(value)}
+      />
 
       {page.state.errorSummary ? <AgentChatErrorState message={page.state.errorSummary} /> : null}
 

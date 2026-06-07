@@ -44,9 +44,6 @@ plugins/industries/<industry-name>/
       references/
   tools/
     <tool>.py
-  tool_profiles/
-    main_agent.yaml
-    <subagent>.yaml
   mappings/
     markets.yaml
     instruments.yaml
@@ -82,15 +79,6 @@ main_agent: agents/main.md
 subagents:
   - id: evidence_research_analyst
     path: agents/evidence_research_analyst.md
-
-tools:
-  - id: quantagent.official.industry.semiconductor.tool.lookup_company_exposure
-    entrypoint: tools.company_exposure:tool
-    risk_level: low
-
-tool_profiles:
-  main_agent: tool_profiles/main_agent.yaml
-  evidence_research_analyst: tool_profiles/evidence_research_analyst.yaml
 
 skills:
   - id: quantagent.official.industry.semiconductor.skill.market-analysis
@@ -129,25 +117,24 @@ output_schema: industry_analysis.schema.json
 - tool invocation 审计。
 - Decision / Approval / Broker 编排。
 - runtime persistence。
-- 通用 workspace 和 output validation。
+- 通用 artifact 和 output validation。
 
 ## 行业包需要提供什么
 
 行业包开发者需要提供：
 
-- MainAgent instructions：说明该行业如何使用 `write_todos`、workspace、SubAgent 和工具完成分析。
+- MainAgent instructions：说明该行业如何使用 `write_todos`、显式 SubAgent、skills、平台工具和 run artifact 完成分析。
 - SubAgent definitions：MVP 只需要可选的 `evidence_research_analyst`；更多专家 SubAgent 等真实瓶颈出现后再加。
 - Skill：行业分析规则、术语、常见因果关系。
 - Market mapping：候选市场、标的、公司和产品映射。
 - Scoring hints：行业置信度、风险因子和证据质量提示。
 - Evals：至少一个 happy path、一个无关事件、一个低置信或证据不足事件。
 
-## Tool Profile
+## Agent Frontmatter Tools
 
-行业包不应该把所有工具都声明给 MainAgent。推荐按 Agent 角色提供最小工具集：
+行业包不应该把所有工具都声明给 MainAgent。推荐在每个 Agent 的 Markdown frontmatter 里按角色声明最小工具 ID 集：
 
 ```yaml
-# tool_profiles/main_agent.yaml
 tools:
   - quantagent.core.tool.get_run_context
   - quantagent.official.source.tavily.search_web
@@ -155,20 +142,16 @@ tools:
   - quantagent.core.tool.evaluate_thesis
   - quantagent.core.tool.build_action_plan
   - quantagent.core.tool.submit_action_plan
-budgets:
-  max_search_calls: 4
-  max_tool_calls: 12
+max_tool_calls: 12
 
-# tool_profiles/evidence_research_analyst.yaml
+# agents/evidence_research_analyst.md
 tools:
   - quantagent.core.tool.get_run_context
   - quantagent.official.source.tavily.search_web
-budgets:
-  max_search_calls: 5
-  max_tool_calls: 8
+max_tool_calls: 8
 ```
 
-Tool profile 只是需求声明，最终可见工具仍由 ToolRegistry、用户授权、broker 模式、risk policy 和 runtime budget 决定。
+frontmatter `tools` 只是需求声明。工具名称、描述、schema、风险等级和 interrupt 元数据来自平台工具定义 / ToolRegistry；最终可见工具仍由 ToolRegistry、用户授权、broker 模式、risk policy 和 runtime budget 决定。
 
 ## Prompt 与真源边界
 

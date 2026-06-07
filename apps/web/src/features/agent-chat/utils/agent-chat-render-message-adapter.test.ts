@@ -181,6 +181,140 @@ describe("agentTimelineToRenderMessages", () => {
     expect(assistant?.parts.filter((part) => part.type === "text" && part.display === "process")).toHaveLength(0);
   });
 
+  it("deduplicates subagent report artifact cards and keeps the complete markdown", () => {
+    const partial = "研究完成 — H20出口管制对照证据报告### ⚠️工具状态";
+    const complete = [
+      "研究完成 — H20 出口管制对照证据报告",
+      "",
+      "### ⚠️ 工具状态",
+      "",
+      "`search_web` 因 **TAVILY_API_KEY 未配置**而不可用。",
+      "",
+      "| 缺口 | 影响 |",
+      "| --- | --- |",
+      "| 外部搜索 | 无法验证市场预期 |",
+    ].join("\n");
+    const baseArtifact = {
+      artifact_type: "report",
+      agent_name: "evidence_research_analyst",
+      group_id: "span_subagent_call_task_1",
+      summary: "研究完成 — H20 出口管制对照证据报告",
+      title: "Research Agent 报告",
+    };
+
+    const messages = agentTimelineToRenderMessages([
+      item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
+      reportArtifactItem({
+        artifact: {
+          ...baseArtifact,
+          artifact_id: "artifact_report_span_subagent_call_task_1_partial",
+          content_markdown: partial,
+          report_key: "研究完成H20出口管制对照证据报告工具状态",
+          source_seq: 1460,
+          summary: "研究完成 — H20出口管制对照证据报告### ⚠️工具状态",
+        },
+        eventId: "report-partial",
+        lane: "subagent",
+        seq: 1460,
+      }),
+      reportArtifactItem({
+        artifact: {
+          ...baseArtifact,
+          artifact_id: "artifact_report_span_subagent_call_task_1_complete",
+          content_markdown: complete,
+          report_key: "研究完成H20出口管制对照证据报告",
+          source_seq: 1461,
+        },
+        eventId: "report-complete",
+        lane: "subagent",
+        seq: 1461,
+      }),
+    ]);
+
+    const assistant = messages[1];
+    const subagent = assistant?.parts.find((part) => part.type === "subagent");
+    const artifacts = subagent?.type === "subagent" ? subagent.steps.filter((step) => step.type === "artifact") : [];
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      contentMarkdown: complete,
+      sourceSeq: 1461,
+      title: "Research Agent 报告",
+    });
+  });
+
+  it("deduplicates main report artifact cards", () => {
+    const partial = "# Main 报告\n\n短摘要";
+    const complete = "# Main 报告\n\n完整 Markdown\n\n- 风险一\n- 风险二";
+    const baseArtifact = {
+      artifact_id: "artifact_report_span_main_agent_run_main",
+      artifact_type: "report",
+      agent_name: "Semiconductor MainAgent",
+      group_id: "span_main_agent-run-1",
+      report_key: "main",
+      summary: "Main 报告",
+      title: "Semiconductor MainAgent 报告",
+    };
+
+    const messages = agentTimelineToRenderMessages([
+      item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
+      reportArtifactItem({ artifact: { ...baseArtifact, content_markdown: partial, source_seq: 20 }, eventId: "main-report-partial", lane: "main", seq: 20 }),
+      reportArtifactItem({ artifact: { ...baseArtifact, content_markdown: complete, source_seq: 21 }, eventId: "main-report-complete", lane: "main", seq: 21 }),
+    ]);
+
+    const assistant = messages[1];
+    const artifacts = assistant?.parts.filter((part) => part.type === "artifact") ?? [];
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      contentMarkdown: complete,
+      sourceSeq: 21,
+      title: "Semiconductor MainAgent 报告",
+    });
+  });
+
+  it("keeps one main report card across title, compact table, and final markdown updates", () => {
+    const first = "🔬 NVIDIA FY2027 Q1财报 — IndustryAnalysis（信息缺口版）\n🔬 NVIDIA FY2027 Q1财报 — IndustryAnalysis（信息缺口版）";
+    const compact = "总结|维度 |结论 |\n##总结|维度 |结论 | |---|---| | 一手材料 | NVIDIA IR官方 FY2027 Q1新闻稿 ✅ |";
+    const finalMarkdown = [
+      "## 总结",
+      "",
+      "| 维度 | 结论 |",
+      "| --- | --- |",
+      "| 一手材料 | NVIDIA IR 官方 FY2027 Q1 新闻稿 ✅，含完整 P&L 指标和 Q2 指引 |",
+      "| 市场预期 | ❌ 检索失败（缺少 TAVILY_API_KEY），无法判断 beat/miss |",
+      "| 盘后反应 | ❌ 同上，无法获取价格信号 |",
+      "| 用户通知 | 建议通知，内容侧重一手数据摘要 + 缺口透明披露 |",
+      "",
+      "MVP 调试链路缺失总结：TAVILY_API_KEY 未配置导致无法检索 consensus 和盘后行情。",
+    ].join("\n");
+    const baseArtifact = {
+      artifact_id: "artifact_report_span_main_agent_run_run_report",
+      artifact_type: "report",
+      agent_name: "Semiconductor MainAgent",
+      group_id: "span_main_agent-run-1",
+      report_key: "run_report",
+      title: "Semiconductor MainAgent 报告",
+    };
+
+    const messages = agentTimelineToRenderMessages([
+      item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
+      reportArtifactItem({ artifact: { ...baseArtifact, content_markdown: first, source_seq: 1268, summary: first }, eventId: "main-report-1", lane: "main", seq: 1268 }),
+      reportArtifactItem({ artifact: { ...baseArtifact, content_markdown: compact, source_seq: 1300, summary: "总结|维度 |结论 |" }, eventId: "main-report-2", lane: "main", seq: 1300 }),
+      reportArtifactItem({ artifact: { ...baseArtifact, content_markdown: finalMarkdown, source_seq: 1301, summary: "总结" }, eventId: "main-report-3", lane: "main", seq: 1301 }),
+    ]);
+
+    const assistant = messages[1];
+    const artifacts = assistant?.parts.filter((part) => part.type === "artifact") ?? [];
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      contentMarkdown: finalMarkdown,
+      sourceSeq: 1301,
+      title: "Semiconductor MainAgent 报告",
+    });
+  });
+
   it("groups contiguous reasoning chunks and starts a new reasoning step after tool events", () => {
     const messages = agentTimelineToRenderMessages([
       item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
@@ -620,5 +754,35 @@ function v1Item(overrides: Partial<AgentRuntimeEventV1>): AgentChatTimelineItem 
     runtimeEvent,
     seq: runtimeEvent.seq,
     type: runtimeEvent.event_type,
+  });
+}
+
+function reportArtifactItem({
+  artifact,
+  eventId,
+  lane,
+  seq,
+}: {
+  artifact: Record<string, unknown>;
+  eventId: string;
+  lane: "main" | "subagent";
+  seq: number;
+}): AgentChatTimelineItem {
+  const subagent = lane === "subagent" ? { name: "evidence_research_analyst", subagent_id: "research", task_call_id: "call_task_1" } : undefined;
+  return v1Item({
+    actor:
+      lane === "subagent"
+        ? { display_name: "Research Agent", id: "research", name: "evidence_research_analyst", type: "subagent" }
+        : { display_name: "Semiconductor MainAgent", id: "main", name: "Semiconductor MainAgent", type: "main_agent" },
+    content: { delta_mode: "snapshot", format: "json", json: artifact, text: String(artifact.summary ?? "") },
+    event_id: eventId,
+    event_type: "artifact.created",
+    render: { content_kind: "artifact", group_id: String(artifact.group_id), lane, target: "cot" },
+    seq,
+    span:
+      lane === "subagent"
+        ? { kind: "subagent_run", parent_span_id: "span_main_agent-run-1", span_id: String(artifact.group_id) }
+        : { kind: "main_run", parent_span_id: null, span_id: String(artifact.group_id) },
+    subagent,
   });
 }

@@ -7,6 +7,10 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from quantagent.agent.definitions.models import AgentDefinition, RuntimePolicy, SubAgentDefinition
 from quantagent.agent.runtime import AgentRuntime
+from quantagent.agent.runtime.deepagents_harness import (
+    DEEPAGENTS_FILESYSTEM_TOOL_NAMES,
+    AgentToolVisibilityMiddleware,
+)
 from quantagent.agent.runtime.errors import AgentRuntimeError
 from quantagent.agent.streaming.adapter import EventSequencer
 from quantagent.agent.testing import build_echo_platform_tool, build_echo_run_request
@@ -25,6 +29,31 @@ class DeepAgentsFactoryTest(TestCase):
 
         self.assertTrue(hasattr(graph, "invoke"))
         self.assertTrue(hasattr(graph, "stream"))
+
+    def test_default_factory_disables_deepagents_filesystem_tools(self) -> None:
+        class CapturingToolModel(FakeListChatModel):
+            captured_tool_names: list[str] = []
+
+            def bind_tools(self, tools=None, **kwargs):
+                self.captured_tool_names = [getattr(tool, "name", "") for tool in tools or []]
+                return self
+
+        model = CapturingToolModel(responses=["done"])
+        base_request = build_echo_run_request()
+        request = base_request.model_copy(
+            update={
+                "agent_definition": base_request.agent_definition.model_copy(update={"tool_ids": [], "subagents": []}),
+                "tool_profile": base_request.tool_profile.model_copy(update={"tool_bindings": []}),
+                "runtime_policy": RuntimePolicy(model=model),
+            }
+        )
+
+        graph = AgentRuntime._default_deep_agent_factory(request, [])
+        graph.invoke({"messages": [{"role": "user", "content": "hello"}]}, config={"configurable": {"thread_id": "thread_test"}})
+
+        self.assertIn("write_todos", model.captured_tool_names)
+        self.assertFalse(DEEPAGENTS_FILESYSTEM_TOOL_NAMES & set(model.captured_tool_names))
+        self.assertNotIn("task", model.captured_tool_names)
 
     def test_runtime_builds_langchain_tools_from_platform_tools(self) -> None:
         runtime = AgentRuntime(tools=[build_echo_platform_tool()])
@@ -133,9 +162,11 @@ class DeepAgentsFactoryTest(TestCase):
 
         kwargs = create_deep_agent.call_args.kwargs
         self.assertEqual([tool.name for tool in kwargs["tools"]], ["get_run_context", "get_account_context", "build_action_plan", "submit_action_plan"])
+        self.assertEqual([type(item) for item in kwargs["middleware"]], [AgentToolVisibilityMiddleware])
         self.assertEqual(len(kwargs["subagents"]), 1)
         research_tools = kwargs["subagents"][0]["tools"]
         self.assertEqual([tool.name for tool in research_tools], ["get_run_context", "search_web"])
+        self.assertEqual([type(item) for item in kwargs["subagents"][0]["middleware"]], [AgentToolVisibilityMiddleware])
         self.assertNotIn("get_account_context", {tool.name for tool in research_tools})
         self.assertNotIn("submit_action_plan", {tool.name for tool in research_tools})
 

@@ -103,6 +103,7 @@ export interface AgentDecisionPart {
 
 export interface AgentArtifactPart {
   type: "artifact";
+  artifactId?: string;
   artifactType: "analysis" | "notification" | "order" | "report" | "risk";
   agentName?: string;
   contentMarkdown?: string;

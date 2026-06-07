@@ -372,6 +372,186 @@ describe("AgentChatRuntimeTransport", () => {
       "tool_run-1_evidence_research_analyst_evidence_research_analyst:task_1_call_search_1",
     ]);
   });
+
+  it("deduplicates partial and complete report artifacts in runtime values", async () => {
+    const partial = "研究完成 — H20出口管制对照证据报告### ⚠️工具状态";
+    const complete = [
+      "研究完成 — H20 出口管制对照证据报告",
+      "",
+      "### ⚠️ 工具状态",
+      "",
+      "`search_web` 因 **TAVILY_API_KEY 未配置**而不可用。",
+      "",
+      "| 缺口 | 影响 |",
+      "| --- | --- |",
+      "| 外部搜索 | 无法验证市场预期 |",
+    ].join("\n");
+    const apiClient = createMockApiClient([
+      createV1StreamEvent({
+        actor: { display_name: "Research Agent", id: "research", name: "evidence_research_analyst", type: "subagent" },
+        content: {
+          delta_mode: "snapshot",
+          format: "json",
+          json: {
+            artifact_id: "artifact_report_partial",
+            artifact_type: "report",
+            content_markdown: partial,
+            group_id: "span_subagent_call_task_1",
+            report_key: "研究完成H20出口管制对照证据报告工具状态",
+            summary: "研究完成 — H20出口管制对照证据报告### ⚠️工具状态",
+            title: "Research Agent 报告",
+          },
+        },
+        event_id: "report-partial",
+        event_type: "artifact.created",
+        render: { content_kind: "artifact", group_id: "span_subagent_call_task_1", lane: "subagent", target: "cot" },
+        seq: 1460,
+        span: { kind: "subagent_run", parent_span_id: "span_main_agent-run-1", span_id: "span_subagent_call_task_1" },
+        subagent: { name: "evidence_research_analyst", subagent_id: "research", task_call_id: "call_task_1" },
+      }),
+      createV1StreamEvent({
+        actor: { display_name: "Research Agent", id: "research", name: "evidence_research_analyst", type: "subagent" },
+        content: {
+          delta_mode: "snapshot",
+          format: "json",
+          json: {
+            artifact_id: "artifact_report_complete",
+            artifact_type: "report",
+            content_markdown: complete,
+            group_id: "span_subagent_call_task_1",
+            report_key: "研究完成H20出口管制对照证据报告",
+            summary: "研究完成 — H20 出口管制对照证据报告",
+            title: "Research Agent 报告",
+          },
+        },
+        event_id: "report-complete",
+        event_type: "artifact.created",
+        render: { content_kind: "artifact", group_id: "span_subagent_call_task_1", lane: "subagent", target: "cot" },
+        seq: 1461,
+        span: { kind: "subagent_run", parent_span_id: "span_main_agent-run-1", span_id: "span_subagent_call_task_1" },
+        subagent: { name: "evidence_research_analyst", subagent_id: "research", task_call_id: "call_task_1" },
+      }),
+      createV1StreamEvent({
+        content: { delta_mode: "snapshot", format: "markdown", text: "最终结论。" },
+        event_id: "final",
+        event_type: "agent.message.final",
+        render: { content_kind: "message", group_id: "span_main_agent-run-1", lane: "main", target: "final" },
+        seq: 1462,
+      }),
+    ]);
+    const transport = new AgentChatRuntimeTransport({
+      apiClient,
+      sessionId: "session-1",
+      threadId: "thread-1",
+    });
+    const stream = transport.openEventStream({
+      channels: ["messages", "values", "tools", "lifecycle"],
+      depth: 1,
+      namespaces: [[]],
+    });
+
+    const eventsPromise = collectUntilCompleted(stream.events);
+    await transport.send({
+      id: 1,
+      method: "run.start",
+      params: {
+        assistant_id: "agent-chat",
+        input: { messages: [{ content: "分析这个事件", type: "human" }] },
+      },
+      type: "command",
+    } as unknown as AgentServerCommand);
+
+    const events = await eventsPromise;
+    stream.close();
+    await transport.close();
+
+    const latestValues = events
+      .filter((event) => event.method === "values")
+      .at(-1)?.params.data as { artifacts?: Array<{ runtime_event?: AgentRuntimeEventV1 }>; timeline?: Array<{ runtimeEvent?: AgentRuntimeEventV1 }> } | undefined;
+    const artifacts = latestValues?.artifacts ?? [];
+    const timelineArtifacts = latestValues?.timeline?.filter((item) => item.runtimeEvent?.event_type === "artifact.created") ?? [];
+    const artifactJson = artifacts[0]?.runtime_event?.content?.json as Record<string, unknown> | undefined;
+    const timelineArtifactJson = timelineArtifacts[0]?.runtimeEvent?.content?.json as Record<string, unknown> | undefined;
+
+    expect(artifacts).toHaveLength(1);
+    expect(timelineArtifacts).toHaveLength(1);
+    expect(artifactJson?.content_markdown).toBe(complete);
+    expect(artifactJson?.artifact_id).toBe("artifact_report_complete");
+    expect(timelineArtifactJson?.content_markdown).toBe(complete);
+  });
+
+  it("keeps raw artifact.created events out of the artifacts panel when no artifact payload exists", async () => {
+    const report = "# Main 报告\n\n完整报告。";
+    const apiClient = createMockApiClient([
+      createV1StreamEvent({
+        content: { delta_mode: "snapshot", format: "json", json: { source: "updates" } },
+        event_id: "raw-artifact-update",
+        event_type: "artifact.created",
+        render: { content_kind: "artifact", group_id: "span_main_agent-run-1", lane: "main", target: "cot" },
+        seq: 10,
+      }),
+      createV1StreamEvent({
+        content: {
+          delta_mode: "snapshot",
+          format: "json",
+          json: {
+            artifact_id: "artifact_report_main",
+            artifact_type: "report",
+            content_markdown: report,
+            group_id: "span_main_agent-run-1",
+            report_key: "run_report",
+            summary: "Main 报告",
+            title: "Semiconductor MainAgent 报告",
+          },
+        },
+        event_id: "report-artifact",
+        event_type: "artifact.created",
+        render: { content_kind: "artifact", group_id: "span_main_agent-run-1", lane: "main", target: "cot" },
+        seq: 11,
+      }),
+      createV1StreamEvent({
+        content: { delta_mode: "snapshot", format: "markdown", text: "最终结论。" },
+        event_id: "final",
+        event_type: "agent.message.final",
+        render: { content_kind: "message", group_id: "span_main_agent-run-1", lane: "main", target: "final" },
+        seq: 12,
+      }),
+    ]);
+    const transport = new AgentChatRuntimeTransport({
+      apiClient,
+      sessionId: "session-1",
+      threadId: "thread-1",
+    });
+    const stream = transport.openEventStream({
+      channels: ["messages", "values", "tools", "lifecycle"],
+      depth: 1,
+      namespaces: [[]],
+    });
+
+    const eventsPromise = collectUntilCompleted(stream.events);
+    await transport.send({
+      id: 1,
+      method: "run.start",
+      params: {
+        assistant_id: "agent-chat",
+        input: { messages: [{ content: "分析这个事件", type: "human" }] },
+      },
+      type: "command",
+    } as unknown as AgentServerCommand);
+
+    const events = await eventsPromise;
+    stream.close();
+    await transport.close();
+
+    const latestValues = events
+      .filter((event) => event.method === "values")
+      .at(-1)?.params.data as { artifacts?: Array<{ runtime_event?: AgentRuntimeEventV1 }>; runtime_events?: Array<{ event_id: string }> } | undefined;
+    const artifacts = latestValues?.artifacts ?? [];
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.runtime_event?.event_id).toBe("report-artifact");
+    expect(latestValues?.runtime_events?.map((event) => event.event_id)).toContain("raw-artifact-update");
+  });
 });
 
 function createMockApiClient(events: AgentChatStreamEvent[]): ApiClient {

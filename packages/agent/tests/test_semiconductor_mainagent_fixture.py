@@ -7,6 +7,7 @@ from unittest import TestCase
 from pydantic import ValidationError
 
 from quantagent.agent.artifacts import InMemoryArtifactStore
+from quantagent.agent.definitions.assets import filter_agent_assets_by_available_tools
 from quantagent.agent.runtime import AgentRuntime
 from quantagent.agent.streaming.events import AgentRunEventType
 from quantagent.agent.testing import (
@@ -57,6 +58,42 @@ class SemiconductorMainAgentFixtureTest(TestCase):
         visible_names = {binding.name for binding in assets.main_tool_profile.tool_bindings}
         self.assertTrue(forbidden.isdisjoint(visible_names))
         self.assertNotIn("get_account_context", {binding.name for binding in assets.subagent_tool_profiles[research.subagent_id].tool_bindings})
+        self.assertIn("你是 QuantAgent 的半导体行业 MainAgent", assets.agent_definition.system_prompt)
+        self.assertNotIn("id: quantagent.official.industry.semiconductor.agent.main", assets.agent_definition.system_prompt)
+
+    def test_semiconductor_assets_can_be_filtered_to_agent_chat_mvp_tools(self) -> None:
+        assets = load_semiconductor_assets(REPO_ROOT)
+
+        agent_definition, main_profile, subagent_profiles = filter_agent_assets_by_available_tools(
+            assets.agent_definition,
+            assets.main_tool_profile,
+            assets.subagent_tool_profiles,
+            available_tool_ids={
+                "quantagent.core.tool.get_run_context",
+                "quantagent.official.source.tavily.search_web",
+            },
+        )
+
+        self.assertEqual(
+            agent_definition.tool_ids,
+            [
+                "quantagent.core.tool.get_run_context",
+                "quantagent.official.source.tavily.search_web",
+            ],
+        )
+        self.assertEqual([binding.name for binding in main_profile.tool_bindings], ["get_run_context", "search_web"])
+        research = agent_definition.subagents[0]
+        self.assertEqual(
+            research.tool_ids,
+            [
+                "quantagent.core.tool.get_run_context",
+                "quantagent.official.source.tavily.search_web",
+            ],
+        )
+        self.assertEqual(
+            [binding.name for binding in subagent_profiles[research.subagent_id].tool_bindings],
+            ["get_run_context", "search_web"],
+        )
 
     def test_tool_schemas_reject_scene_specific_fields(self) -> None:
         with self.assertRaises(ValidationError):

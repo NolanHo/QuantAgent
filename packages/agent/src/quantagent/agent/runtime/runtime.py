@@ -6,6 +6,11 @@ from typing import Any, Protocol
 
 from quantagent.agent.artifacts import ArtifactStore, InMemoryArtifactStore
 from quantagent.agent.runtime.context import ToolRuntimeContext
+from quantagent.agent.runtime.deepagents_harness import (
+    DEEPAGENTS_FILESYSTEM_TOOL_NAMES,
+    configure_quantagent_deepagents_harness,
+    quantagent_tool_visibility_middleware,
+)
 from quantagent.agent.runtime.errors import AgentRuntimeError, DeepAgentsUnavailableError
 from quantagent.agent.runtime.requests import AgentRunRequest, AgentRunResult
 from quantagent.agent.streaming.adapter import (
@@ -187,21 +192,28 @@ class AgentRuntime:
             if binding.tool_id in tool_bundle.all_tool_ids
         }
         platform_tool_call_names: dict[str, str] = {}
+        deepagents_filesystem_tool_call_names: dict[str, str] = {}
         subagent_scope_by_namespace: dict[tuple[str, ...], str] = {}
         pending_task_subagents: dict[str, str] = {}
         pending_message_buffers: dict[str, dict[str, Any]] = {}
+        emitted_report_text_by_key: dict[str, str] = {}
+        main_report_outputs: list[str] = []
         stream = _open_deepagents_stream(graph, input_data, config)
         last_summary = ""
         async for chunk in stream:
             while tool_events:
                 for buffered_event in _flush_message_buffers(
                     pending_message_buffers,
+                    emitted_report_text_by_key,
                     request=request,
                     sequencer=sequencer,
                     final_flush=False,
                 ):
                     if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
                         last_summary += buffered_event.content
+                    elif _is_main_intermediate_report_event(buffered_event):
+                        main_report_outputs.append(buffered_event.content or "")
+                        last_summary = _strip_known_report_outputs(last_summary, main_report_outputs)
                     yield buffered_event
                 tool_event = tool_events.pop(0)
                 _remember_platform_tool_call(platform_tool_call_names, tool_event)
@@ -210,6 +222,8 @@ class AgentRuntime:
                 _remember_subagent_namespace(subagent_scope_by_namespace, pending_task_subagents, event_type, payload, request)
                 _bind_pending_task_namespace(subagent_scope_by_namespace, pending_task_subagents, payload)
                 payload = _bind_known_subagent_namespace(payload, subagent_scope_by_namespace, request)
+                if _is_deepagents_filesystem_tool_event(event_type, payload, deepagents_filesystem_tool_call_names):
+                    continue
                 if event_type == AgentRunEventType.TOOL_STARTED and payload.get("name") in platform_tool_names:
                     call_id = payload.get("tool_call_id") or payload.get("call_id")
                     if isinstance(call_id, str) and isinstance(payload.get("name"), str):
@@ -221,33 +235,70 @@ class AgentRuntime:
                 if event_type == AgentRunEventType.MODEL_DELTA and summary:
                     if _should_buffer_message_delta(pending_message_buffers, payload=payload, text=summary):
                         _append_message_buffer(pending_message_buffers, payload=payload, text=summary)
-                        continue
-                if event_type == AgentRunEventType.RUN_OUTPUT and summary:
-                    dropped = _drop_duplicate_message_buffer(pending_message_buffers, payload=payload, text=summary)
-                    if not dropped:
                         for buffered_event in _flush_message_buffers(
                             pending_message_buffers,
+                            emitted_report_text_by_key,
                             request=request,
                             sequencer=sequencer,
                             final_flush=False,
                         ):
                             if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
                                 last_summary += buffered_event.content
+                            elif _is_main_intermediate_report_event(buffered_event):
+                                main_report_outputs.append(buffered_event.content or "")
+                                last_summary = _strip_known_report_outputs(last_summary, main_report_outputs)
                             yield buffered_event
+                        continue
+                drop_current_event = False
+                if event_type == AgentRunEventType.RUN_OUTPUT and summary:
+                    dropped = _drop_duplicate_message_buffer(pending_message_buffers, emitted_report_text_by_key, payload=payload, text=summary)
+                    if not dropped:
+                        for buffered_event in _flush_message_buffers(
+                            pending_message_buffers,
+                            emitted_report_text_by_key,
+                            request=request,
+                            sequencer=sequencer,
+                            final_flush=False,
+                        ):
+                            if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
+                                last_summary += buffered_event.content
+                            elif _is_main_intermediate_report_event(buffered_event):
+                                main_report_outputs.append(buffered_event.content or "")
+                                last_summary = _strip_known_report_outputs(last_summary, main_report_outputs)
+                            yield buffered_event
+                    if _is_intermediate_report_output(payload, summary):
+                        _remember_report_output(pending_message_buffers, emitted_report_text_by_key, payload=payload, text=summary)
+                        if not is_subagent_event:
+                            main_report_outputs.append(summary)
+                            last_summary = _strip_known_report_outputs(last_summary, main_report_outputs)
                 else:
                     for buffered_event in _flush_message_buffers(
                         pending_message_buffers,
+                        emitted_report_text_by_key,
                         request=request,
                         sequencer=sequencer,
                         final_flush=False,
-                    ):
+                        ):
                         if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
                             last_summary += buffered_event.content
+                        elif _is_main_intermediate_report_event(buffered_event):
+                            main_report_outputs.append(buffered_event.content or "")
+                            last_summary = _strip_known_report_outputs(last_summary, main_report_outputs)
                         yield buffered_event
-                if event_type == AgentRunEventType.MODEL_DELTA and summary and not is_subagent_event:
+                if (
+                    event_type == AgentRunEventType.MODEL_DELTA
+                    and summary
+                    and _is_replayed_report_delta(emitted_report_text_by_key, payload=payload, text=summary)
+                ):
+                    drop_current_event = True
+                    if not is_subagent_event:
+                        last_summary = _strip_known_report_outputs(last_summary, [summary])
+                elif event_type == AgentRunEventType.MODEL_DELTA and summary and not is_subagent_event:
                     last_summary += summary
                 elif event_type == AgentRunEventType.RUN_OUTPUT and summary and not is_subagent_event and not _is_intermediate_report_output(payload, summary):
                     last_summary = summary
+                if drop_current_event:
+                    continue
                 yield sequencer.next(
                     agent_run_id=request.agent_run_id,
                     trace_id=request.trace_id,
@@ -259,25 +310,34 @@ class AgentRuntime:
         while tool_events:
             for buffered_event in _flush_message_buffers(
                 pending_message_buffers,
+                emitted_report_text_by_key,
                 request=request,
                 sequencer=sequencer,
                 final_flush=False,
             ):
                 if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
                     last_summary += buffered_event.content
+                elif _is_main_intermediate_report_event(buffered_event):
+                    main_report_outputs.append(buffered_event.content or "")
+                    last_summary = _strip_known_report_outputs(last_summary, main_report_outputs)
                 yield buffered_event
             tool_event = tool_events.pop(0)
             _remember_platform_tool_call(platform_tool_call_names, tool_event)
             yield tool_event
         for buffered_event in _flush_message_buffers(
             pending_message_buffers,
+            emitted_report_text_by_key,
             request=request,
             sequencer=sequencer,
             final_flush=True,
         ):
             if buffered_event.type == AgentRunEventType.MODEL_DELTA and buffered_event.content and buffered_event.payload.get("actor_type") != "subagent":
                 last_summary += buffered_event.content
+            elif _is_main_intermediate_report_event(buffered_event):
+                main_report_outputs.append(buffered_event.content or "")
+                last_summary = _strip_known_report_outputs(last_summary, main_report_outputs)
             yield buffered_event
+        last_summary = _clean_final_summary(last_summary, main_report_outputs)
         yield sequencer.next(
             agent_run_id=request.agent_run_id,
             trace_id=request.trace_id,
@@ -325,6 +385,7 @@ class AgentRuntime:
                     "system_prompt": subagent.system_prompt,
                     "tools": subagent_tools,
                     "skills": subagent.skill_paths or None,
+                    "middleware": quantagent_tool_visibility_middleware(),
                 }
             )
 
@@ -343,6 +404,7 @@ class AgentRuntime:
                 raise DeepAgentsUnavailableError("langgraph MemorySaver is unavailable for interrupt_on") from exc
             checkpointer = MemorySaver()
 
+        configure_quantagent_deepagents_harness(request.runtime_policy.model)
         # DeepAgents 负责 planner、tool loop、task/subagent 和 backend；这里仅做平台边界配置。
         return create_deep_agent(
             model=request.runtime_policy.model,
@@ -350,6 +412,7 @@ class AgentRuntime:
             system_prompt=request.agent_definition.system_prompt,
             subagents=subagents or None,
             skills=request.agent_definition.skill_paths or None,
+            middleware=quantagent_tool_visibility_middleware(),
             interrupt_on=interrupt_on or None,
             checkpointer=checkpointer,
         )
@@ -510,6 +573,22 @@ def _is_platform_tool_message(
     return isinstance(call_id, str) and platform_tool_call_names.get(call_id) in platform_tool_names
 
 
+def _is_deepagents_filesystem_tool_event(
+    event_type: AgentRunEventType,
+    payload: Mapping[str, Any],
+    filesystem_tool_call_names: dict[str, str],
+) -> bool:
+    if event_type not in {AgentRunEventType.TOOL_STARTED, AgentRunEventType.TOOL_COMPLETED, AgentRunEventType.TOOL_FAILED}:
+        return False
+    name = payload.get("name") or payload.get("tool_name")
+    call_id = payload.get("tool_call_id") or payload.get("call_id")
+    if isinstance(name, str) and name in DEEPAGENTS_FILESYSTEM_TOOL_NAMES:
+        if isinstance(call_id, str):
+            filesystem_tool_call_names[call_id] = name
+        return True
+    return isinstance(call_id, str) and filesystem_tool_call_names.get(call_id) in DEEPAGENTS_FILESYSTEM_TOOL_NAMES
+
+
 def _remember_subagent_namespace(
     subagent_scope_by_namespace: dict[tuple[str, ...], str],
     pending_task_subagents: dict[str, str],
@@ -622,30 +701,262 @@ def _is_intermediate_report_output(payload: Mapping[str, Any], summary: str) -> 
     return len(stripped) >= 420 and any(marker in stripped for marker in ("# ", "## ", "### ", "|", "- ", "1. "))
 
 
+def _is_main_intermediate_report_event(event: AgentRunEvent) -> bool:
+    return (
+        event.type == AgentRunEventType.RUN_OUTPUT
+        and event.payload.get("actor_type") != "subagent"
+        and _is_intermediate_report_output(event.payload, event.content or "")
+    )
+
+
+def _strip_known_report_outputs(summary: str, reports: Sequence[str]) -> str:
+    if not summary or not reports:
+        return summary
+    result = summary
+    for report in reports:
+        if not report:
+            continue
+        result = result.replace(report, "")
+        stripped_report = report.strip()
+        if stripped_report:
+            result = result.replace(stripped_report, "")
+    # 中文注释：模型常把“现在进入保守分析”这类过渡句和报告正文连在同一个 delta 里；
+    # 报告已产物化后，final 只保留过渡说明，不再重复展示结构化报告正文。
+    return _truncate_before_report_body(result).strip()
+
+
+def _clean_final_summary(summary: str, reports: Sequence[str]) -> str:
+    cleaned = _strip_known_report_outputs(summary, reports)
+    if _looks_like_compacted_report_replay(cleaned):
+        return "报告已生成，详见上方产物卡片。"
+    if _report_body_start_index(cleaned) is None:
+        return cleaned
+    truncated = _truncate_before_report_body(cleaned).strip()
+    if truncated:
+        return truncated
+    return "报告已生成，详见上方产物卡片。"
+
+
+def _looks_like_compacted_report_replay(text: str) -> bool:
+    stripped = text.strip()
+    if len(stripped) < 420:
+        return False
+    compact = _compact_report_marker_text(stripped)
+    markers = (
+        "IndustryAnalysis",
+        "是否需要通知用户",
+        "通知建议",
+        "行动计划",
+        "风险",
+        "下一步",
+        "evaluate",
+        "evaluatethesis",
+        "build_action_plan",
+        "buildactionplan",
+        "submit_action_plan",
+        "submitactionplan",
+        "get_account_context",
+        "getaccountcontext",
+        "TAVILY",
+        "consensus",
+    )
+    compact_markers = (
+        "industryanalysis",
+        "tavily",
+        "tavilyikey",
+        "searchweb",
+        "sarchwb",
+        "actionplan",
+        "buildactionplan",
+        "submitactionplan",
+        "getaccountcontext",
+        "evaluatethesis",
+        "firstparty",
+        "firstpartyfficial",
+        "rawfact",
+        "consensus",
+        "consnsus",
+        "beat",
+        "miss",
+        "h20",
+        "datacenter",
+        "datacnt",
+    )
+    marker_hits = sum(1 for marker in markers if marker in stripped)
+    compact_hits = sum(1 for marker in compact_markers if marker in compact)
+    return marker_hits >= 3 or compact_hits >= 4 or _is_report_like_message(stripped)
+
+
+def _compact_report_marker_text(text: str) -> str:
+    return "".join(char.lower() for char in text if char.isalnum())
+
+
+def _truncate_before_report_body(text: str) -> str:
+    if not text:
+        return text
+    index = _report_body_start_index(text)
+    if index is not None:
+        return text[:index]
+    return text
+
+
+def _report_body_start_index(text: str) -> int | None:
+    markers = (
+        "URLinvestor.",
+        "URL investor.",
+        "URL：investor.",
+        "URL: investor.",
+        "发布时间",
+        "一、第一手材料",
+        "## 一、第一手材料",
+        "二、核心财务数据",
+        "## 二、核心财务数据",
+        "核心财务数据摘要",
+        "三、信息缺口",
+        "## 三、信息缺口",
+        "四、已知数据",
+        "## 四、已知数据",
+        "五、结论",
+        "## 五、结论",
+        "缺失工具说明",
+    )
+    indexes = [index for marker in markers if (index := text.find(marker)) >= 0]
+    if indexes:
+        return min(indexes)
+    return None
+
+
 def _append_message_buffer(pending_message_buffers: dict[str, dict[str, Any]], *, payload: Mapping[str, Any], text: str) -> None:
     key = _message_buffer_key(payload)
     current = pending_message_buffers.get(key)
     if current is None:
-        pending_message_buffers[key] = {"payload": dict(payload), "text": text}
+        pending_message_buffers[key] = {"emitted_report": False, "last_report_text": "", "payload": dict(payload), "text": text}
         return
+    current_text = str(current.get("text") or "")
+    if current.get("snapshot_report"):
+        if text and text in current_text:
+            current["payload"] = {**current.get("payload", {}), **dict(payload)}
+            return
+        if current_text and current_text in text:
+            current["text"] = text
+            current["payload"] = {**current.get("payload", {}), **dict(payload)}
+            return
+        if _overlaps_report_start(current_text, text):
+            current["payload"] = {**current.get("payload", {}), **dict(payload)}
+            return
     current["text"] = f"{current.get('text', '')}{text}"
     current["payload"] = {**current.get("payload", {}), **dict(payload)}
 
 
 def _should_buffer_message_delta(pending_message_buffers: Mapping[str, dict[str, Any]], *, payload: Mapping[str, Any], text: str) -> bool:
     key = _message_buffer_key(payload)
-    if key in pending_message_buffers:
-        return True
+    current = pending_message_buffers.get(key)
+    if current is not None:
+        if current.get("snapshot_report"):
+            return not _looks_like_post_report_final_delta(text)
+        if not current.get("emitted_report"):
+            return True
+        return not _looks_like_post_report_final_delta(text)
     stripped = text.lstrip()
-    return stripped.startswith(("#", "##", "###")) or stripped.startswith(("报告", "研究报告", "分析报告"))
+    return stripped.startswith(("#", "##", "###")) or _looks_like_report_start(stripped) or _is_report_like_message(stripped)
 
 
-def _drop_duplicate_message_buffer(pending_message_buffers: dict[str, dict[str, Any]], *, payload: Mapping[str, Any], text: str) -> bool:
+def _remember_report_output(
+    pending_message_buffers: dict[str, dict[str, Any]],
+    emitted_report_text_by_key: dict[str, str],
+    *,
+    payload: Mapping[str, Any],
+    text: str,
+) -> None:
     key = _message_buffer_key(payload)
+    emitted_report_text_by_key[key] = text
+    current = pending_message_buffers.get(key)
+    if current is None:
+        pending_message_buffers[key] = {
+            "emitted_report": True,
+            "last_report_text": text,
+            "payload": dict(payload),
+            "snapshot_report": True,
+            "text": text,
+        }
+        return
+    # 中文注释：updates 通道提供的是报告快照；记录它是为了吞掉随后 messages 通道
+    # 可能再次流出的同一份报告片段，避免报告正文进入 final。
+    current["emitted_report"] = True
+    current["last_report_text"] = text
+    current["payload"] = {**current.get("payload", {}), **dict(payload)}
+    current["snapshot_report"] = True
+    current["text"] = text
+
+
+def _looks_like_post_report_final_delta(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    final_markers = (
+        "最终结论",
+        "简洁结论",
+        "最终回答",
+        "最终输出",
+        "结论：",
+        "以上",
+        "Final",
+        "final",
+    )
+    return any(stripped.startswith(marker) for marker in final_markers)
+
+
+def _is_replayed_report_delta(emitted_report_text_by_key: Mapping[str, str], *, payload: Mapping[str, Any], text: str) -> bool:
+    report_text = emitted_report_text_by_key.get(_message_buffer_key(payload), "")
+    if not report_text or not text:
+        return False
+    if text in report_text or report_text in text:
+        return True
+    return _report_overlap_ratio(report_text, text) >= 0.72
+
+
+def _report_overlap_ratio(report_text: str, text: str) -> float:
+    report_tokens = set(_report_compare_tokens(report_text))
+    text_tokens = set(_report_compare_tokens(text))
+    if not report_tokens or not text_tokens:
+        return 0.0
+    return len(report_tokens & text_tokens) / max(1, min(len(report_tokens), len(text_tokens)))
+
+
+def _report_compare_tokens(text: str) -> list[str]:
+    compact = text.replace("|", " ").replace("#", " ").replace("`", " ")
+    return [token for token in compact.split() if len(token) >= 2]
+
+
+def _overlaps_report_start(current_text: str, next_text: str) -> bool:
+    if len(current_text) < 120 or len(next_text) < 120:
+        return False
+    max_size = min(len(current_text), len(next_text), 2000)
+    for size in range(max_size, 119, -1):
+        if current_text.startswith(next_text[-size:]):
+            return True
+    return False
+
+
+def _drop_duplicate_message_buffer(
+    pending_message_buffers: dict[str, dict[str, Any]],
+    emitted_report_text_by_key: dict[str, str],
+    *,
+    payload: Mapping[str, Any],
+    text: str,
+) -> bool:
+    key = _message_buffer_key(payload)
+    if _is_replayed_report_delta(emitted_report_text_by_key, payload=payload, text=text):
+        return True
     current = pending_message_buffers.get(key)
     if current is None:
         return False
     buffered_text = str(current.get("text") or "")
+    if current.get("emitted_report") and _is_report_like_message(text):
+        # 中文注释：updates 通道是状态快照，后到的完整报告可能比早期草稿更短，不能按长度保留旧稿。
+        current["text"] = text
+        current["payload"] = {**current.get("payload", {}), **dict(payload)}
+        return False
     if buffered_text == text or buffered_text in text or text in buffered_text:
         pending_message_buffers.pop(key, None)
         return True
@@ -654,6 +965,7 @@ def _drop_duplicate_message_buffer(pending_message_buffers: dict[str, dict[str, 
 
 def _flush_message_buffers(
     pending_message_buffers: dict[str, dict[str, Any]],
+    emitted_report_text_by_key: dict[str, str],
     *,
     request: AgentRunRequest,
     sequencer: EventSequencer,
@@ -666,7 +978,9 @@ def _flush_message_buffers(
             pending_message_buffers.pop(key, None)
             continue
         payload = dict(item.get("payload") or {})
-        if final_flush or not _is_report_like_message(text):
+        if not _is_report_like_message(text):
+            if not final_flush:
+                continue
             events.append(
                 sequencer.next(
                     agent_run_id=request.agent_run_id,
@@ -679,6 +993,11 @@ def _flush_message_buffers(
             pending_message_buffers.pop(key, None)
             continue
         if _is_report_like_message(text):
+            last_report_text = str(item.get("last_report_text") or "")
+            if text == last_report_text:
+                if final_flush:
+                    pending_message_buffers.pop(key, None)
+                continue
             events.append(
                 sequencer.next(
                     agent_run_id=request.agent_run_id,
@@ -688,6 +1007,9 @@ def _flush_message_buffers(
                     content=text,
                 )
             )
+            item["emitted_report"] = True
+            item["last_report_text"] = text
+            emitted_report_text_by_key[key] = text
             pending_message_buffers.pop(key, None)
     return events
 
@@ -704,9 +1026,41 @@ def _message_buffer_key(payload: Mapping[str, Any]) -> str:
 
 def _is_report_like_message(text: str) -> bool:
     stripped = text.strip()
-    if len(stripped) >= 900:
+    title = ""
+    for line in text.splitlines():
+        cleaned = line.strip().strip("#").strip()
+        if cleaned and not cleaned.startswith("|") and set(cleaned) != {"-"}:
+            title = cleaned[:180]
+            break
+    report_terms = ("报告", "简报", "总结", "结论", "分析", "IndustryAnalysis", "Research")
+    has_report_title = any(term in title for term in report_terms)
+    table_lines = sum(1 for line in stripped.splitlines() if line.strip().startswith("|"))
+    heading_lines = sum(1 for line in stripped.splitlines() if line.lstrip().startswith("#"))
+    list_lines = sum(1 for line in stripped.splitlines() if line.lstrip().startswith(("- ", "1. ")))
+    if table_lines >= 3 and (heading_lines >= 1 or has_report_title):
         return True
-    return len(stripped) >= 420 and any(marker in stripped for marker in ("# ", "## ", "### ", "|", "- ", "1. "))
+    if len(stripped) < 420:
+        return False
+    return has_report_title or table_lines >= 2 or heading_lines >= 2 or (heading_lines >= 1 and list_lines >= 3)
+
+
+def _looks_like_report_start(text: str) -> bool:
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    report_terms = ("报告", "简报", "总结", "结论", "分析", "IndustryAnalysis", "Research")
+    return any(term in first_line for term in report_terms)
+
+
+def _looks_like_report_continuation(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if len(stripped) >= 120:
+        return True
+    markdown_markers = ("|", "#", "-", ">", "**", "`")
+    if any(marker in stripped for marker in markdown_markers):
+        return True
+    section_terms = ("缺口", "风险", "行动", "通知", "一手", "市场", "盘后", "指引", "H20", "TAVILY_API_KEY", "MVP")
+    return any(term in stripped for term in section_terms)
 
 
 async def _open_deepagents_stream(graph: DeepAgentGraph, input_data: Mapping[str, Any], config: Mapping[str, Any]) -> AsyncIterator[Any]:

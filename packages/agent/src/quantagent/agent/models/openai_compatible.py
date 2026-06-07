@@ -15,6 +15,7 @@ from pydantic import ConfigDict, Field
 
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEEPAGENTS_FILESYSTEM_TOOL_NAMES = frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute"})
 
 
 class OpenAICompatibleChatModel(BaseChatModel):
@@ -41,7 +42,12 @@ class OpenAICompatibleChatModel(BaseChatModel):
         tool_choice: str | None = None,
         **kwargs: Any,
     ) -> "OpenAICompatibleChatModel":
-        supported_tools = tuple(tool for tool in tools or () if isinstance(tool, BaseTool))
+        # 中文注释：DeepAgents 内置文件系统工具不属于 QuantAgent 业务工具；模型请求边界再做一次兜底过滤。
+        supported_tools = tuple(
+            tool
+            for tool in tools or ()
+            if isinstance(tool, BaseTool) and tool.name not in DEEPAGENTS_FILESYSTEM_TOOL_NAMES
+        )
         return self.model_copy(update={"bound_tools": supported_tools})
 
     def _generate(

@@ -16,11 +16,12 @@
 | [08. Run 绑定的上下文工具机制](08-run-scoped-context-tools.md) | 定义工具如何绑定 AgentRun、如何返回 artifact、MainAgent 与 SubAgent 如何配置不同上下文工具 |
 | [09. Agent 产物归属与协作边界](09-agent-artifact-ownership.md) | 定义 MainAgent、SubAgent 和工具分别产出什么，哪些 artifact 值得保存和传递 |
 | [10. Agent Chat 与 AgentRuntime 运行链路](10-agent-chat-runtime-flow.md) | 说明正式 Agent Chat / AgentRuntime 链路、session/run 管理、DeepAgents stream、数据结构和 debug 页面定位 |
+| [11. Agent 资产 Manifest 与 Loader 合同](11-agent-asset-manifest-loader-contract.md) | 定义 `.md frontmatter`、tools、skill、SubAgent 资产的职责和运行时加载规则 |
 
 ## 当前结论
 
 - 行业 MainAgent 采用统一 DeepAgents PlannerExecutor 纪律。
-- MainAgent 使用 DeepAgents 内置 planning、task delegation、skills 和 workspace 能力完成规划、调度、收敛输出；平台行动只通过 `submit_action_plan` 提交，通知、审批、Policy Gate、broker 和监控由它统一编排。
+- MainAgent 使用 DeepAgents `write_todos`、显式 `task` 和 skills 完成规划、调度、收敛输出；文件系统类内置工具默认不可见，平台行动只通过 `submit_action_plan` 提交，通知、审批、Policy Gate、broker 和监控由它统一编排。
 - MVP 只固定一个可选 Research SubAgent：专业检索交给 `evidence_research_analyst`；市场反应、产业链影响、风险挑战和交易计划草案先由 MainAgent、行业 skill、`evaluate_thesis` 和 `build_action_plan` 承接，后续按真实瓶颈再拆 SubAgent。
 - 上下文获取工具按 Agent 角色配置；MVP 以 Tavily `search_web` 为轻量搜索工具，不把 `collect_evidence` 作为复杂万能工具。
 - MainAgent 只产出 `IndustryAnalysis` 和可选 `ActionPlan`；`ActionRequest`、Approval、Notification、Broker 和 Monitor 是 `submit_action_plan` 内部平台对象。
