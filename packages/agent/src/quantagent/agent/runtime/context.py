@@ -26,6 +26,8 @@ class RunContextSnapshot(StrictModel):
 
 
 class ToolRuntimeContext(StrictModel):
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
     session_id: str = Field(description="Current Agent Chat session id injected by AgentRuntime.")
     thread_id: str = Field(description="Current DeepAgents/LangGraph thread id injected by AgentRuntime.")
     workspace_id: str = Field(description="Current run workspace id injected by AgentRuntime.")
@@ -39,3 +41,4 @@ class ToolRuntimeContext(StrictModel):
     subagent_name: str | None = Field(default=None, description="DeepAgents-visible subagent name when applicable.")
     span_id: str | None = Field(default=None, description="Protocol span id for this tool execution owner.")
     parent_span_id: str | None = Field(default=None, description="Parent protocol span id when applicable.")
+    artifact_store: Any | None = Field(default=None, exclude=True, description="Run-scoped artifact store injected by AgentRuntime.")

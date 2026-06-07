@@ -4,10 +4,18 @@ import asyncio
 from unittest import TestCase
 from unittest.mock import patch
 
+from quantagent.agent.artifacts import InMemoryArtifactStore
 from quantagent.agent.runtime.context import RunContextSection, RunContextSnapshot, ToolRuntimeContext
 from quantagent.agent.streaming.adapter import EventSequencer
 from quantagent.agent.streaming.events import AgentRunEventType
-from quantagent.agent.tools import build_get_run_context_tool, build_search_web_tool
+from quantagent.agent.tools import (
+    build_build_action_plan_tool,
+    build_evaluate_thesis_tool,
+    build_get_account_context_tool,
+    build_get_run_context_tool,
+    build_search_web_tool,
+    build_submit_action_plan_tool,
+)
 from quantagent.agent.tools.adapter import ToolAdapter
 from quantagent.agent.tools.schemas import SearchWebInput
 from quantagent.agent.tools.search import _request_payload
@@ -118,8 +126,119 @@ class ContextAndSearchToolsTest(TestCase):
         self.assertEqual(payload["topic"], "finance")
         self.assertNotIn("time_range", payload)
 
+    def test_action_tools_complete_dry_run_submission_flow_and_emit_artifacts(self) -> None:
+        async def _run() -> None:
+            store = InMemoryArtifactStore()
+            runtime_context = _runtime_context(artifact_store=store)
+            adapter = ToolAdapter(runtime_context=runtime_context, sequencer=EventSequencer())
+            run_context = _nvda_run_context()
 
-def _runtime_context() -> ToolRuntimeContext:
+            account, account_events = await adapter.invoke(
+                build_get_account_context_tool(run_context),
+                {
+                    "symbols": ["NVDA"],
+                    "include_recent_activity": True,
+                    "relation_hints": [{"key": "issuer", "value": "NVIDIA"}],
+                },
+            )
+            self.assertTrue(account["ok"])
+            self.assertEqual(account["broker_mode"], "dry_run")
+
+            evaluation, evaluation_events = await adapter.invoke(
+                build_evaluate_thesis_tool(run_context),
+                {
+                    "evidence_board_artifact_id": "artifact_evidence_1",
+                    "account_context_id": account["account_context_id"],
+                    "intent_hint": "propose_trade",
+                },
+            )
+            self.assertEqual(evaluation["suggested_intent"], "propose_trade")
+            self.assertTrue(str(evaluation["thesis_evaluation_artifact_id"]).startswith("artifact_"))
+
+            action_plan, action_events = await adapter.invoke(
+                build_build_action_plan_tool(run_context),
+                {
+                    "industry_analysis_artifact_id": "artifact_analysis_1",
+                    "thesis_evaluation_artifact_id": evaluation["thesis_evaluation_artifact_id"],
+                    "account_context_id": account["account_context_id"],
+                    "target_symbols": ["NVDA"],
+                    "intended_action": "open_long",
+                    "conviction": "high",
+                    "time_horizon": "short_term",
+                    "constraints": ["dry_run only"],
+                },
+            )
+            self.assertEqual(action_plan["intent"], "trade")
+            self.assertTrue(str(action_plan["action_plan_artifact_id"]).startswith("artifact_"))
+
+            submission, submission_events = await adapter.invoke(
+                build_submit_action_plan_tool(run_context),
+                {
+                    "action_plan_artifact_id": action_plan["action_plan_artifact_id"],
+                    "industry_analysis_artifact_id": "artifact_analysis_1",
+                    "evidence_artifact_ids": ["artifact_evidence_1"],
+                    "requested_mode_hint": "auto_if_allowed",
+                    "dry_run_allowed": True,
+                    "idempotency_key": "nvda-earnings-open-long",
+                },
+            )
+
+            self.assertEqual(submission["resolved_mode"], "execute_then_notify")
+            self.assertEqual(submission["execution_status"], "dry_run_execution_requested")
+            self.assertGreaterEqual(len(store.list_for_run()), 4)
+            emitted_types = [event.type for event in [*account_events, *evaluation_events, *action_events, *submission_events]]
+            self.assertGreaterEqual(emitted_types.count(AgentRunEventType.ARTIFACT_CREATED), 4)
+
+        asyncio.run(_run())
+
+    def test_evaluate_thesis_accepts_evidence_summary_when_artifact_id_is_missing(self) -> None:
+        async def _run() -> None:
+            adapter = ToolAdapter(runtime_context=_runtime_context(artifact_store=InMemoryArtifactStore()), sequencer=EventSequencer())
+
+            result, events = await adapter.invoke(
+                build_evaluate_thesis_tool(_nvda_run_context()),
+                {
+                    "evidence_summary": "NVIDIA 一手财报强劲，但 Tavily 缺 key，市场预期和盘后反应缺失。",
+                    "intent_hint": "propose_trade",
+                },
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["suggested_intent"], "propose_trade")
+            self.assertIsNone(result["evidence_board_artifact_id"])
+            self.assertIn("Tavily", result["evidence_summary"])
+            self.assertIn(AgentRunEventType.ARTIFACT_CREATED, [event.type for event in events])
+
+        asyncio.run(_run())
+
+    def test_build_action_plan_accepts_industry_summary_when_artifact_id_is_missing(self) -> None:
+        async def _run() -> None:
+            adapter = ToolAdapter(runtime_context=_runtime_context(artifact_store=InMemoryArtifactStore()), sequencer=EventSequencer())
+
+            result, events = await adapter.invoke(
+                build_build_action_plan_tool(_nvda_run_context()),
+                {
+                    "industry_analysis_summary": "NVDA 一手财报收入和数据中心业务显著强劲，风险是市场预期缺失、盘后反应缺失和 H20 管制。",
+                    "thesis_evaluation_artifact_id": "artifact_eval_1",
+                    "account_context_id": "account_context_1",
+                    "target_symbols": ["NVDA"],
+                    "intended_action": "open_long",
+                    "conviction": "high",
+                    "time_horizon": "short_term",
+                    "constraints": ["dry_run only"],
+                },
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertIsNone(result["industry_analysis_artifact_id"])
+            self.assertIn("NVDA", result["industry_analysis_summary"])
+            self.assertTrue(str(result["action_plan_artifact_id"]).startswith("artifact_"))
+            self.assertIn(AgentRunEventType.ARTIFACT_CREATED, [event.type for event in events])
+
+        asyncio.run(_run())
+
+
+def _runtime_context(*, artifact_store: InMemoryArtifactStore | None = None) -> ToolRuntimeContext:
     return ToolRuntimeContext(
         session_id="session_1",
         thread_id="thread_1",
@@ -130,4 +249,34 @@ def _runtime_context() -> ToolRuntimeContext:
         agent_id="agent_main",
         trace_id="trace_1",
         tool_profile_id="tool_profile_1",
+        artifact_store=artifact_store,
+    )
+
+
+def _nvda_run_context() -> RunContextSnapshot:
+    return RunContextSnapshot(
+        context_id="context_nvda",
+        sections=[
+            RunContextSection(
+                name="event",
+                summary="NVIDIA official FY2027 Q1 earnings entered within 5 minutes.",
+                data={
+                    "event_id": "evt_debug_nvda_fy2027_q1_earnings_official",
+                    "event_family": "quarterly_earnings",
+                    "symbols": ["NVDA"],
+                    "guidance": {"guidance_note": "H20 出口管制影响，不含对中国出货。"},
+                },
+            ),
+            RunContextSection(
+                name="risk_policy",
+                summary="Dry-run broker mode.",
+                data={"broker_mode": "dry_run"},
+            ),
+            RunContextSection(
+                name="recent_activity_summary",
+                summary="No prior action.",
+                data={"recent_same_topic_run": False, "prior_notification_sent": False},
+            ),
+        ],
+        content="NVDA run context",
     )

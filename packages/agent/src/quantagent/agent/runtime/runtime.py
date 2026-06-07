@@ -155,6 +155,7 @@ class AgentRuntime:
             subagent_name=subagent_name,
             trace_id=request.trace_id,
             tool_profile_id=request.tool_profile.profile_id,
+            artifact_store=self._deps.artifact_store,
         )
 
     async def _run_deep_agent(

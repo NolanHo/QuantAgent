@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from quantagent.agent.tools.actions import (
+    BUILD_ACTION_PLAN_TOOL_ID,
+    EVALUATE_THESIS_TOOL_ID,
+    GET_ACCOUNT_CONTEXT_TOOL_ID,
+    SUBMIT_ACTION_PLAN_TOOL_ID,
+)
 from quantagent.agent.tools.context import GET_RUN_CONTEXT_TOOL_ID
 from quantagent.agent.tools.profiles import ToolBinding, ToolProfile
 from quantagent.agent.tools.search import SEARCH_WEB_TOOL_ID
@@ -23,30 +29,29 @@ PUBLIC_TOOL_BINDINGS: dict[str, ToolBinding] = {
         ),
         risk_level="medium",
     ),
-    "quantagent.core.tool.get_account_context": ToolBinding(
-        tool_id="quantagent.core.tool.get_account_context",
+    GET_ACCOUNT_CONTEXT_TOOL_ID: ToolBinding(
+        tool_id=GET_ACCOUNT_CONTEXT_TOOL_ID,
         name="get_account_context",
         description="读取已授权的账户、策略、broker 模式、风险预算和近期活动摘要。",
         risk_level="medium",
     ),
-    "quantagent.core.tool.evaluate_thesis": ToolBinding(
-        tool_id="quantagent.core.tool.evaluate_thesis",
+    EVALUATE_THESIS_TOOL_ID: ToolBinding(
+        tool_id=EVALUATE_THESIS_TOOL_ID,
         name="evaluate_thesis",
         description="评估证据质量、重要性、新颖性、历史覆盖、置信度和风险。",
         risk_level="medium",
     ),
-    "quantagent.core.tool.build_action_plan": ToolBinding(
-        tool_id="quantagent.core.tool.build_action_plan",
+    BUILD_ACTION_PLAN_TOOL_ID: ToolBinding(
+        tool_id=BUILD_ACTION_PLAN_TOOL_ID,
         name="build_action_plan",
         description="基于分析、评估和账户上下文 ID 构建受风险约束的 ActionPlan。",
         risk_level="high",
     ),
-    "quantagent.core.tool.submit_action_plan": ToolBinding(
-        tool_id="quantagent.core.tool.submit_action_plan",
+    SUBMIT_ACTION_PLAN_TOOL_ID: ToolBinding(
+        tool_id=SUBMIT_ACTION_PLAN_TOOL_ID,
         name="submit_action_plan",
         description="提交 ActionPlan，进入 policy、approval、notification、monitor 和 broker mock/dry-run 编排。",
         risk_level="critical",
-        requires_interrupt=True,
     ),
 }
 

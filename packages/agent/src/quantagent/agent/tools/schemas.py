@@ -58,7 +58,15 @@ class GetAccountContextInput(StrictModel):
 
 
 class EvaluateThesisInput(StrictModel):
-    evidence_board_artifact_id: str = Field(description="本次 run 产出的 EvidenceBoard artifact id。")
+    evidence_board_artifact_id: str | None = Field(
+        default=None,
+        description="本次 run 产出的 EvidenceBoard artifact id；优先传 ID，缺失时必须提供 evidence_summary。",
+    )
+    evidence_summary: str | None = Field(
+        default=None,
+        min_length=1,
+        description="没有 EvidenceBoard artifact id 时的压缩证据摘要；用于 Tavily 缺 key或 SubAgent 只返回文本的降级路径。",
+    )
     industry_analysis_artifact_id: str | None = Field(
         default=None,
         description="评估前已有 draft 时可传入 IndustryAnalysis artifact id。",
@@ -71,7 +79,15 @@ class EvaluateThesisInput(StrictModel):
 
 
 class BuildActionPlanInput(StrictModel):
-    industry_analysis_artifact_id: str = Field(description="IndustryAnalysis draft artifact id。")
+    industry_analysis_artifact_id: str | None = Field(
+        default=None,
+        description="IndustryAnalysis draft artifact id；优先传 ID，缺失时必须提供 industry_analysis_summary。",
+    )
+    industry_analysis_summary: str | None = Field(
+        default=None,
+        min_length=1,
+        description="没有 IndustryAnalysis artifact id 时的压缩分析摘要，用于真实 Chat MVP 的降级路径。",
+    )
     thesis_evaluation_artifact_id: str = Field(description="ThesisEvaluation artifact id。")
     account_context_id: str = Field(description="已授权账户上下文 ID。")
     target_symbols: list[str] = Field(min_length=1, description="行动计划覆盖的 ticker 列表。")
@@ -83,7 +99,7 @@ class BuildActionPlanInput(StrictModel):
 
 class SubmitActionPlanInput(StrictModel):
     action_plan_artifact_id: str = Field(description="要提交的 ActionPlan artifact id。")
-    industry_analysis_artifact_id: str = Field(description="与该 action 关联的 IndustryAnalysis artifact id。")
+    industry_analysis_artifact_id: str | None = Field(default=None, description="与该 action 关联的 IndustryAnalysis artifact id；MVP 可为空。")
     evidence_artifact_ids: list[str] = Field(default_factory=list, description="支持该 action 的证据 artifact id 列表。")
     requested_mode_hint: Literal["auto_if_allowed", "manual", "dry_run_only"] = Field(
         default="auto_if_allowed",

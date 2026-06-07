@@ -8,9 +8,15 @@ from quantagent.agent.definitions.assets import (
     filter_agent_assets_by_available_tools,
     load_agent_assets_from_directory,
 )
-from quantagent.agent.definitions.models import AgentDefinition
 from quantagent.agent.runtime.context import RunContextSection, RunContextSnapshot
-from quantagent.agent.tools import GET_RUN_CONTEXT_TOOL_ID, SEARCH_WEB_TOOL_ID
+from quantagent.agent.tools import (
+    BUILD_ACTION_PLAN_TOOL_ID,
+    EVALUATE_THESIS_TOOL_ID,
+    GET_ACCOUNT_CONTEXT_TOOL_ID,
+    GET_RUN_CONTEXT_TOOL_ID,
+    SEARCH_WEB_TOOL_ID,
+    SUBMIT_ACTION_PLAN_TOOL_ID,
+)
 from quantagent.agent.tools.profiles import ToolProfile
 from quantagent.core.db.models.agent_chat import AgentChatRunORM, AgentChatSessionORM
 
@@ -20,7 +26,14 @@ NVDA_EARNINGS_ROUTED_EVENT = "nvda-earnings"
 NVDA_MEDIA_FOLLOWUP_ROUTED_EVENT = "nvda-media-followup"
 
 _SUPPORTED_ROUTED_EVENTS = {NVDA_EARNINGS_ROUTED_EVENT, NVDA_MEDIA_FOLLOWUP_ROUTED_EVENT}
-_AVAILABLE_AGENT_CHAT_TOOL_IDS = {GET_RUN_CONTEXT_TOOL_ID, SEARCH_WEB_TOOL_ID}
+_AVAILABLE_AGENT_CHAT_TOOL_IDS = {
+    GET_RUN_CONTEXT_TOOL_ID,
+    SEARCH_WEB_TOOL_ID,
+    GET_ACCOUNT_CONTEXT_TOOL_ID,
+    EVALUATE_THESIS_TOOL_ID,
+    BUILD_ACTION_PLAN_TOOL_ID,
+    SUBMIT_ACTION_PLAN_TOOL_ID,
+}
 
 
 @dataclass(frozen=True)
@@ -60,7 +73,7 @@ def build_agent_chat_assets(*, industry_id: str, agent_id: str) -> AgentChatRunt
         available_tool_ids=_AVAILABLE_AGENT_CHAT_TOOL_IDS,
     )
     return AgentChatRuntimeAssets(
-        agent_definition=_agent_definition_for_chat_mvp(agent_definition),
+        agent_definition=agent_definition,
         tool_profile=tool_profile,
         subagent_tool_profiles=subagent_profiles,
     )
@@ -98,15 +111,34 @@ def build_agent_chat_run_context(row: AgentChatSessionORM, run: AgentChatRunORM,
         RunContextSection(
             name="risk_policy",
             summary=(
-                "MVP Agent Chat 不执行真实 broker 操作。如果事件看起来需要行动，只输出分析和行动计划草案，"
-                "并说明完整交易闭环中哪些内容需要进入 Policy Gate 或人工审批。"
+                "MVP Agent Chat 不执行真实 broker 操作，但允许通过 submit_action_plan 进入 dry-run/mock 行动提交路径。"
+                "Policy Gate、通知、审批和监控结果由 submit_action_plan 返回。"
             ),
-            data={"broker_mode": "disabled", "real_trade_execution": False, "approval_required_for_live_trade": True},
+            data={
+                "broker_mode": "dry_run",
+                "real_trade_execution": False,
+                "approval_required_for_live_trade": True,
+                "auto_approve_for_debug_dry_run": True,
+            },
         ),
         RunContextSection(
             name="tool_profile",
-            summary="当前 Agent Chat 已注册业务工具是 get_run_context 和 search_web。DeepAgents 内置工具存在，但不作为业务上下文来源。",
-            data={"tools": [GET_RUN_CONTEXT_TOOL_ID, SEARCH_WEB_TOOL_ID]},
+            summary=(
+                "当前 Agent Chat 已注册业务工具：get_run_context、search_web、get_account_context、"
+                "evaluate_thesis、build_action_plan、submit_action_plan。DeepAgents 内置工具存在，"
+                "但文件系统工具不作为业务上下文来源。"
+            ),
+            data={
+                "tools": [
+                    GET_RUN_CONTEXT_TOOL_ID,
+                    SEARCH_WEB_TOOL_ID,
+                    GET_ACCOUNT_CONTEXT_TOOL_ID,
+                    EVALUATE_THESIS_TOOL_ID,
+                    BUILD_ACTION_PLAN_TOOL_ID,
+                    SUBMIT_ACTION_PLAN_TOOL_ID,
+                ],
+                "action_flow": ["get_account_context", "evaluate_thesis", "build_action_plan", "submit_action_plan"],
+            },
         ),
         _recent_activity_section(routed_event),
     ]
@@ -140,17 +172,6 @@ def _repo_root() -> Path:
         if (parent / "plugins" / "industries").is_dir() and (parent / "pyproject.toml").is_file():
             return parent
     raise RuntimeError("repo root with plugins/industries not found")
-
-
-def _agent_definition_for_chat_mvp(agent_definition: AgentDefinition) -> AgentDefinition:
-    suffix = (
-        "\n\n"
-        "Agent Chat MVP 运行约束：当前真实调试链路只注册 get_run_context 和 search_web 两个业务工具。"
-        "如果完整行业 prompt 中提到 get_account_context、evaluate_thesis、build_action_plan 或 submit_action_plan，"
-        "本轮只能把它们视为后续正式行动闭环能力，不要尝试调用。"
-        "当你判断需要行动计划或通知时，请输出草案和缺失工具说明，而不是声明已经提交、审批、通知或成交。"
-    )
-    return agent_definition.model_copy(update={"system_prompt": f"{agent_definition.system_prompt}{suffix}"})
 
 
 def _routed_event_preset(row: AgentChatSessionORM) -> str | None:

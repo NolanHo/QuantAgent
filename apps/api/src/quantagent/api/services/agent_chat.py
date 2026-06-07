@@ -14,7 +14,14 @@ from quantagent.agent.models import OpenAICompatibleChatModel
 from quantagent.agent.runtime import AgentRuntime
 from quantagent.agent.runtime.requests import AgentRunRequest
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
-from quantagent.agent.tools import build_get_run_context_tool, build_search_web_tool
+from quantagent.agent.tools import (
+    build_build_action_plan_tool,
+    build_evaluate_thesis_tool,
+    build_get_account_context_tool,
+    build_get_run_context_tool,
+    build_search_web_tool,
+    build_submit_action_plan_tool,
+)
 from quantagent.api.http.errors import NotFoundError, ServiceUnavailableError
 from quantagent.api.schemas.agent_chat import AgentChatMessageResponse, AgentChatSessionResponse, AgentChatStreamEvent
 from quantagent.api.services.agent_chat_runtime_config import (
@@ -131,6 +138,10 @@ class AgentChatService:
                 tools=[
                     build_get_run_context_tool(run_request.run_context),
                     build_search_web_tool(api_key=self._resolve_tavily_api_key()),
+                    build_get_account_context_tool(run_request.run_context),
+                    build_evaluate_thesis_tool(run_request.run_context),
+                    build_build_action_plan_tool(run_request.run_context),
+                    build_submit_action_plan_tool(run_request.run_context),
                 ]
             )
             async for event in runtime.run_stream(run_request):

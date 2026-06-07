@@ -40,6 +40,7 @@ class ToolAdapter:
 
     async def invoke(self, tool: PlatformTool[InputModelT], raw_input: Mapping[str, Any]) -> tuple[Mapping[str, Any], list[AgentRunEvent]]:
         input_data, input_payload, invocation_id, events = self._start_invocation(tool, raw_input)
+        before_artifact_ids = _artifact_ids(self._runtime_context)
 
         try:
             result = tool.callable(input_data, self._runtime_context)
@@ -48,10 +49,11 @@ class ToolAdapter:
         except Exception as exc:  # noqa: BLE001
             return self._fail_invocation(tool, input_payload, invocation_id, events, exc)
 
-        return self._complete_invocation(tool, input_payload, invocation_id, events, result)
+        return self._complete_invocation(tool, input_payload, invocation_id, events, result, before_artifact_ids)
 
     def invoke_sync(self, tool: PlatformTool[InputModelT], raw_input: Mapping[str, Any]) -> tuple[Mapping[str, Any], list[AgentRunEvent]]:
         input_data, input_payload, invocation_id, events = self._start_invocation(tool, raw_input)
+        before_artifact_ids = _artifact_ids(self._runtime_context)
 
         try:
             result = tool.callable(input_data, self._runtime_context)
@@ -60,7 +62,7 @@ class ToolAdapter:
         except Exception as exc:  # noqa: BLE001
             return self._fail_invocation(tool, input_payload, invocation_id, events, exc)
 
-        return self._complete_invocation(tool, input_payload, invocation_id, events, result)
+        return self._complete_invocation(tool, input_payload, invocation_id, events, result, before_artifact_ids)
 
     def _start_invocation(
         self,
@@ -132,6 +134,7 @@ class ToolAdapter:
         invocation_id: str,
         events: list[AgentRunEvent],
         result: Mapping[str, Any],
+        before_artifact_ids: set[str],
     ) -> tuple[Mapping[str, Any], list[AgentRunEvent]]:
         events.append(
             self._sequencer.next(
@@ -154,6 +157,7 @@ class ToolAdapter:
                 content=f"工具 {tool.binding.name} 调用完成。",
             )
         )
+        events.extend(_artifact_created_events(self._runtime_context, self._sequencer, before_artifact_ids))
         return dict(result), events
 
     def _scope_payload(self) -> dict[str, str]:
@@ -182,3 +186,50 @@ def _run_sync(awaitable: Awaitable[Mapping[str, Any]]) -> Mapping[str, Any]:
     if callable(close):
         close()
     raise RuntimeError("当前事件循环内不可执行同步工具调用")
+
+
+def _artifact_ids(runtime_context: ToolRuntimeContext) -> set[str]:
+    store = runtime_context.artifact_store
+    if store is None:
+        return set()
+    return {ref.artifact_id for ref in store.list_for_run()}
+
+
+def _artifact_created_events(
+    runtime_context: ToolRuntimeContext,
+    sequencer: EventSequencer,
+    before_artifact_ids: set[str],
+) -> list[AgentRunEvent]:
+    store = runtime_context.artifact_store
+    if store is None:
+        return []
+    events: list[AgentRunEvent] = []
+    scope_payload = {"actor_type": "main"}
+    if runtime_context.subagent_id:
+        scope_payload["actor_type"] = "subagent"
+        scope_payload["subagent_id"] = runtime_context.subagent_id
+    if runtime_context.subagent_name:
+        scope_payload["subagent_name"] = runtime_context.subagent_name
+    for ref in store.list_for_run():
+        if ref.artifact_id in before_artifact_ids:
+            continue
+        try:
+            payload = dict(store.get(ref.artifact_id).payload)
+        except KeyError:
+            payload = {}
+        events.append(
+            sequencer.next(
+                agent_run_id=runtime_context.agent_run_id,
+                trace_id=runtime_context.trace_id,
+                event_type=AgentRunEventType.ARTIFACT_CREATED,
+                payload={
+                    **scope_payload,
+                    "artifact": ref.model_dump(mode="json"),
+                    "artifact_id": ref.artifact_id,
+                    "kind": ref.kind,
+                    "payload": payload,
+                },
+                content=ref.content,
+            )
+        )
+    return events
