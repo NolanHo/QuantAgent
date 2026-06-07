@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, CheckCircle2, Circle, FileText, Hammer, Loader2, RadioTower, SquareStack } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, Circle, FileText, Hammer, Loader2, RadioTower, Send, ShieldCheck, SquareStack, TrendingUp } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { AgentMarkdown } from "../conversation/AgentMarkdown";
@@ -150,12 +150,16 @@ function ArtifactRuntimeCard({ item }: { item: unknown }) {
   if (!artifact) {
     return <RuntimeDetailCard item={item} title={runtimeTitle(item, "Artifact")} />;
   }
+  const Icon = artifact.type === "thesis" ? TrendingUp : artifact.type === "action_plan" ? ShieldCheck : artifact.type === "submission" ? Send : FileText;
   return (
     <details className="group rounded-md border border-hairline bg-canvas">
       <summary className="cursor-pointer list-none px-3 py-2">
         <div className="flex items-start justify-between gap-3">
           <div className="grid min-w-0 gap-1">
-            <div className="truncate text-[13px] font-semibold text-ink">{artifact.title}</div>
+            <div className="flex min-w-0 items-center gap-2">
+              <Icon aria-hidden className="size-4 shrink-0 text-primary" />
+              <div className="truncate text-[13px] font-semibold text-ink">{artifact.title}</div>
+            </div>
             <div className="flex flex-wrap gap-2 font-mono text-[11px] text-muted">
               {artifact.agentName ? <span>{artifact.agentName}</span> : null}
               {artifact.sourceSeq ? <span>seq {artifact.sourceSeq}</span> : null}
@@ -169,6 +173,15 @@ function ArtifactRuntimeCard({ item }: { item: unknown }) {
         {artifact.contentMarkdown ? (
           <div className="max-h-[32rem] overflow-auto pr-1 text-[13px] leading-6 text-muted-strong">
             <AgentMarkdown content={artifact.contentMarkdown} />
+          </div>
+        ) : artifact.rows.length ? (
+          <div className="grid gap-2 text-[12px]">
+            {artifact.rows.map((row) => (
+              <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2" key={row.label}>
+                <span className="text-muted">{row.label}</span>
+                <span className="min-w-0 break-words font-semibold text-ink">{row.value}</span>
+              </div>
+            ))}
           </div>
         ) : (
           <AgentJsonBlock value={item} />
@@ -200,24 +213,95 @@ function RuntimeDetailCard({
 function readRuntimeArtifact(item: unknown): null | {
   agentName?: string;
   contentMarkdown?: string;
+  rows: Array<{ label: string; value: string }>;
   sourceSeq?: number;
   summary?: string;
   title: string;
+  type: "action_plan" | "analysis" | "report" | "submission" | "thesis";
 } {
   const runtimeEvent = readPath(item, ["runtime_event"]) ?? readPath(item, ["payload", "runtime_event"]);
   const contentJson = readPath(runtimeEvent, ["content", "json"]);
   const rawArtifact = readPath(runtimeEvent, ["raw", "artifact"]);
   const artifact = isRecord(contentJson) ? contentJson : isRecord(rawArtifact) ? rawArtifact : null;
   if (!artifact) return null;
-  const type = readPath(artifact, ["artifact_type"]) ?? readPath(artifact, ["type"]);
-  if (type !== "report") return null;
+  const nestedArtifact = isRecord(readPath(artifact, ["artifact"])) ? (readPath(artifact, ["artifact"]) as Record<string, unknown>) : artifact;
+  const payload = isRecord(readPath(artifact, ["payload"])) ? (readPath(artifact, ["payload"]) as Record<string, unknown>) : {};
+  const type = normalizeArtifactType(readPath(nestedArtifact, ["artifact_type"]) ?? readPath(nestedArtifact, ["type"]) ?? readPath(artifact, ["kind"]) ?? readPath(nestedArtifact, ["kind"]));
   return {
-    agentName: stringOrUndefined(readPath(artifact, ["agent_display_name"]) ?? readPath(artifact, ["agent_name"])),
-    contentMarkdown: stringOrUndefined(readPath(artifact, ["content_markdown"]) ?? readPath(artifact, ["markdown"]) ?? readPath(artifact, ["content"])),
-    sourceSeq: typeof readPath(artifact, ["source_seq"]) === "number" ? (readPath(artifact, ["source_seq"]) as number) : undefined,
-    summary: stringOrUndefined(readPath(artifact, ["summary"])),
-    title: stringOrUndefined(readPath(artifact, ["title"])) ?? "分析报告",
+    agentName: stringOrUndefined(readPath(nestedArtifact, ["agent_display_name"]) ?? readPath(nestedArtifact, ["agent_name"])),
+    contentMarkdown: stringOrUndefined(readPath(nestedArtifact, ["content_markdown"]) ?? readPath(nestedArtifact, ["markdown"]) ?? readPath(nestedArtifact, ["content"])),
+    rows: artifactRows(type, payload),
+    sourceSeq: typeof readPath(nestedArtifact, ["source_seq"]) === "number" ? (readPath(nestedArtifact, ["source_seq"]) as number) : undefined,
+    summary: stringOrUndefined(readPath(nestedArtifact, ["summary"]) ?? readPath(payload, ["summary"]) ?? readPath(payload, ["reason_summary"])),
+    title: stringOrUndefined(readPath(nestedArtifact, ["title"])) ?? artifactTitle(type),
+    type,
   };
+}
+
+function normalizeArtifactType(value: unknown): "action_plan" | "analysis" | "report" | "submission" | "thesis" {
+  if (value === "report") return "report";
+  if (value === "thesis_evaluation") return "thesis";
+  if (value === "action_plan") return "action_plan";
+  if (value === "submission_result") return "submission";
+  return "analysis";
+}
+
+function artifactTitle(type: "action_plan" | "analysis" | "report" | "submission" | "thesis") {
+  if (type === "thesis") return "Thesis 评估";
+  if (type === "action_plan") return "ActionPlan";
+  if (type === "submission") return "行动提交结果";
+  if (type === "report") return "分析报告";
+  return "运行产物";
+}
+
+function artifactRows(type: "action_plan" | "analysis" | "report" | "submission" | "thesis", payload: Record<string, unknown>) {
+  if (type === "report") return [];
+  if (type === "thesis") {
+    return compactRows([
+      ["建议", readPath(payload, ["suggested_intent"])],
+      ["置信度", percentValue(readPath(payload, ["confidence_score"]))],
+      ["风险", readPath(payload, ["risk_level"])],
+      ["关系", readPath(payload, ["event_relationship"])],
+    ]);
+  }
+  if (type === "action_plan") {
+    const orders = readPath(payload, ["orders"]);
+    const firstOrder = Array.isArray(orders) && isRecord(orders[0]) ? orders[0] : {};
+    const riskControls = isRecord(readPath(payload, ["risk_controls"])) ? (readPath(payload, ["risk_controls"]) as Record<string, unknown>) : {};
+    return compactRows([
+      ["动作", readPath(payload, ["intended_action"])],
+      ["标的", Array.isArray(readPath(payload, ["target_symbols"])) ? (readPath(payload, ["target_symbols"]) as unknown[]).join(", ") : readPath(payload, ["target_symbols"])],
+      ["规模", currencyValue(readPath(firstOrder, ["notional_usd"]))],
+      ["止损", percentValue(readPath(riskControls, ["stop_loss_pct"]))],
+      ["止盈", percentValue(readPath(riskControls, ["take_profit_pct"]))],
+    ]);
+  }
+  if (type === "submission") {
+    return compactRows([
+      ["模式", readPath(payload, ["resolved_mode"])],
+      ["执行", readPath(payload, ["execution_status"])],
+      ["通知", readPath(payload, ["notification_status"])],
+      ["监控", readPath(payload, ["monitoring_status"])],
+    ]);
+  }
+  return [];
+}
+
+function compactRows(items: Array<[string, unknown]>): Array<{ label: string; value: string }> {
+  return items
+    .map(([label, value]) => ({ label, value: stringOrUndefined(value) ?? "" }))
+    .filter((row) => row.value.length > 0);
+}
+
+function percentValue(value: unknown): string | undefined {
+  if (typeof value !== "number") return stringOrUndefined(value);
+  const scaled = Math.abs(value) <= 1 ? value * 100 : value;
+  return `${Number(scaled.toFixed(1))}%`;
+}
+
+function currencyValue(value: unknown): string | undefined {
+  if (typeof value !== "number") return stringOrUndefined(value);
+  return new Intl.NumberFormat("zh-CN", { currency: "USD", maximumFractionDigits: 0, style: "currency" }).format(value);
 }
 
 function RuntimeEventRow({ item }: { item: unknown }) {

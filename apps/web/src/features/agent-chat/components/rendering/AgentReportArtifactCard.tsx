@@ -2,7 +2,6 @@ import { ChevronDown, FileText } from "lucide-react";
 import { twMerge } from "tailwind-merge";
 
 import type { AgentArtifactPart } from "../../types";
-import { AgentMarkdown } from "../conversation/AgentMarkdown";
 import { AgentCollapsibleText } from "./AgentCollapsibleText";
 
 export function AgentReportArtifactCard({ compact = false, part }: { compact?: boolean; part: AgentArtifactPart }) {
