@@ -5,15 +5,33 @@ import { partToAgentChainSteps } from "./part-to-agent-chain-steps";
 
 export function AgentChainOfThought({ parts }: { parts: readonly AgentRenderPart[] }) {
   const steps = parts.flatMap(partToAgentChainSteps);
+  const summary = summarizeParts(parts);
 
   if (!steps.length) return null;
 
   return (
     <ChainOfThought data-agent-render-lane="main" data-agent-render-target="cot" defaultOpen>
-      <ChainOfThoughtHeader>思考与执行过程 · {steps.length} steps</ChainOfThoughtHeader>
+      <ChainOfThoughtHeader>
+        思考与执行过程 · {steps.length} steps{summary ? ` · ${summary}` : ""}
+      </ChainOfThoughtHeader>
       <ChainOfThoughtContent>
         <AgentChainStepList steps={steps} />
       </ChainOfThoughtContent>
     </ChainOfThought>
   );
+}
+
+function summarizeParts(parts: readonly AgentRenderPart[]): string {
+  const toolCount = parts.filter((part) => part.type === "tool").length;
+  const subagentCount = parts.filter((part) => part.type === "subagent").length;
+  const actionArtifactCount = parts.filter(
+    (part) => part.type === "artifact" && ["action_plan", "submission", "thesis"].includes(part.artifactType),
+  ).length;
+  return [
+    subagentCount ? `${subagentCount} SubAgent` : "",
+    toolCount ? `${toolCount} 工具` : "",
+    actionArtifactCount ? `${actionArtifactCount} 行动产物` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
 }
