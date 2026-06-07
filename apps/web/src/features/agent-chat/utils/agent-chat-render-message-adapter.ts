@@ -725,15 +725,17 @@ function timelineItemToArtifact(item: AgentChatTimelineItem): AgentArtifactPart 
 function runtimeEventToArtifact(event: AgentRuntimeEventV1): AgentArtifactPart {
   const payload = isRecord(event.content?.json) ? event.content.json : isRecord(event.raw) ? event.raw : {};
   const artifactRecord = isRecord(payload.artifact) ? payload.artifact : payload;
-  const artifactType = normalizeArtifactType(readString(artifactRecord.artifact_type) ?? readString(artifactRecord.type));
+  const artifactPayload = isRecord(payload.payload) ? payload.payload : {};
+  const artifactKind = readString(payload.kind) ?? readString(artifactRecord.kind);
+  const artifactType = normalizeArtifactType(readString(artifactRecord.artifact_type) ?? readString(artifactRecord.type) ?? artifactKind);
+  const title = artifactTitle(artifactType, artifactRecord, artifactPayload);
   const contentMarkdown =
     readString(artifactRecord.content_markdown) ??
     readString(artifactRecord.markdown) ??
     readString(artifactRecord.content) ??
     runtimeContentText(event);
-  const summary = readString(artifactRecord.summary) ?? summarizeMarkdown(contentMarkdown);
-  const title = readString(artifactRecord.title) ?? (artifactType === "report" ? "分析报告" : "运行产物");
-  const rows = objectRows(artifactRecord);
+  const summary = readString(artifactRecord.summary) ?? readString(artifactPayload.summary) ?? summarizeMarkdown(contentMarkdown);
+  const rows = artifactRows(artifactType, artifactPayload, artifactRecord);
   return {
     type: "artifact",
     artifactId: readString(artifactRecord.artifact_id) ?? undefined,
@@ -750,8 +752,92 @@ function runtimeEventToArtifact(event: AgentRuntimeEventV1): AgentArtifactPart {
 }
 
 function normalizeArtifactType(value: null | string): AgentArtifactPart["artifactType"] {
+  if (value === "thesis_evaluation") return "thesis";
+  if (value === "action_plan") return "action_plan";
+  if (value === "submission_result") return "submission";
   if (value === "notification" || value === "order" || value === "report" || value === "risk") return value;
   return "analysis";
+}
+
+function artifactTitle(type: AgentArtifactPart["artifactType"], artifact: Record<string, unknown>, payload: Record<string, unknown>): string {
+  const explicit = readString(artifact.title) ?? readString(payload.title);
+  if (explicit) return explicit;
+  if (type === "thesis") return "Thesis 评估";
+  if (type === "action_plan") return "ActionPlan";
+  if (type === "submission") return "行动提交结果";
+  if (type === "report") return "分析报告";
+  return "运行产物";
+}
+
+function artifactRows(
+  type: AgentArtifactPart["artifactType"],
+  payload: Record<string, unknown>,
+  artifact: Record<string, unknown>,
+): Array<{ label: string; value: string }> {
+  if (type === "thesis") {
+    return compactRows([
+      ["建议", payload.suggested_intent],
+      ["置信度", percentValue(payload.confidence_score)],
+      ["风险", payload.risk_level],
+      ["关系", payload.event_relationship],
+      ["理由", payload.reason_summary],
+    ]);
+  }
+  if (type === "action_plan") {
+    const firstOrder = Array.isArray(payload.orders) && isRecord(payload.orders[0]) ? payload.orders[0] : {};
+    const riskControls = isRecord(payload.risk_controls) ? payload.risk_controls : {};
+    return compactRows([
+      ["动作", payload.intended_action],
+      ["标的", Array.isArray(payload.target_symbols) ? payload.target_symbols.join(", ") : payload.target_symbols],
+      ["规模", currencyValue(firstOrder.notional_usd)],
+      ["组合占比", percentValue(firstOrder.portfolio_pct)],
+      ["止损", percentValue(riskControls.stop_loss_pct)],
+      ["止盈", percentValue(riskControls.take_profit_pct)],
+      ["摘要", payload.summary],
+    ]);
+  }
+  if (type === "submission") {
+    return compactRows([
+      ["模式", payload.resolved_mode],
+      ["Broker", payload.broker_mode],
+      ["执行", payload.execution_status],
+      ["通知", payload.notification_status],
+      ["监控", payload.monitoring_status],
+      ["幂等键", payload.idempotency_key],
+      ["摘要", payload.summary],
+    ]);
+  }
+  const rows = objectRows(artifact);
+  return rows.length ? rows : objectRows(payload);
+}
+
+function compactRows(items: Array<[string, unknown]>): Array<{ label: string; value: string }> {
+  return items
+    .map(([label, value]) => ({ label, value: formatArtifactValue(value) }))
+    .filter((row) => row.value.length > 0);
+}
+
+function formatArtifactValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(formatArtifactValue).filter(Boolean).join(", ");
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function percentValue(value: unknown): string {
+  if (typeof value !== "number") return formatArtifactValue(value);
+  const scaled = Math.abs(value) <= 1 ? value * 100 : value;
+  return `${Number(scaled.toFixed(1))}%`;
+}
+
+function currencyValue(value: unknown): string {
+  if (typeof value !== "number") return formatArtifactValue(value);
+  return new Intl.NumberFormat("zh-CN", { currency: "USD", maximumFractionDigits: 0, style: "currency" }).format(value);
 }
 
 function summarizeMarkdown(value: null | string): string | undefined {

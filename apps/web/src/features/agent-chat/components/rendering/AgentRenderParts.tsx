@@ -8,6 +8,7 @@ import {
   FileText,
   Hammer,
   Loader2,
+  Send,
   ShieldCheck,
   TrendingUp,
   XCircle,
@@ -218,17 +219,38 @@ function DecisionPartView({ part }: { part: AgentDecisionPart }) {
 }
 
 function ArtifactPartView({ part }: { part: AgentArtifactPart }) {
-  const Icon = part.artifactType === "notification" ? Bell : part.artifactType === "order" ? ShieldCheck : FileText;
+  const Icon =
+    part.artifactType === "notification"
+      ? Bell
+      : part.artifactType === "order" || part.artifactType === "action_plan"
+        ? ShieldCheck
+        : part.artifactType === "submission"
+          ? Send
+          : part.artifactType === "thesis"
+            ? TrendingUp
+            : FileText;
   if (part.artifactType === "report") {
       return <AgentReportArtifactCard part={part} />;
   }
   return (
-    <section className={twMerge("rounded-lg border p-3", tonePanelClass(part.tone ?? "neutral"))}>
-      <div className="mb-2 flex items-center gap-2 text-body-sm font-bold text-ink">
-        <Icon aria-hidden className="size-4 text-muted-strong" />
-        {part.title}
+    <section className={twMerge("overflow-hidden rounded-lg border", artifactPanelClass(part.artifactType, part.tone ?? "neutral"))}>
+      <div className="flex items-start justify-between gap-3 border-b border-hairline/70 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Icon aria-hidden className="size-4 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <div className="truncate text-body-sm font-bold text-ink">{part.title}</div>
+            <div className="flex flex-wrap gap-2 font-mono text-caption text-muted">
+              {part.agentName ? <span>{part.agentName}</span> : null}
+              {part.artifactId ? <span>{shortId(part.artifactId)}</span> : null}
+            </div>
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full bg-canvas px-2 py-0.5 text-caption font-black text-muted-strong">{artifactTypeLabel(part.artifactType)}</span>
       </div>
-      <KeyValueRows rows={part.rows} />
+      <div className="grid gap-3 px-3 py-3">
+        {part.summary ? <p className="m-0 line-clamp-3 text-body-sm leading-6 text-muted-strong">{part.summary}</p> : null}
+        <KeyValueRows rows={part.rows.slice(0, 7)} />
+      </div>
     </section>
   );
 }
@@ -316,4 +338,26 @@ function tonePanelClass(tone: AgentRenderTone) {
   if (tone === "danger") return "border-trading-down/20 bg-trading-down/5";
   if (tone === "info") return "border-primary/20 bg-primary/5";
   return "border-hairline bg-canvas";
+}
+
+function artifactPanelClass(type: AgentArtifactPart["artifactType"], tone: AgentRenderTone) {
+  if (type === "action_plan" || type === "submission") return "border-primary/20 bg-primary/5";
+  if (type === "thesis") return "border-trading-up/20 bg-trading-up/5";
+  return tonePanelClass(tone);
+}
+
+function artifactTypeLabel(type: AgentArtifactPart["artifactType"]) {
+  if (type === "action_plan") return "计划";
+  if (type === "submission") return "提交";
+  if (type === "thesis") return "评估";
+  if (type === "notification") return "通知";
+  if (type === "order") return "订单";
+  if (type === "risk") return "风险";
+  if (type === "report") return "报告";
+  return "产物";
+}
+
+function shortId(value: string) {
+  if (value.length <= 18) return value;
+  return `${value.slice(0, 10)}…${value.slice(-6)}`;
 }

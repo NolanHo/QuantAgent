@@ -711,6 +711,84 @@ describe("agentTimelineToRenderMessages", () => {
       },
     ]);
   });
+
+  it("renders action workflow artifacts as dedicated scan-friendly cards", () => {
+    const messages = agentTimelineToRenderMessages([
+      item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
+      actionArtifactItem({
+        artifactId: "artifact_eval",
+        kind: "thesis_evaluation",
+        payload: {
+          confidence_score: 0.92,
+          event_relationship: "new_information",
+          reason_summary: "一手财报事件具备高重要性和新颖性，建议进入小仓位 dry-run 行动计划。",
+          risk_level: "low",
+          suggested_intent: "propose_trade",
+        },
+        seq: 2,
+      }),
+      actionArtifactItem({
+        artifactId: "artifact_plan",
+        kind: "action_plan",
+        payload: {
+          intended_action: "open_long",
+          orders: [{ notional_usd: 9500, portfolio_pct: 0.095, symbol: "NVDA" }],
+          risk_controls: { stop_loss_pct: -4.5, take_profit_pct: 8 },
+          summary: "已生成 NVDA open_long 行动计划。",
+          target_symbols: ["NVDA"],
+        },
+        seq: 3,
+      }),
+      actionArtifactItem({
+        artifactId: "artifact_submission",
+        kind: "submission_result",
+        payload: {
+          broker_mode: "dry_run",
+          execution_status: "dry_run_execution_requested",
+          idempotency_key: "nvda-earnings-open-long",
+          monitoring_status: "created",
+          notification_status: "requested",
+          resolved_mode: "execute_then_notify",
+          summary: "ActionPlan 已进入 execute_then_notify。",
+        },
+        seq: 4,
+      }),
+    ]);
+
+    const artifacts = messages[1]?.parts.filter((part) => part.type === "artifact") ?? [];
+
+    expect(artifacts).toMatchObject([
+      {
+        artifactId: "artifact_eval",
+        artifactType: "thesis",
+        rows: expect.arrayContaining([
+          { label: "建议", value: "propose_trade" },
+          { label: "置信度", value: "92%" },
+          { label: "风险", value: "low" },
+        ]),
+        title: "Thesis 评估",
+      },
+      {
+        artifactId: "artifact_plan",
+        artifactType: "action_plan",
+        rows: expect.arrayContaining([
+          { label: "动作", value: "open_long" },
+          { label: "标的", value: "NVDA" },
+          { label: "规模", value: "US$9,500" },
+        ]),
+        title: "ActionPlan",
+      },
+      {
+        artifactId: "artifact_submission",
+        artifactType: "submission",
+        rows: expect.arrayContaining([
+          { label: "模式", value: "execute_then_notify" },
+          { label: "执行", value: "dry_run_execution_requested" },
+        ]),
+        title: "行动提交结果",
+      },
+    ]);
+  });
 });
 
 function item(overrides: Partial<AgentChatTimelineItem>): AgentChatTimelineItem {
@@ -784,5 +862,39 @@ function reportArtifactItem({
         ? { kind: "subagent_run", parent_span_id: "span_main_agent-run-1", span_id: String(artifact.group_id) }
         : { kind: "main_run", parent_span_id: null, span_id: String(artifact.group_id) },
     subagent,
+  });
+}
+
+function actionArtifactItem({
+  artifactId,
+  kind,
+  payload,
+  seq,
+}: {
+  artifactId: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  seq: number;
+}): AgentChatTimelineItem {
+  return v1Item({
+    content: {
+      delta_mode: "snapshot",
+      format: "json",
+      json: {
+        artifact: {
+          artifact_id: artifactId,
+          content: String(payload.summary ?? ""),
+          kind,
+          producer_id: "tool",
+        },
+        artifact_id: artifactId,
+        kind,
+        payload,
+      },
+    },
+    event_id: `${kind}-${seq}`,
+    event_type: "artifact.created",
+    render: { content_kind: "artifact", group_id: "span_main_agent-run-1", lane: "main", target: "cot" },
+    seq,
   });
 }
