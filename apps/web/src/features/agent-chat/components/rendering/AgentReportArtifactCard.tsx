@@ -3,6 +3,7 @@ import { twMerge } from "tailwind-merge";
 
 import type { AgentArtifactPart } from "../../types";
 import { AgentMarkdown } from "../conversation/AgentMarkdown";
+import { AgentCollapsibleText } from "./AgentCollapsibleText";
 
 export function AgentReportArtifactCard({ compact = false, part }: { compact?: boolean; part: AgentArtifactPart }) {
   return (
@@ -24,7 +25,7 @@ export function AgentReportArtifactCard({ compact = false, part }: { compact?: b
       <div className="border-t border-hairline px-3 py-3">
         {part.contentMarkdown ? (
           <div className="max-h-[36rem] overflow-auto pr-1 text-body-sm leading-6 text-muted-strong">
-            <AgentMarkdown content={part.contentMarkdown} />
+            <AgentCollapsibleText content={part.contentMarkdown} previewChars={1600} />
           </div>
         ) : (
           <div className="grid gap-2">

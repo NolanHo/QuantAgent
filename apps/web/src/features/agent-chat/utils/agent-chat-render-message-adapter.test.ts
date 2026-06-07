@@ -351,7 +351,7 @@ describe("agentTimelineToRenderMessages", () => {
         callId: "tool_inv_1",
         input: { query: "NVDA earnings consensus" },
         name: "tavily_search",
-        output: '{\n  "summary": "共识预期低于官方披露。"\n}',
+        output: "共识预期低于官方披露。",
         status: "completed",
       },
       { type: "reasoning", text: "再补充市场预期。" },
@@ -609,7 +609,7 @@ describe("agentTimelineToRenderMessages", () => {
         callId: "call_search_1",
         input: { query: "NVDA earnings consensus" },
         name: "search_web",
-        output: '{\n  "summary": "找到市场预期线索。"\n}',
+        output: "找到市场预期线索。",
         status: "completed",
         type: "tool",
       },
@@ -788,6 +788,39 @@ describe("agentTimelineToRenderMessages", () => {
         title: "行动提交结果",
       },
     ]);
+  });
+
+  it("summarizes structured tool output instead of rendering a full JSON dump", () => {
+    const messages = agentTimelineToRenderMessages([
+      item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
+      v1Item({
+        actor: { display_name: "build_action_plan", id: "build_action_plan", name: "build_action_plan", type: "tool" },
+        event_id: "tool-action-plan",
+        event_type: "tool.completed",
+        render: { content_kind: "tool", group_id: "span_main_agent-run-1", lane: "main", target: "cot" },
+        seq: 2,
+        span: { kind: "tool_call", parent_span_id: "span_main_agent-run-1", span_id: "span_tool_action" },
+        tool: {
+          call_id: "call_action",
+          input: { intended_action: "open_long" },
+          name: "build_action_plan",
+          output: {
+            action_plan_artifact_id: "artifact_plan",
+            action_plan_id: "action_plan_1",
+            orders: [{ notional_usd: 9500, symbol: "NVDA" }],
+            summary: "已生成 NVDA open_long 行动计划。",
+          },
+        },
+      }),
+    ]);
+
+    const tool = messages[1]?.parts.find((part) => part.type === "tool");
+
+    expect(tool).toMatchObject({
+      output: expect.stringContaining("已生成 NVDA open_long 行动计划。"),
+    });
+    expect(tool?.type === "tool" ? tool.output : "").toContain("action_plan_artifact_id");
+    expect(tool?.type === "tool" ? tool.output : "").not.toContain('"orders"');
   });
 });
 

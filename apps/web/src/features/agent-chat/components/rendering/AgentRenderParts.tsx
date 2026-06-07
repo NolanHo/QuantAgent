@@ -28,6 +28,7 @@ import type {
   AgentToolPart,
 } from "../../types";
 import { AgentMarkdown } from "../conversation/AgentMarkdown";
+import { AgentCollapsibleText } from "./AgentCollapsibleText";
 import { MessageResponse, Reasoning } from "./AgentChatElements";
 import { AgentReportArtifactCard } from "./AgentReportArtifactCard";
 import { AgentSubagentNode, partToAgentChainSteps } from "./agent-chain-of-thought";
@@ -137,7 +138,7 @@ function ToolPartView({ compact = false, part }: { compact?: boolean; part: Agen
         {part.input ? <KeyValueGrid rows={Object.entries(part.input).map(([label, value]) => ({ label, value: formatDisplayValue(value) }))} title="输入" /> : null}
         {part.output ? (
           <div className="rounded-md border border-hairline bg-surface-soft px-3 py-2">
-            <AgentMarkdown content={part.output} />
+            <AgentCollapsibleText content={part.output} previewChars={900} />
           </div>
         ) : null}
       </div>

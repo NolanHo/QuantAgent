@@ -626,11 +626,54 @@ function readToolOutput(item: AgentChatTimelineItem): string | undefined {
 function formatUnknownOutput(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === "string") return value;
+  if (isRecord(value)) {
+    const summary = summarizeToolObject(value);
+    if (summary) return summary;
+  }
   try {
     return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
   }
+}
+
+function summarizeToolObject(value: Record<string, unknown>): string | undefined {
+  const lines: string[] = [];
+  const summary = readString(value.summary) ?? readString(value.safe_summary) ?? readString(value.reason_summary);
+  if (summary) lines.push(summary);
+
+  for (const key of [
+    "ok",
+    "context_id",
+    "search_id",
+    "account_context_id",
+    "evaluation_id",
+    "thesis_evaluation_artifact_id",
+    "action_plan_id",
+    "action_plan_artifact_id",
+    "submission_id",
+    "resolved_mode",
+    "execution_status",
+    "notification_status",
+  ]) {
+    const formatted = formatArtifactValue(value[key]);
+    if (formatted) lines.push(`- **${key}:** ${formatted}`);
+  }
+
+  if (Array.isArray(value.warnings) && value.warnings.length) {
+    lines.push(`- **warnings:** ${value.warnings.map(formatArtifactValue).join("; ")}`);
+  }
+  if (Array.isArray(value.results) && value.results.length) {
+    lines.push(`- **results:** ${value.results.length} 条`);
+  }
+  if (Array.isArray(value.sections) && value.sections.length) {
+    lines.push(`- **sections:** ${value.sections.length} 个`);
+  }
+  if (Array.isArray(value.orders) && value.orders.length) {
+    lines.push(`- **orders:** ${value.orders.length} 条`);
+  }
+
+  return lines.length ? lines.join("\n") : undefined;
 }
 
 function parseJsonRecord(value: string): Record<string, unknown> | undefined {
