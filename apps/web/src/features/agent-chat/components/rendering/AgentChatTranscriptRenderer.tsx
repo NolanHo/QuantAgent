@@ -1,6 +1,7 @@
 import type { AgentRenderMessage, AgentRenderPart } from "../../types";
 import { Conversation, ConversationContent, ConversationDownload, ConversationEmptyState, Message } from "./AgentChatElements";
 import { AgentChainOfThought } from "./agent-chain-of-thought";
+import { AgentMessageRunSummary } from "./AgentMessageRunSummary";
 import { AgentRenderPartView } from "./AgentRenderParts";
 
 type AssistantRenderBlock =
@@ -61,6 +62,7 @@ function MessageParts({ message }: { message: AgentRenderMessage }) {
 
   return (
     <>
+      <AgentMessageRunSummary parts={message.parts} />
       {blocks.map((block) =>
         block.type === "cot" ? (
           <AgentChainOfThought key={`${message.id}-${block.id}`} parts={block.parts} />
