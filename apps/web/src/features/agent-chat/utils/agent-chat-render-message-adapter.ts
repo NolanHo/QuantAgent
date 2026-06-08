@@ -1,4 +1,6 @@
 import type {
+  AgentActionFlowPart,
+  AgentActionFlowStage,
   AgentArtifactPart,
   AgentChatTimelineItem,
   AgentDecisionPart,
@@ -183,11 +185,14 @@ function mergeRuntimeEventIntoAssistant(message: AgentRenderMessage, event: Agen
       upsertTasksPart(message.parts, todoTasks);
       return;
     }
-    upsertToolPart(message.parts, runtimeEventToToolPart(event));
+    const toolPart = runtimeEventToToolPart(event);
+    upsertActionFlowFromTool(message.parts, toolPart);
+    upsertToolPart(message.parts, toolPart);
     return;
   }
   if (event.event_type === "artifact.created") {
     const artifact = runtimeEventToArtifact(event);
+    upsertActionFlowFromArtifact(message.parts, artifact);
     upsertArtifactPart(message.parts, artifact);
     const decision = runtimeEventToDecision(event, artifact);
     if (decision) upsertDecisionPart(message.parts, decision);
@@ -417,6 +422,81 @@ function upsertTasksPart(parts: AgentRenderPart[], tasks: AgentTaskItem[]): void
     return;
   }
   parts.push({ type: "tasks", title: "运行计划", tasks });
+}
+
+function ensureActionFlowPart(parts: AgentRenderPart[]): AgentActionFlowPart {
+  const existing = parts.find((part) => part.type === "action_flow");
+  if (existing?.type === "action_flow") return existing;
+  const flow: AgentActionFlowPart = {
+    stages: [
+      { id: "account", label: "账户上下文", status: "pending" },
+      { id: "evaluate", label: "Thesis 评估", status: "pending" },
+      { id: "plan", label: "ActionPlan", status: "pending" },
+      { id: "submit", label: "提交结果", status: "pending" },
+    ],
+    title: "行动流程",
+    type: "action_flow",
+  };
+  const insertAt = parts.findIndex((part) => part.type === "tool" || part.type === "artifact" || part.type === "decision");
+  parts.splice(insertAt < 0 ? parts.length : insertAt, 0, flow);
+  return flow;
+}
+
+function upsertActionFlowFromTool(parts: AgentRenderPart[], tool: AgentToolPart): void {
+  const stageId = actionStageIdFromToolName(tool.name);
+  if (!stageId) return;
+  updateActionFlowStage(parts, {
+    id: stageId,
+    label: actionStageLabel(stageId),
+    status: tool.status === "completed" ? "completed" : tool.status === "error" ? "error" : "running",
+    summary: tool.output ?? tool.description,
+  });
+}
+
+function upsertActionFlowFromArtifact(parts: AgentRenderPart[], artifact: AgentArtifactPart): void {
+  const stageId = actionStageIdFromArtifactType(artifact.artifactType);
+  if (!stageId) return;
+  updateActionFlowStage(parts, {
+    id: stageId,
+    label: actionStageLabel(stageId),
+    status: "completed",
+    summary: artifact.summary ?? artifact.rows.find((row) => row.label === "摘要")?.value,
+  });
+}
+
+function updateActionFlowStage(parts: AgentRenderPart[], next: AgentActionFlowStage): void {
+  const flow = ensureActionFlowPart(parts);
+  flow.stages = flow.stages.map((stage) =>
+    stage.id === next.id
+      ? {
+          ...stage,
+          ...next,
+          summary: next.summary ?? stage.summary,
+        }
+      : stage,
+  );
+}
+
+function actionStageIdFromToolName(name: string): AgentActionFlowStage["id"] | null {
+  if (name === "get_account_context") return "account";
+  if (name === "evaluate_thesis") return "evaluate";
+  if (name === "build_action_plan") return "plan";
+  if (name === "submit_action_plan") return "submit";
+  return null;
+}
+
+function actionStageIdFromArtifactType(type: AgentArtifactPart["artifactType"]): AgentActionFlowStage["id"] | null {
+  if (type === "thesis") return "evaluate";
+  if (type === "action_plan") return "plan";
+  if (type === "submission") return "submit";
+  return null;
+}
+
+function actionStageLabel(id: AgentActionFlowStage["id"]): string {
+  if (id === "account") return "账户上下文";
+  if (id === "evaluate") return "Thesis 评估";
+  if (id === "plan") return "ActionPlan";
+  return "提交结果";
 }
 
 function upsertTasksTextPart(parts: AgentSubagentPart["steps"], tasks: AgentTaskItem[]): void {

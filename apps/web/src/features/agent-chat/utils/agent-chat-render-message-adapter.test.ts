@@ -756,7 +756,18 @@ describe("agentTimelineToRenderMessages", () => {
     ]);
 
     const artifacts = messages[1]?.parts.filter((part) => part.type === "artifact") ?? [];
+    const actionFlow = messages[1]?.parts.find((part) => part.type === "action_flow");
 
+    expect(actionFlow).toMatchObject({
+      stages: [
+        { id: "account", status: "pending" },
+        { id: "evaluate", status: "completed" },
+        { id: "plan", status: "completed" },
+        { id: "submit", status: "completed" },
+      ],
+      title: "行动流程",
+      type: "action_flow",
+    });
     expect(artifacts).toMatchObject([
       {
         artifactId: "artifact_eval",
@@ -798,6 +809,31 @@ describe("agentTimelineToRenderMessages", () => {
         }),
       ]),
     );
+  });
+
+  it("builds a visible action flow from action tool lifecycle events", () => {
+    const messages = agentTimelineToRenderMessages([
+      item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
+      v1ToolItem({ callId: "call_account", name: "get_account_context", output: { account_context_id: "account_1", summary: "账户上下文已读取。" }, seq: 2 }),
+      v1ToolItem({ callId: "call_eval", name: "evaluate_thesis", output: { suggested_intent: "propose_trade", summary: "建议进入行动计划。" }, seq: 3 }),
+      v1ToolItem({ callId: "call_plan", name: "build_action_plan", output: { action_plan_artifact_id: "artifact_plan", summary: "已生成 NVDA open_long 行动计划。" }, seq: 4 }),
+      v1ToolItem({ callId: "call_submit", name: "submit_action_plan", output: { execution_status: "dry_run_execution_requested", resolved_mode: "execute_then_notify", summary: "已提交到 dry-run 路径。" }, seq: 5 }),
+    ]);
+
+    const assistant = messages[1];
+    const actionFlow = assistant?.parts.find((part) => part.type === "action_flow");
+
+    expect(actionFlow).toMatchObject({
+      stages: [
+        { id: "account", status: "completed", summary: expect.stringContaining("账户上下文已读取") },
+        { id: "evaluate", status: "completed", summary: expect.stringContaining("建议进入行动计划") },
+        { id: "plan", status: "completed", summary: expect.stringContaining("已生成 NVDA") },
+        { id: "submit", status: "completed", summary: expect.stringContaining("已提交到 dry-run") },
+      ],
+      title: "行动流程",
+      type: "action_flow",
+    });
+    expect(assistant?.parts.filter((part) => part.type === "tool")).toHaveLength(4);
   });
 
   it("summarizes structured tool output instead of rendering a full JSON dump", () => {
@@ -875,6 +911,28 @@ function v1Item(overrides: Partial<AgentRuntimeEventV1>): AgentChatTimelineItem 
     runtimeEvent,
     seq: runtimeEvent.seq,
     type: runtimeEvent.event_type,
+  });
+}
+
+function v1ToolItem({
+  callId,
+  name,
+  output,
+  seq,
+}: {
+  callId: string;
+  name: string;
+  output: Record<string, unknown>;
+  seq: number;
+}): AgentChatTimelineItem {
+  return v1Item({
+    actor: { display_name: name, id: name, name, type: "tool" },
+    event_id: `${name}-${seq}`,
+    event_type: "tool.completed",
+    render: { content_kind: "tool", group_id: "span_main_agent-run-1", lane: "main", target: "cot" },
+    seq,
+    span: { kind: "tool_call", parent_span_id: "span_main_agent-run-1", span_id: `span_${callId}` },
+    tool: { call_id: callId, input: {}, name, output },
   });
 }
 

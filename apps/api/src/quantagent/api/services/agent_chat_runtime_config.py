@@ -138,6 +138,32 @@ def build_agent_chat_run_context(row: AgentChatSessionORM, run: AgentChatRunORM,
                     SUBMIT_ACTION_PLAN_TOOL_ID,
                 ],
                 "action_flow": ["get_account_context", "evaluate_thesis", "build_action_plan", "submit_action_plan"],
+                "action_flow_contract": {
+                    "when_required": "route_context.action_flow_required=true 的一手高时效事件必须执行完整 dry-run 行动链路。",
+                    "recoverable_search_failure": "search_web 失败时继续行动链路，使用 evidence_summary 和 industry_analysis_summary 降级。",
+                    "required_tool_sequence_after_research": [
+                        {
+                            "tool": "get_account_context",
+                            "purpose": "读取仓位、风险预算、broker_mode、近期 action/notification 和用户自动审批策略。",
+                            "minimum_input": {"symbols": ["NVDA"], "include_recent_activity": True},
+                        },
+                        {
+                            "tool": "evaluate_thesis",
+                            "purpose": "判断证据质量、新颖性、置信度和是否建议行动。",
+                            "fallback_input": "没有 evidence_board_artifact_id 时必须提供 evidence_summary。",
+                        },
+                        {
+                            "tool": "build_action_plan",
+                            "purpose": "当 suggested_intent=propose_trade 时生成结构化 ActionPlan。",
+                            "fallback_input": "没有 industry_analysis_artifact_id 时必须提供 industry_analysis_summary。",
+                        },
+                        {
+                            "tool": "submit_action_plan",
+                            "purpose": "把 ActionPlan 提交到 dry-run/mock、Policy Gate、通知和监控状态机。",
+                            "minimum_input": {"requested_mode_hint": "auto_if_allowed", "dry_run_allowed": True},
+                        },
+                    ],
+                },
             },
         ),
         _recent_activity_section(routed_event),

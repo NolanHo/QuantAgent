@@ -817,6 +817,7 @@ class ApiAppTestCase(unittest.TestCase):
             ["quantagent.core.tool.get_run_context", "quantagent.official.source.tavily.search_web"],
         )
         self.assertEqual(captured_requests[0].runtime_policy.max_subagent_tasks, 1)
+        self.assertGreaterEqual(captured_requests[0].runtime_policy.max_tool_calls, 24)
         self.assertEqual(
             [binding.name for binding in captured_requests[0].tool_profile.tool_bindings],
             [
@@ -833,6 +834,7 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertIn("NVIDIA Announces Financial Results for First Quarter Fiscal 2027", str(captured_requests[0].run_context.model_dump()))
         self.assertIn("route_decision", str(captured_requests[0].run_context.model_dump()))
         self.assertIn("action_flow_required", str(captured_requests[0].run_context.model_dump()))
+        self.assertIn("action_flow_contract", str(captured_requests[0].run_context.model_dump()))
         self.assertIn("submit_action_plan", str(captured_requests[0].run_context.model_dump()))
         session_body = session_response.json()
         self.assertEqual(session_response.status_code, 200)

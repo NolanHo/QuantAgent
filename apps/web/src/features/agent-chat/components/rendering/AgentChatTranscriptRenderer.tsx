@@ -108,6 +108,11 @@ function messagesToMarkdown(messages: readonly AgentRenderMessage[]) {
 
 function partToMarkdown(part: AgentRenderPart): string {
   switch (part.type) {
+    case "action_flow":
+      return [
+        `### ${part.title}`,
+        ...part.stages.map((stage) => `- **${stage.label}:** ${stage.status}${stage.summary ? ` — ${stage.summary}` : ""}`),
+      ].join("\n");
     case "artifact":
       return [`### ${part.title}`, ...part.rows.map((row) => `- **${row.label}:** ${row.value}`)].join("\n");
     case "decision":

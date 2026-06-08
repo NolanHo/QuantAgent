@@ -11,7 +11,7 @@ tools:
   - quantagent.core.tool.evaluate_thesis
   - quantagent.core.tool.build_action_plan
   - quantagent.core.tool.submit_action_plan
-max_tool_calls: 12
+max_tool_calls: 28
 skill_paths:
   - skills/market-analysis
 subagents:
@@ -29,6 +29,7 @@ output_schema_id: quantagent.schema.industry_analysis.v1
 - 使用 DeepAgents `write_todos` 规划 run，不自建任务状态机。
 - 对可能触发交易、监控或用户通知的一手事件，优先通过 `task` 委派 `evidence_research_analyst` 补充通用对照证据、冲突证据和来源关系。
 - 调用 SubAgent 时一次性写清事件摘要、目标、允许工具、搜索预算、输出格式、停止条件和禁止事项；不要假设 SubAgent 记得前一次任务。
+- 当 `route_context.action_flow_required=true` 时，Research SubAgent 只承担“补缺口”的短任务：最多 3 次 `search_web`，最终返回不超过 900 中文字的压缩报告。不要让 Research 阶段消耗完整 run 预算。
 - 只接收 SubAgent 的压缩报告、关键发现、缺口、反方观点和 artifact id，不把完整搜索结果或 scratch notes 传给下游。
 - 行动前调用 `get_account_context` 读取仓位、风险预算、近期 action、通知、监控任务和用户自动审批策略。
 - 结合 EvidenceBoard、半导体 skill 和 mapping 合成需求、供应链、市场反应和反方观点。
@@ -62,11 +63,22 @@ output_schema_id: quantagent.schema.industry_analysis.v1
 3. 如果返回 `suggested_intent=propose_trade`，调用 `build_action_plan`
 4. 如果生成了 ActionPlan，调用 `submit_action_plan`
 
+行动阶段必须通过独立工具调用出现在本次 run 的工具流中。你不能把 `get_account_context`、`evaluate_thesis`、`build_action_plan` 或 `submit_action_plan` 的结果改写成普通正文来替代工具调用；前端需要看到这些工具调用、产物和提交结果。
+
+行动链路的工具调用优先级高于中途报告输出。对于 `action_flow_required=true` 的官方一手财报调试案例：
+
+- `evaluate_thesis` 返回 `suggested_intent=propose_trade` 后，下一步必须调用 `build_action_plan`，不要先输出长篇分析报告。
+- `build_action_plan` 返回 `action_plan_artifact_id` 后，下一步必须调用 `submit_action_plan`，不要先输出长篇分析报告。
+- `submit_action_plan` 返回后，才输出最终 IndustryAnalysis，总结一手事实、信息缺口、行动计划和提交状态。
+- 如果 Tavily 缺 key、搜索 400/超时或 SubAgent 没有 artifact id，直接用 `evidence_summary` / `industry_analysis_summary` 降级继续行动，不再追加新的搜索或 SubAgent 任务。
+
 本 MVP 的 `risk_policy.broker_mode=dry_run` 表示不会真实下单；`submit_action_plan` 只是把计划提交到平台 dry-run/mock、通知、审批和监控状态机。你最终回答必须明确展示这些工具返回的行动状态，而不是只写“建议做多”。
 
 如果 `search_web` 因 Tavily key 缺失或外部错误失败，该失败是可恢复信息缺口。你仍然必须继续执行 `get_account_context` 和 `evaluate_thesis`，并基于已绑定的一手事件、风险策略和近期活动做保守判断；不要因为搜索失败就提前结束 run。
 
 调用 `evaluate_thesis` 时优先传 Research SubAgent 返回的 `evidence_board_artifact_id`。如果 SubAgent 没有返回该 ID，必须传 `evidence_summary`，把一手财报事实、搜索失败缺口、市场预期/盘后反应缺口和反方风险压缩进去。
+
+如果 Research SubAgent 只返回自然语言报告、没有返回 artifact id，视为正常降级路径：把该报告压缩成 `evidence_summary`，继续行动阶段。不要因为没有 `evidence_board_artifact_id` 或 `industry_analysis_artifact_id` 停止。
 
 调用 `build_action_plan` 时优先传 `industry_analysis_artifact_id`。如果当前没有该 ID，必须传 `industry_analysis_summary`，用 5-8 句话压缩你的行业分析、行动理由、主要风险和约束。
 

@@ -12,6 +12,7 @@ export interface AgentRenderMessage {
 }
 
 export type AgentRenderPart =
+  | AgentActionFlowPart
   | AgentArtifactPart
   | AgentDecisionPart
   | AgentNoticePart
@@ -47,6 +48,19 @@ export interface AgentTaskItem {
   label: string;
   description?: string;
   status: "completed" | "error" | "in_progress" | "pending";
+}
+
+export interface AgentActionFlowPart {
+  type: "action_flow";
+  stages: AgentActionFlowStage[];
+  title: string;
+}
+
+export interface AgentActionFlowStage {
+  id: "account" | "evaluate" | "plan" | "submit";
+  label: string;
+  status: "completed" | "error" | "pending" | "running";
+  summary?: string;
 }
 
 export interface AgentToolPart {

@@ -182,6 +182,9 @@ class AgentRuntime:
                 "agent_run_id": request.agent_run_id,
             }
         }
+        recursion_limit = _runtime_recursion_limit(request)
+        if recursion_limit is not None:
+            config["recursion_limit"] = recursion_limit
         input_data = {"messages": [{"role": "user", "content": request.input_message}]}
 
         # 中文注释：DeepAgents frontend 需要同时看到 assistant message 流和 state updates，不能只消费默认结构 chunk。
@@ -1092,3 +1095,14 @@ def _ordered_unique(items: Sequence[str]) -> list[str]:
         seen.add(item)
         unique.append(item)
     return unique
+
+
+def _runtime_recursion_limit(request: AgentRunRequest) -> int | None:
+    """把平台工具预算转换为 LangGraph 递归预算，避免 action 阶段被循环上限提前截断。"""
+
+    configured = max(request.runtime_policy.max_tool_calls, request.tool_profile.max_tool_calls)
+    if configured <= 0:
+        return None
+    # DeepAgents 的一次工具 loop 通常包含 model/tool 多个 graph step；给出保守余量，
+    # 让 Research SubAgent 搜索后仍有预算执行 account/evaluate/plan/submit。
+    return max(25, configured * 3 + 8)

@@ -21,11 +21,15 @@ class AgentChatRuntimeConfigTest(TestCase):
         self.assertIn("quantagent.core.tool.evaluate_thesis", main_tool_ids)
         self.assertIn("quantagent.core.tool.build_action_plan", main_tool_ids)
         self.assertIn("quantagent.core.tool.submit_action_plan", main_tool_ids)
+        self.assertGreaterEqual(assets.tool_profile.max_tool_calls, 24)
         self.assertIn("get_account_context", assets.agent_definition.system_prompt)
         self.assertIn("完整行动链路验收案例", assets.agent_definition.system_prompt)
+        self.assertIn("行动阶段必须通过独立工具调用", assets.agent_definition.system_prompt)
+        self.assertIn("行动链路的工具调用优先级高于中途报告输出", assets.agent_definition.system_prompt)
         self.assertNotIn("不要尝试调用", assets.agent_definition.system_prompt)
 
         research = next(subagent for subagent in assets.agent_definition.subagents if subagent.name == "evidence_research_analyst")
+        self.assertIn("最终报告不超过 900 中文字", research.system_prompt)
         self.assertEqual(
             research.tool_ids,
             [

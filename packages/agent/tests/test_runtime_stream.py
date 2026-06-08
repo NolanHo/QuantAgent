@@ -143,6 +143,7 @@ class RuntimeStreamTest(TestCase):
             self.assertTrue(graph.subgraphs)
             self.assertEqual(graph.config["configurable"]["thread_id"], request.thread_id)
             self.assertEqual(graph.config["configurable"]["agent_run_id"], request.agent_run_id)
+            self.assertEqual(graph.config["recursion_limit"], 44)
             deltas = [event.content for event in events if event.type == AgentRunEventType.MODEL_DELTA]
             self.assertEqual(deltas, ["hello ", "world"])
             self.assertIn(AgentRunEventType.TODO_UPDATED, [event.type for event in events])

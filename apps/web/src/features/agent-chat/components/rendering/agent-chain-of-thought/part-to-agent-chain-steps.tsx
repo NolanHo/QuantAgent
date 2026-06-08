@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import type {
+  AgentActionFlowPart,
   AgentArtifactPart,
   AgentDecisionPart,
   AgentNoticePart,
@@ -32,6 +33,8 @@ import { KeyValueRows } from "./KeyValueRows";
 
 export function partToAgentChainSteps(part: AgentRenderPart): AgentChainStep[] {
   switch (part.type) {
+    case "action_flow":
+      return [actionFlowStep(part)];
     case "artifact":
       return [artifactStep(part)];
     case "decision":
@@ -63,6 +66,30 @@ export function partToAgentChainSteps(part: AgentRenderPart): AgentChainStep[] {
     case "tool":
       return [toolStep(part)];
   }
+}
+
+function actionFlowStep(part: AgentActionFlowPart): AgentChainStep {
+  const completed = part.stages.filter((stage) => stage.status === "completed").length;
+  const hasError = part.stages.some((stage) => stage.status === "error");
+  const isRunning = part.stages.some((stage) => stage.status === "running");
+  return {
+    body: (
+      <div className="grid gap-2 md:grid-cols-4">
+        {part.stages.map((stage) => (
+          <div className="rounded-md border border-hairline bg-canvas px-3 py-2" key={stage.id}>
+            <div className="text-caption font-black text-ink">{stage.label}</div>
+            <div className="font-mono text-[11px] text-muted">{stage.status}</div>
+            {stage.summary ? <div className="mt-1 line-clamp-2 text-caption leading-5 text-muted-strong">{stage.summary}</div> : null}
+          </div>
+        ))}
+      </div>
+    ),
+    description: `${completed}/${part.stages.length} completed`,
+    icon: TrendingUp,
+    id: "action-flow",
+    status: hasError ? "error" : isRunning ? "running" : completed === part.stages.length ? "completed" : "running",
+    title: part.title,
+  };
 }
 
 function ReasoningMarkdown({ text }: { text: string }) {

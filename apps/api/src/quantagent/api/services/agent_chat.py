@@ -196,7 +196,11 @@ class AgentChatService:
             agent_definition=assets.agent_definition,
             run_context=build_agent_chat_run_context(row, run, message=message),
             tool_profile=assets.tool_profile,
-            runtime_policy=RuntimePolicy(model=model, max_subagent_tasks=1),
+            runtime_policy=RuntimePolicy(
+                model=model,
+                max_tool_calls=assets.tool_profile.max_tool_calls,
+                max_subagent_tasks=1,
+            ),
             input_message=message,
         )
 

@@ -16,6 +16,7 @@ import {
 import { twMerge } from "tailwind-merge";
 
 import type {
+  AgentActionFlowPart,
   AgentArtifactPart,
   AgentDecisionPart,
   AgentNoticePart,
@@ -34,6 +35,8 @@ import { AgentSubagentNode, partToAgentChainSteps } from "./agent-chain-of-thoug
 
 export function AgentRenderPartView({ part }: { part: AgentRenderPart }) {
   switch (part.type) {
+    case "action_flow":
+      return <ActionFlowPartView part={part} />;
     case "artifact":
       return <ArtifactPartView part={part} />;
     case "decision":
@@ -57,6 +60,41 @@ export function AgentRenderPartView({ part }: { part: AgentRenderPart }) {
     case "tool":
       return <ToolPartView part={part} />;
   }
+}
+
+function ActionFlowPartView({ part }: { part: AgentActionFlowPart }) {
+  return (
+    <section className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-3">
+      <div className="mb-3 flex items-center gap-2 text-body-sm font-bold text-ink">
+        <TrendingUp aria-hidden className="size-4 text-primary" />
+        {part.title}
+      </div>
+      <div className="grid gap-2 md:grid-cols-4">
+        {part.stages.map((stage) => {
+          const Icon =
+            stage.status === "completed" ? CheckCircle2 : stage.status === "error" ? XCircle : stage.status === "running" ? Loader2 : Circle;
+          return (
+            <div className="rounded-md border border-hairline bg-canvas px-3 py-2" key={stage.id}>
+              <div className="flex items-center gap-2">
+                <Icon
+                  aria-hidden
+                  className={twMerge(
+                    "size-4 shrink-0",
+                    stage.status === "completed" ? "text-trading-up" : "",
+                    stage.status === "error" ? "text-trading-down" : "",
+                    stage.status === "running" ? "animate-spin text-primary" : "",
+                    stage.status === "pending" ? "text-muted" : "",
+                  )}
+                />
+                <div className="min-w-0 truncate text-caption font-black text-ink">{stage.label}</div>
+              </div>
+              {stage.summary ? <div className="mt-1 line-clamp-2 text-caption leading-5 text-muted-strong">{stage.summary}</div> : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function SubagentPartView({ part }: { part: AgentSubagentPart }) {
