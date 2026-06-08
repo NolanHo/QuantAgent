@@ -53,6 +53,22 @@ describe("auth API helpers", () => {
     expect(apiClient.get).toHaveBeenCalledWith("/me", { dedupeKey: false });
   });
 
+  it("does not prefix the root current actor endpoint with /auth", async () => {
+    const apiClient = createApiClientMock();
+    vi.mocked(apiClient.get).mockResolvedValue({
+      actor_id: "local_admin",
+      actor_type: "local_single_user",
+      capabilities: ["runtime.inspect"],
+      csrf_token: "csrf-me",
+    });
+    const authApi = createAuthApi(apiClient);
+
+    await authApi.fetchCurrentActor();
+
+    expect(apiClient.get).toHaveBeenCalledWith("/me", { dedupeKey: false });
+    expect(apiClient.get).not.toHaveBeenCalledWith("/auth/me", expect.anything());
+  });
+
   it("logs out through the shared API client so CSRF injection stays centralized", async () => {
     const apiClient = createApiClientMock();
     vi.mocked(apiClient.post).mockResolvedValue({ cleared: true });
