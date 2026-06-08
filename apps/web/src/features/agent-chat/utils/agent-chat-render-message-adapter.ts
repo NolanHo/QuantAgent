@@ -926,11 +926,26 @@ function normalizeArtifactType(value: null | string): AgentArtifactPart["artifac
 function artifactTitle(type: AgentArtifactPart["artifactType"], artifact: Record<string, unknown>, payload: Record<string, unknown>): string {
   const explicit = readString(artifact.title) ?? readString(payload.title);
   if (explicit) return explicit;
+  const producerId = readString(artifact.producer_id) ?? readString(payload.producer_id);
+  const kind = readString(artifact.kind) ?? readString(payload.kind);
+  const producerTitle = artifactTitleFromProducer(producerId, kind);
+  if (producerTitle) return producerTitle;
   if (type === "thesis") return "Thesis 评估";
   if (type === "action_plan") return "ActionPlan";
   if (type === "submission") return "行动提交结果";
   if (type === "report") return "分析报告";
+  if (type === "analysis") return "行业分析报告";
   return "运行产物";
+}
+
+function artifactTitleFromProducer(producerId: null | string, kind: null | string): string | null {
+  if (producerId?.endsWith("get_account_context")) return "账户上下文";
+  if (producerId?.endsWith("evaluate_thesis")) return "Thesis 评估";
+  if (producerId?.endsWith("build_action_plan")) return "ActionPlan";
+  if (producerId?.endsWith("submit_action_plan")) return "行动提交结果";
+  if (kind === "tool_result") return "工具运行结果";
+  if (kind === "industry_analysis") return "行业分析报告";
+  return null;
 }
 
 function artifactRows(

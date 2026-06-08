@@ -836,6 +836,38 @@ describe("agentTimelineToRenderMessages", () => {
     expect(assistant?.parts.filter((part) => part.type === "tool")).toHaveLength(4);
   });
 
+  it("uses specific artifact titles instead of generic runtime artifact labels", () => {
+    const messages = agentTimelineToRenderMessages([
+      item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
+      actionArtifactItem({
+        artifactId: "artifact_account",
+        kind: "tool_result",
+        payload: {
+          summary: "账户上下文已读取。",
+        },
+        producerId: "quantagent.core.tool.get_account_context",
+        seq: 2,
+      }),
+      actionArtifactItem({
+        artifactId: "artifact_analysis",
+        kind: "industry_analysis",
+        payload: {
+          summary: "行业分析已生成。",
+        },
+        producerId: "quantagent.official.industry.semiconductor.agent.main",
+        seq: 3,
+      }),
+    ]);
+
+    const artifacts = messages[1]?.parts.filter((part) => part.type === "artifact") ?? [];
+
+    expect(artifacts).toMatchObject([
+      { artifactType: "analysis", title: "账户上下文" },
+      { artifactType: "analysis", title: "行业分析报告" },
+    ]);
+    expect(artifacts.map((part) => (part.type === "artifact" ? part.title : ""))).not.toContain("运行产物");
+  });
+
   it("summarizes structured tool output instead of rendering a full JSON dump", () => {
     const messages = agentTimelineToRenderMessages([
       item({ content: "分析这个事件", id: "user-1", kind: "message", role: "user", seq: 1 }),
@@ -970,11 +1002,13 @@ function actionArtifactItem({
   artifactId,
   kind,
   payload,
+  producerId = "tool",
   seq,
 }: {
   artifactId: string;
   kind: string;
   payload: Record<string, unknown>;
+  producerId?: string;
   seq: number;
 }): AgentChatTimelineItem {
   return v1Item({
@@ -986,7 +1020,7 @@ function actionArtifactItem({
           artifact_id: artifactId,
           content: String(payload.summary ?? ""),
           kind,
-          producer_id: "tool",
+          producer_id: producerId,
         },
         artifact_id: artifactId,
         kind,

@@ -233,7 +233,9 @@ function readRuntimeArtifact(item: unknown): null | {
     rows: artifactRows(type, payload),
     sourceSeq: typeof readPath(nestedArtifact, ["source_seq"]) === "number" ? (readPath(nestedArtifact, ["source_seq"]) as number) : undefined,
     summary: stringOrUndefined(readPath(nestedArtifact, ["summary"]) ?? readPath(payload, ["summary"]) ?? readPath(payload, ["reason_summary"])),
-    title: stringOrUndefined(readPath(nestedArtifact, ["title"])) ?? artifactTitle(type),
+    title:
+      stringOrUndefined(readPath(nestedArtifact, ["title"])) ??
+      artifactTitle(type, stringOrUndefined(readPath(nestedArtifact, ["producer_id"]) ?? readPath(payload, ["producer_id"])), stringOrUndefined(readPath(nestedArtifact, ["kind"]) ?? readPath(payload, ["kind"]))),
     type,
   };
 }
@@ -246,12 +248,18 @@ function normalizeArtifactType(value: unknown): "action_plan" | "analysis" | "re
   return "analysis";
 }
 
-function artifactTitle(type: "action_plan" | "analysis" | "report" | "submission" | "thesis") {
+function artifactTitle(type: "action_plan" | "analysis" | "report" | "submission" | "thesis", producerId?: string, kind?: string) {
+  if (producerId?.endsWith("get_account_context")) return "账户上下文";
+  if (producerId?.endsWith("evaluate_thesis")) return "Thesis 评估";
+  if (producerId?.endsWith("build_action_plan")) return "ActionPlan";
+  if (producerId?.endsWith("submit_action_plan")) return "行动提交结果";
+  if (kind === "tool_result") return "工具运行结果";
+  if (kind === "industry_analysis") return "行业分析报告";
   if (type === "thesis") return "Thesis 评估";
   if (type === "action_plan") return "ActionPlan";
   if (type === "submission") return "行动提交结果";
   if (type === "report") return "分析报告";
-  return "运行产物";
+  return "行业分析报告";
 }
 
 function artifactRows(type: "action_plan" | "analysis" | "report" | "submission" | "thesis", payload: Record<string, unknown>) {
