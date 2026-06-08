@@ -324,6 +324,12 @@ def _route_data(routed_event: str | None) -> dict[str, object]:
             "requires_expectation_lookup": True,
             "requires_market_reaction_lookup": True,
             "action_flow_required": True,
+            "action_flow_smoke_test": True,
+            "research_budget_for_action_flow": {
+                "max_search_web_calls": 1,
+                "max_report_chars": 600,
+                "reason": "调试入口优先验证完整 action flow，不把 run 预算消耗在长研究阶段。",
+            },
             "action_flow_reason": "官方一手高时效财报调试案例需要展示完整 dry-run 行动闭环。",
             "expected_action_flow": [
                 "get_account_context",

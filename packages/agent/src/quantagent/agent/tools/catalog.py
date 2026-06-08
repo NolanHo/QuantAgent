@@ -44,7 +44,10 @@ PUBLIC_TOOL_BINDINGS: dict[str, ToolBinding] = {
     BUILD_ACTION_PLAN_TOOL_ID: ToolBinding(
         tool_id=BUILD_ACTION_PLAN_TOOL_ID,
         name="build_action_plan",
-        description="基于分析、评估和账户上下文 ID 构建受风险约束的 ActionPlan。",
+        description=(
+            "基于分析、评估和账户上下文 ID 构建受风险约束的 ActionPlan。"
+            "如果返回 next_tool=submit_action_plan，MainAgent 必须立即用 next_tool_input 调用 submit_action_plan。"
+        ),
         risk_level="high",
     ),
     SUBMIT_ACTION_PLAN_TOOL_ID: ToolBinding(

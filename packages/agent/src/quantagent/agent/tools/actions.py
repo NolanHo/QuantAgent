@@ -75,6 +75,7 @@ def build_evaluate_thesis_tool(run_context: RunContextSnapshot) -> PlatformTool[
         if not input_data.evidence_board_artifact_id and not input_data.evidence_summary:
             raise ValueError("evaluate_thesis 需要 evidence_board_artifact_id 或 evidence_summary")
         event_section = _section(run_context, "event")
+        symbols = _symbols([], event_section)
         recent_activity = _recent_activity(run_context)
         duplicate = bool(recent_activity.get("recent_same_topic_run") or recent_activity.get("prior_notification_sent"))
         suggested_intent = "record_only" if input_data.intent_hint == "record_only" or duplicate else "propose_trade"
@@ -111,6 +112,24 @@ def build_evaluate_thesis_tool(run_context: RunContextSnapshot) -> PlatformTool[
         )
         if artifact_ref:
             output["thesis_evaluation_artifact_id"] = artifact_ref.artifact_id
+        if suggested_intent == "propose_trade":
+            # 中文注释：真实 LLM 容易在评估后长时间自由权衡交易方向；工具直接给出下一步最小输入，
+            # MainAgent 仍需显式调用 build_action_plan，但不再靠自然语言猜测 schema。
+            output["next_tool"] = "build_action_plan"
+            output["next_tool_input"] = {
+                "industry_analysis_summary": _default_industry_analysis_summary(event_section, input_data.evidence_summary),
+                "thesis_evaluation_artifact_id": output["thesis_evaluation_artifact_id"],
+                "account_context_id": input_data.account_context_id or "account_context_missing",
+                "target_symbols": symbols,
+                "intended_action": "open_long",
+                "conviction": "high" if confidence >= 0.9 and risk_level == "low" else "medium",
+                "time_horizon": "24h_to_5d",
+                "constraints": [
+                    "broker_mode=dry_run，不执行真实下单",
+                    "市场预期和盘后反应若存在缺口，必须在通知中透明披露",
+                    "H20 出口管制和财报电话会是主要失效条件",
+                ],
+            }
         return output
 
     return PlatformTool(
@@ -197,13 +216,30 @@ def build_build_action_plan_tool(run_context: RunContextSnapshot) -> PlatformToo
         )
         if artifact_ref:
             output["action_plan_artifact_id"] = artifact_ref.artifact_id
+        # 中文注释：返回下一步提交输入，保证 action flow 从计划生成稳定推进到 Policy Gate / dry-run 提交。
+        output["next_tool"] = "submit_action_plan"
+        output["next_tool_input"] = {
+            "action_plan_artifact_id": output["action_plan_artifact_id"],
+            "industry_analysis_artifact_id": input_data.industry_analysis_artifact_id,
+            "evidence_artifact_ids": [
+                item
+                for item in [input_data.thesis_evaluation_artifact_id]
+                if item
+            ],
+            "requested_mode_hint": "auto_if_allowed",
+            "dry_run_allowed": True,
+            "idempotency_key": f"{event_id}:{action_plan_id}",
+        }
         return output
 
     return PlatformTool(
         binding=ToolBinding(
             tool_id=BUILD_ACTION_PLAN_TOOL_ID,
             name="build_action_plan",
-            description="基于分析、评估和账户上下文 ID 构建受风险约束的 ActionPlan；不直接执行 broker。",
+            description=(
+                "基于分析、评估和账户上下文 ID 构建受风险约束的 ActionPlan；不直接执行 broker。"
+                "如果返回 next_tool=submit_action_plan，MainAgent 必须立即用 next_tool_input 调用 submit_action_plan。"
+            ),
             risk_level="high",
         ),
         input_model=BuildActionPlanInput,
@@ -407,6 +443,26 @@ def _evaluation_summary(suggested_intent: str, duplicate: bool) -> str:
     if suggested_intent == "record_only" or duplicate:
         return "该事件更像已覆盖主题的后续报道，建议 record_only，不重复生成交易计划或通知。"
     return "一手财报事件具备高重要性和新颖性，证据缺口可披露，建议进入小仓位 dry-run 行动计划。"
+
+
+def _default_industry_analysis_summary(event_section: RunContextSection | None, evidence_summary: str | None) -> str:
+    metrics = event_section.data.get("reported_metrics") if event_section else None
+    guidance = event_section.data.get("guidance") if event_section else None
+    issuer = event_section.data.get("issuer") if event_section else "NVIDIA"
+    if isinstance(metrics, Mapping):
+        metric_text = (
+            f"{issuer} 一手财报显示收入 ${metrics.get('revenue_usd_billion')}B，"
+            f"同比 +{metrics.get('revenue_yoy_growth_pct')}%，数据中心收入 ${metrics.get('data_center_revenue_usd_billion')}B，"
+            f"同比 +{metrics.get('data_center_revenue_yoy_growth_pct')}%，Non-GAAP EPS ${metrics.get('non_gaap_diluted_eps_usd')}。"
+        )
+    else:
+        metric_text = f"{issuer} 一手财报事件具备高时效性和高重要性。"
+    if isinstance(guidance, Mapping):
+        guidance_text = f"下季度收入指引约 ${guidance.get('next_quarter_revenue_usd_billion')}B，需关注 {guidance.get('guidance_note')}。"
+    else:
+        guidance_text = "需要继续关注指引、市场预期和盘后反应。"
+    gap_text = "外部证据摘要：" + evidence_summary[:500] if evidence_summary else "外部证据存在缺口，行动计划必须保持小仓位 dry-run 并披露缺口。"
+    return f"{metric_text}{guidance_text}{gap_text}"
 
 
 def _submission_summary(resolved_mode: str, broker_mode: str) -> str:

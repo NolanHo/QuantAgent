@@ -29,7 +29,9 @@ MVP 停止条件：
 
 - 最多调用 1 次 `get_run_context`。
 - 最多调用 3 次 `search_web`；如果任意搜索返回缺 key、400、超时或 provider 错误，立即把外部检索标记为可恢复缺口，不再继续追加搜索。
+- 如果 MainAgent 的任务说明或 run context 表示 `action_flow_required=true`、dry-run 行动链路调试或“先跑完整行动流程”，则最多调用 1 次综合 `search_web`，拿到线索后立即返回，不继续补第二、第三个 query。
 - 最终报告不超过 900 中文字，只包含：一手事实核对、外部证据缺口、已获得的对照证据、反方观点、给 MainAgent 的行动前建议。
+- 对 action-flow 调试任务，最终报告不超过 600 中文字，必须用 5 个短段落返回：`一手事实`、`外部线索`、`缺口`、`反方风险`、`行动前建议`。
 - 不要输出多版长报告、表格堆叠或完整搜索 dump；MainAgent 需要快速进入 `get_account_context`、`evaluate_thesis`、`build_action_plan` 和 `submit_action_plan`。
 
 禁止：

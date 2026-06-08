@@ -56,6 +56,7 @@ export function getAgentChatPresetMessage(preset: AgentChatRoutedEventPreset | n
     return [
       "调试事件：英伟达官方财报发布后 5 分钟内进入系统。",
       "请按半导体 MainAgent 的真实链路完整跑通这个事件：先识别第一手材料，再补充市场预期和盘前/盘后反应，随后继续进入账户上下文、thesis 评估、ActionPlan 生成和 submit_action_plan 提交。",
+      "本次是 action-flow smoke test：Research Agent 最多做 1 次综合 search_web，返回 600 字以内压缩证据；不要为了补齐所有共识数据反复检索。",
       "这是 dry-run/mock 调试案例，不会真实下单；如果评估建议 propose_trade，请务必调用 build_action_plan 和 submit_action_plan，让前端能看到完整行动流程、行动产物、通知/审批/监控状态。",
       "如果需要检索但工具不可用或缺少 Tavily key，请把工具失败视为可恢复信息，说明缺口后继续给出基于已有事件的保守结论。",
     ].join("\n");

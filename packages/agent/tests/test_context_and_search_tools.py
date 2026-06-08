@@ -154,6 +154,11 @@ class ContextAndSearchToolsTest(TestCase):
             )
             self.assertEqual(evaluation["suggested_intent"], "propose_trade")
             self.assertTrue(str(evaluation["thesis_evaluation_artifact_id"]).startswith("artifact_"))
+            self.assertEqual(evaluation["next_tool"], "build_action_plan")
+            self.assertEqual(evaluation["next_tool_input"]["thesis_evaluation_artifact_id"], evaluation["thesis_evaluation_artifact_id"])
+            self.assertEqual(evaluation["next_tool_input"]["account_context_id"], account["account_context_id"])
+            self.assertEqual(evaluation["next_tool_input"]["target_symbols"], ["NVDA"])
+            self.assertEqual(evaluation["next_tool_input"]["intended_action"], "open_long")
 
             action_plan, action_events = await adapter.invoke(
                 build_build_action_plan_tool(run_context),
@@ -170,6 +175,10 @@ class ContextAndSearchToolsTest(TestCase):
             )
             self.assertEqual(action_plan["intent"], "trade")
             self.assertTrue(str(action_plan["action_plan_artifact_id"]).startswith("artifact_"))
+            self.assertEqual(action_plan["next_tool"], "submit_action_plan")
+            self.assertEqual(action_plan["next_tool_input"]["action_plan_artifact_id"], action_plan["action_plan_artifact_id"])
+            self.assertEqual(action_plan["next_tool_input"]["requested_mode_hint"], "auto_if_allowed")
+            self.assertTrue(action_plan["next_tool_input"]["dry_run_allowed"])
 
             submission, submission_events = await adapter.invoke(
                 build_submit_action_plan_tool(run_context),
@@ -207,6 +216,9 @@ class ContextAndSearchToolsTest(TestCase):
             self.assertEqual(result["suggested_intent"], "propose_trade")
             self.assertIsNone(result["evidence_board_artifact_id"])
             self.assertIn("Tavily", result["evidence_summary"])
+            self.assertEqual(result["next_tool"], "build_action_plan")
+            self.assertIn("industry_analysis_summary", result["next_tool_input"])
+            self.assertEqual(result["next_tool_input"]["target_symbols"], ["NVDA"])
             self.assertIn(AgentRunEventType.ARTIFACT_CREATED, [event.type for event in events])
 
         asyncio.run(_run())
@@ -233,6 +245,8 @@ class ContextAndSearchToolsTest(TestCase):
             self.assertIsNone(result["industry_analysis_artifact_id"])
             self.assertIn("NVDA", result["industry_analysis_summary"])
             self.assertTrue(str(result["action_plan_artifact_id"]).startswith("artifact_"))
+            self.assertEqual(result["next_tool"], "submit_action_plan")
+            self.assertEqual(result["next_tool_input"]["action_plan_artifact_id"], result["action_plan_artifact_id"])
             self.assertIn(AgentRunEventType.ARTIFACT_CREATED, [event.type for event in events])
 
         asyncio.run(_run())

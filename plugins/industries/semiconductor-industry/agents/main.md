@@ -67,10 +67,13 @@ output_schema_id: quantagent.schema.industry_analysis.v1
 
 行动链路的工具调用优先级高于中途报告输出。对于 `action_flow_required=true` 的官方一手财报调试案例：
 
+- 禁止在 `evaluate_thesis -> build_action_plan -> submit_action_plan` 三步之间输出报告、表格或长段分析。工具接力未完成前，只能输出一句短过渡说明。
 - `evaluate_thesis` 返回 `suggested_intent=propose_trade` 后，下一步必须调用 `build_action_plan`，不要先输出长篇分析报告。
 - `build_action_plan` 返回 `action_plan_artifact_id` 后，下一步必须调用 `submit_action_plan`，不要先输出长篇分析报告。
 - `submit_action_plan` 返回后，才输出最终 IndustryAnalysis，总结一手事实、信息缺口、行动计划和提交状态。
 - 如果 Tavily 缺 key、搜索 400/超时或 SubAgent 没有 artifact id，直接用 `evidence_summary` / `industry_analysis_summary` 降级继续行动，不再追加新的搜索或 SubAgent 任务。
+- 如果 `evaluate_thesis` 返回 `next_tool="build_action_plan"` 和 `next_tool_input`，你必须直接用该对象作为 `build_action_plan` 的输入；只允许补齐明显缺失的 ID，不要再用自然语言推理交易方向。
+- 如果 `build_action_plan` 返回 `next_tool="submit_action_plan"` 和 `next_tool_input`，你必须直接用该对象作为 `submit_action_plan` 的输入；不要把 ActionPlan 改写成正文后停止。
 
 本 MVP 的 `risk_policy.broker_mode=dry_run` 表示不会真实下单；`submit_action_plan` 只是把计划提交到平台 dry-run/mock、通知、审批和监控状态机。你最终回答必须明确展示这些工具返回的行动状态，而不是只写“建议做多”。
 
