@@ -73,9 +73,9 @@ postgres
 运行示例：
 
 ```text
-api       -> uv run quantagent-api
-worker    -> uv run quantagent-worker
-scheduler -> uv run quantagent-scheduler
+api       -> uv run api
+worker    -> uv run worker
+scheduler -> uv run scheduler
 ```
 
 ### Web 镜像
@@ -171,9 +171,9 @@ api depends_on migrate success
 
 ```text
 docker compose up postgres
-uv run quantagent-api
-uv run quantagent-worker
-uv run quantagent-scheduler
+uv run api
+uv run worker
+uv run scheduler
 bun run dev
 ```
 

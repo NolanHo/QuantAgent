@@ -8,7 +8,7 @@ dependencies = [
 ]
 
 [project.scripts]
-quantagent-scheduler = "quantagent.scheduler.main:run"
+scheduler = "quantagent.scheduler.main:run"
 
 [tool.uv.sources]
 quantagent-core = { workspace = true }

@@ -9,6 +9,7 @@ from quantagent.worker.consumer.analysis_request_handler import (
     IndustryAnalysisRequestHandler,
     InMemoryAnalysisRequestIntakeAuditSink,
 )
+from quantagent.worker.consumer.routed_agent_run_handler import RoutedAgentRunConfig, RoutedAgentRunHandler
 
 __all__ = [
     "AnalysisRequestIntakeAuditSink",
@@ -17,5 +18,7 @@ __all__ = [
     "IndustryAnalysisRequestHandler",
     "InMemoryAnalysisRequestIntakeAuditSink",
     "InMemoryWorkerRouteAuditSink",
+    "RoutedAgentRunConfig",
+    "RoutedAgentRunHandler",
     "WorkerRouteAuditSink",
 ]

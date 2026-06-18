@@ -1,6 +1,6 @@
-# quantagent-demo CLI 操作指南
+# demo CLI 操作指南
 
-`quantagent-demo` 是一个面向小白的最小演示命令，用来证明：
+`demo` 是一个面向小白的最小演示命令，用来证明：
 
 ```text
 官方插件被扫描到
@@ -44,7 +44,7 @@ openspec/
 直接执行：
 
 ```bash
-uv run quantagent-demo
+uv run demo
 ```
 
 ### 3. 预期输出
@@ -106,7 +106,7 @@ EVENT_BUS_BACKEND=kafka
 你可以手动验证：
 
 ```bash
-EVENT_BUS_BACKEND=kafka uv run quantagent-demo
+EVENT_BUS_BACKEND=kafka uv run demo
 ```
 
 ### 如果失败了怎么看？

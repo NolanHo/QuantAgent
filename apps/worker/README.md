@@ -29,16 +29,16 @@ from quantagent.worker.main import create_worker_app, create_worker_runtime, run
 - `create_worker_runtime()`
   组装并返回 `EventBusRuntime`
 - `create_worker_app()`
-  组装 worker 的 session、captured-event handler、Readability enrichment seam、`industry.analysis.requested` topic publisher、AI intake handler、`event.routed` publisher 和 event bus runtime
+  组装 worker 的 session、captured-event handler、Readability enrichment seam、`industry.analysis.requested` topic publisher、AI intake handler、`event.routed` publisher、routed Agent Chat handler 和 event bus runtime
 - `run()`
-  启动当前 V1 的常驻 consumer loop，持续消费 `source.event.captured` 与 `industry.analysis.requested`
+  启动当前 V1 的常驻 consumer loop，持续消费 `source.event.captured`、`industry.analysis.requested` 与 `event.routed`
 - `run_once()`
   只执行一次单条拉取消费，用于 smoke / 测试，不作为默认本地运行方式
 
 注意：
 
 - `uv run api` 不会自动启动 worker
-- worker 需要单独运行，推荐本地命令是 `uv run quantagent-worker`
+- worker 需要单独运行，推荐本地命令是 `uv run worker`
 - worker 依赖可用的 `DATABASE_URL`
 - 如果用 Compose 跑 worker，默认会自动改用 `COMPOSE_DATABASE_URL`，不需要手工再写容器内数据库地址
 
@@ -111,6 +111,7 @@ uv run --package quantagent-worker python -m unittest discover -s apps/worker/sr
 - 正文增强失败时允许 degraded 为 RSS 摘要，但必须保留结构化失败标记
 - 半导体 owner 的成功 handoff 通过 `industry.analysis.requested` topic 表达，而不是在 worker 入口直接执行业务分析
 - worker 在消费 `industry.analysis.requested` 后，会通过 `quantagent.core.event_intake` 的 single-call runner 产出 `event.routed`，并把安全结构化输出持久化到 routed-event read model，供 `/runtime` 按新闻查看 Router output
+- worker 在消费 `event.routed` 后，会为 `decision=route` 且目标包含 `semiconductor` 的事件创建 Agent Chat session/run，并把 AgentRuntime 事件写入 `agent_chat_messages`；Web 可通过 Agent Chat session 查看 AI 处理记录
 - 默认本地 provider 是 review-only，不会裸连真实模型；要验证真实路由行为，优先在测试中注入 fake provider harness
 - 若要让 AI intake 走真实模型，所选 provider / model 必须兼容 OpenAI-style `response_format={\"type\":\"json_object\"}` 结构化输出；不兼容时应预期只能看到连接成功，但 intake 运行阶段会失败或退回 review
 
@@ -135,7 +136,7 @@ uv run python -c 'import asyncio; from quantagent.worker.main import run_once; a
 跨进程消费：
 
 ```bash
-uv run quantagent-worker
+uv run worker
 ```
 
 如果需要显式覆盖 Kafka 地址：
@@ -143,5 +144,5 @@ uv run quantagent-worker
 ```bash
 EVENT_BUS_BACKEND=kafka \
 EVENT_BUS_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:19092 \
-uv run quantagent-worker
+uv run worker
 ```

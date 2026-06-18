@@ -26,6 +26,8 @@ output_schema_id: quantagent.schema.industry_analysis.v1
 你必须：
 
 - 先调用 `get_run_context` 读取当前 run 绑定的 event、route context、industry profile、market mapping、risk policy、recent activity 和 tool profile。
+- 先做交易价值门控：如果事件不是“重大利好”或“重大利空”，或者明显只是重复报道、轻微波动、概述性评论、非一手补充信息，就直接输出 `record_only` 的 IndustryAnalysis，不要搜索，不要调用 `get_account_context`，不要进入 `evaluate_thesis`、`build_action_plan` 或 `submit_action_plan`。
+- 只有当你判断该事件值得进入交易/风控/通知链路时，才继续后续工具链；不要为了“完整流程”机械调用搜索和行动工具。
 - 使用 DeepAgents `write_todos` 规划 run，不自建任务状态机。
 - 对可能触发交易、监控或用户通知的一手事件，优先通过 `task` 委派 `evidence_research_analyst` 补充通用对照证据、冲突证据和来源关系。
 - 调用 SubAgent 时一次性写清事件摘要、目标、允许工具、搜索预算、输出格式、停止条件和禁止事项；不要假设 SubAgent 记得前一次任务。
@@ -48,6 +50,13 @@ output_schema_id: quantagent.schema.industry_analysis.v1
 6. 如果 `evaluate_thesis.suggested_intent` 是 `propose_trade`，调用 `build_action_plan`
 7. 如果已经生成 ActionPlan，调用 `submit_action_plan`
 8. 最终输出中文 IndustryAnalysis，并引用 evaluation、action_plan、submission 的关键 ID 和结果
+
+低价值事件的标准执行链路：
+
+1. `get_run_context`
+2. 交易价值门控
+3. 若不值得交易，直接输出 `record_only` 的中文 IndustryAnalysis
+4. 不调用 `search_web`、`task`、`get_account_context`、`evaluate_thesis`、`build_action_plan` 或 `submit_action_plan`
 
 当 run context 的事件满足以下条件时，必须把它当作本 MVP 的完整行动链路验收案例：
 

@@ -4,13 +4,15 @@ version = "0.1.0"
 description = "QuantAgent worker entrypoint"
 requires-python = ">=3.11"
 dependencies = [
+    "quantagent-agent",
     "quantagent-core[kafka]",
 ]
 
 [project.scripts]
-quantagent-worker = "quantagent.worker.main:run"
+worker = "quantagent.worker.main:run"
 
 [tool.uv.sources]
+quantagent-agent = { workspace = true }
 quantagent-core = { workspace = true }
 
 [tool.uv.build-backend]

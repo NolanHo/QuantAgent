@@ -73,6 +73,8 @@ def _key_fields(payload: dict[str, object]) -> dict[str, object]:
         "target_industries": _mapping_value(routing, "target_industries"),
         "target_topics": _mapping_value(routing, "target_topics"),
         "priority": _mapping_value(routing, "priority"),
+        "event_score": _mapping_value(routing, "event_score"),
+        "score_breakdown": _mapping_value(routing, "score_breakdown"),
         "requires_deep_analysis": _mapping_value(routing, "requires_deep_analysis"),
         "requires_human_review": _mapping_value(routing, "requires_human_review"),
         "next_step_hint": _mapping_value(routing, "next_step_hint"),

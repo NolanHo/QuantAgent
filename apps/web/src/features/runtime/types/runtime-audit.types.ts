@@ -1,4 +1,4 @@
-export type RuntimeAuditNewsStatus = 'captured' | 'linked' | 'pending' | 'routed' | 'unavailable';
+export type RuntimeAuditNewsStatus = 'captured' | 'linked' | 'pending' | 'processed' | 'routed' | 'unavailable';
 
 export type RuntimeAuditNewsStage =
   | 'captured'
@@ -6,6 +6,7 @@ export type RuntimeAuditNewsStage =
   | 'scheduler_linked'
   | 'ai_intake_unavailable'
   | 'ai_intake_routed'
+  | 'industry_analysis_completed'
   | 'route_decided'
   | 'route_unavailable';
 

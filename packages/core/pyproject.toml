@@ -19,10 +19,10 @@ kafka = [
 ]
 
 [project.scripts]
-quantagent-db = "quantagent.core.db.cli:main"
-quantagent-demo = "quantagent.core.demo:main"
-quantagent-source-bindings = "quantagent.core.source_binding.cli:main"
-quantagent-source-event-replay = "quantagent.core.replay.source_event_replay:main"
+db = "quantagent.core.db.cli:main"
+demo = "quantagent.core.demo:main"
+source-bindings = "quantagent.core.source_binding.cli:main"
+source-event-replay = "quantagent.core.replay.source_event_replay:main"
 
 [tool.uv.sources]
 quantagent-plugin-sdk = { workspace = true }

@@ -16,6 +16,7 @@ from quantagent.core.event_intake import (
     SingleCallEventIntakeRunner,
 )
 from quantagent.core.events import EventEnvelope, InMemoryEventBus
+from quantagent.core.model_config import ModelConfigServiceError
 from quantagent.plugin_sdk.io import dto_validation_error
 
 
@@ -103,6 +104,8 @@ class EventIntakeTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.decision.decision, IntakeDecision.ROUTE)
         self.assertEqual(result.decision.industry_relevance[0].relationship.value, "direct")
         self.assertEqual(result.decision.routing.target_industries, ("semiconductor",))
+        self.assertEqual(result.decision.routing.event_score, 0.7576)
+        self.assertEqual(result.decision.to_mapping()["routing"]["event_score"], 0.7576)
         self.assertEqual(result.decision.schema_version, EVENT_INTAKE_DECISION_SCHEMA_VERSION)
         self.assertEqual(result.decision.structured_news.canonical_title, "HBM 需求变化影响存储供应链")
         self.assertEqual(result.decision.structured_news.event_type_label, "供需变化")
@@ -232,19 +235,91 @@ class EventIntakeTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.decision.audit.failure_code, "EVENT_INTAKE_VALIDATION_FAILED")
         self.assertIn("未通过 Router Agent schema 校验", result.decision.audit.reason_summary)
         self.assertFalse(result.decision.routing.requires_deep_analysis)
-        self.assertEqual(invoker.invocation_count, 1)
+        self.assertEqual(invoker.invocation_count, 3)
+        self.assertEqual(result.provider_invocation_count, 3)
+        self.assertEqual(result.invocation_metadata["attempt_count"], 3)
 
     async def test_provider_failure_becomes_review_with_chinese_summary(self) -> None:
         class FailingInvoker:
-            async def invoke(self, *, context, output_schema):  # type: ignore[no-untyped-def]
+            async def invoke(self, *, context, output_schema, repair=None):  # type: ignore[no-untyped-def]
                 raise RuntimeError("boom")
 
         result = await SingleCallEventIntakeRunner(invoker=FailingInvoker()).run(self._build_single_context())
 
         self.assertEqual(result.decision.decision, IntakeDecision.REVIEW)
         self.assertEqual(result.decision.audit.failure_code, "PROVIDER_UNAVAILABLE")
-        self.assertIn("结构化模型服务暂时不可用", result.decision.audit.reason_summary)
+        self.assertIn("结构化模型调用异常", result.decision.audit.reason_summary)
         self.assertEqual(result.provider_invocation_count, 1)
+
+    async def test_model_response_invalid_failure_preserves_error_code(self) -> None:
+        class FailingInvoker:
+            async def invoke(self, *, context, output_schema, repair=None):  # type: ignore[no-untyped-def]
+                raise ModelConfigServiceError(
+                    "Model provider returned non-JSON content",
+                    code="MODEL_PROVIDER_RESPONSE_INVALID",
+                    safe_details={"invocation_id": 42, "provider_id": 7},
+                )
+
+        result = await SingleCallEventIntakeRunner(invoker=FailingInvoker()).run(self._build_single_context())
+
+        self.assertEqual(result.decision.decision, IntakeDecision.REVIEW)
+        self.assertEqual(result.decision.audit.failure_code, "MODEL_PROVIDER_RESPONSE_INVALID")
+        self.assertIn("无法解析为 Router Agent 需要的结构化 JSON", result.decision.audit.reason_summary)
+        self.assertIn("MODEL_PROVIDER_RESPONSE_INVALID", result.decision.audit.safe_error_summary or "")
+        self.assertEqual(result.invocation_metadata["status"], "provider_failed")
+        self.assertEqual(result.invocation_metadata["error_code"], "MODEL_PROVIDER_RESPONSE_INVALID")
+        self.assertEqual(result.invocation_metadata["safe_details"], {"invocation_id": 42, "provider_id": 7})
+
+    async def test_schema_validation_retries_until_repair_succeeds(self) -> None:
+        invalid_output = self._route_output()
+        invalid_structured_news = dict(invalid_output["structured_news"])  # type: ignore[arg-type]
+        invalid_structured_news["source_facts"] = ({"fact": "HBM demand is relevant"},)
+        invalid_output["structured_news"] = invalid_structured_news
+        repaired_output = self._route_output()
+        invoker = FakeStructuredModelInvoker([invalid_output, repaired_output])
+
+        result = await SingleCallEventIntakeRunner(invoker=invoker).run(self._build_single_context())
+
+        self.assertEqual(result.decision.decision, IntakeDecision.ROUTE)
+        self.assertEqual(invoker.invocation_count, 2)
+        self.assertEqual(result.provider_invocation_count, 2)
+        self.assertEqual(result.invocation_metadata["status"], "succeeded")
+        self.assertEqual(result.invocation_metadata["attempt_count"], 2)
+        self.assertEqual(result.invocation_metadata["provider_metadata"]["repair_attempt"], 2)
+        self.assertIn("structured_news.source_facts", result.invocation_metadata["provider_metadata"]["repair_error"])
+
+    async def test_schema_validation_fails_after_three_attempts(self) -> None:
+        invalid_output = self._route_output()
+        invalid_structured_news = dict(invalid_output["structured_news"])  # type: ignore[arg-type]
+        invalid_structured_news["source_facts"] = ({"fact": "still invalid"},)
+        invalid_output["structured_news"] = invalid_structured_news
+        invoker = FakeStructuredModelInvoker([invalid_output, invalid_output, invalid_output])
+
+        result = await SingleCallEventIntakeRunner(invoker=invoker).run(self._build_single_context())
+
+        self.assertEqual(result.decision.decision, IntakeDecision.REVIEW)
+        self.assertEqual(invoker.invocation_count, 3)
+        self.assertEqual(result.provider_invocation_count, 3)
+        self.assertEqual(result.invocation_metadata["status"], "schema_validation_failed")
+        self.assertEqual(result.invocation_metadata["attempt_count"], 3)
+        self.assertEqual(len(result.invocation_metadata["provider_metadata_chain"]), 3)
+        self.assertIn("structured_news.source_facts", result.invocation_metadata["repair_error"]["message"])
+
+    def test_route_output_normalizes_empty_discard_reason(self) -> None:
+        output = self._route_output()
+        output["discard_reason"] = None
+
+        decision = self._decision_from(output)
+
+        self.assertEqual(decision.decision, IntakeDecision.ROUTE)
+        self.assertEqual(decision.discard_reason, DiscardReason.NOT_DISCARDED)
+
+    def test_route_output_rejects_concrete_discard_reason(self) -> None:
+        output = self._route_output()
+        output["discard_reason"] = "irrelevant"
+
+        with self.assertRaisesRegex(EventIntakeValidationError, "not_discarded"):
+            self._decision_from(output)
 
     async def test_review_only_invoker_outputs_chinese_user_visible_fields(self) -> None:
         result = await SingleCallEventIntakeRunner(invoker=__import__(
@@ -280,6 +355,12 @@ class EventIntakeTestCase(unittest.IsolatedAsyncioTestCase):
             self._decision_from(self._discard_output(reason="not_discarded"))
         with self.assertRaises(EventIntakeValidationError):
             self._decision_from(self._route_output(targets=()))
+        missing_breakdown_output = self._route_output()
+        missing_breakdown_routing = dict(missing_breakdown_output["routing"])  # type: ignore[arg-type]
+        missing_breakdown_routing.pop("score_breakdown")
+        missing_breakdown_output["routing"] = missing_breakdown_routing
+        with self.assertRaises(EventIntakeValidationError):
+            self._decision_from(missing_breakdown_output)
         with self.assertRaises(EventIntakeValidationError):
             self._decision_from(self._review_output(requires_human_review=False, confidence=0.9))
 
@@ -386,6 +467,16 @@ class EventIntakeTestCase(unittest.IsolatedAsyncioTestCase):
                 "target_industries": targets,
                 "target_topics": ("memory",),
                 "priority": "high",
+                "score_breakdown": {
+                    "source_quality": 0.74,
+                    "information_freshness": 0.68,
+                    "entity_specificity": 0.82,
+                    "market_materiality": 0.79,
+                    "industry_relevance": 0.86,
+                    "actionability_urgency": 0.66,
+                    "reason_summary": "来源较可靠、实体和产品明确，对存储链条有较强影响，但不是一手财报或监管突发。",
+                },
+                "event_score": 0.01,
                 "requires_deep_analysis": True,
                 "requires_human_review": False,
                 "dedupe_key_hint": "https://example.com/hbm",

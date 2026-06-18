@@ -123,7 +123,7 @@ uv run python -c 'import asyncio; from quantagent.scheduler.main import run_once
 跨进程调度：
 
 ```bash
-uv run quantagent-scheduler
+uv run scheduler
 ```
 
 如果需要显式覆盖 Kafka 地址：
@@ -131,7 +131,7 @@ uv run quantagent-scheduler
 ```bash
 EVENT_BUS_BACKEND=kafka \
 EVENT_BUS_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:19092 \
-uv run quantagent-scheduler
+uv run scheduler
 ```
 
 明确边界：

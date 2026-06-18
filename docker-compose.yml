@@ -44,7 +44,7 @@ services:
       dockerfile: Dockerfile
       target: runtime
     image: quantagent-api:local
-    command: ["quantagent-worker"]
+    command: ["worker"]
     environment:
       APP_ENV: ${APP_ENV:-local}
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql+psycopg://quantagent:quantagent@db:5432/quantagent}
@@ -78,7 +78,7 @@ services:
       dockerfile: Dockerfile
       target: runtime
     image: quantagent-api:local
-    command: ["quantagent-scheduler"]
+    command: ["scheduler"]
     environment:
       APP_ENV: ${APP_ENV:-local}
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql+psycopg://quantagent:quantagent@db:5432/quantagent}
@@ -114,7 +114,7 @@ services:
     profiles:
       - migration
     working_dir: /app/packages/core
-    command: ["quantagent-db", "upgrade"]
+    command: ["db", "upgrade"]
     environment:
       APP_ENV: ${APP_ENV:-local}
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql+psycopg://quantagent:quantagent@db:5432/quantagent}

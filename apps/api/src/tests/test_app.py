@@ -48,6 +48,7 @@ from quantagent.api.routers.v1.register import (
     register_api_v1_protected_router,
 )
 from quantagent.core.db.base import Base
+from quantagent.core.db.models.agent_chat import AgentChatMessageORM, AgentChatRunORM, AgentChatSessionORM
 from quantagent.core.db.models.scheduler_run import SchedulerRunORM
 from quantagent.core.db.models.raw_event import RawEventORM
 from quantagent.core.db.models.raw_event_capture import RawEventCaptureORM
@@ -2659,6 +2660,44 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(routed_timeline["ai_intake_routed"]["status"], "success")
         self.assertEqual(routed_timeline["route_decided"]["status"], "success")
         self.assertIn("已路由", routed_timeline["route_decided"]["summary"])
+        routed_main_stage = next(stage for stage in routed_item["agent_stages"] if stage["stage_id"] == "industry_main_agent")
+        self.assertEqual(routed_main_stage["status"], "unavailable")
+
+    def test_runtime_audit_news_marks_agent_chat_processed_events(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                self._seed_runtime_audit_news(session)
+                self._seed_agent_chat_for_routed_event(session)
+                session.commit()
+            finally:
+                session.close()
+            self._login_with_client(client, settings)
+            response = client.get("/api/v1/runtime/audit/news", params={"limit": 20})
+            stage_response = client.get("/api/v1/runtime/audit/news", params={"current_stage": "industry_analysis_completed"})
+
+        self.assertEqual(response.status_code, 200)
+        routed_item = next(item for item in response.json()["data"]["items"] if item["raw_event_id"] == "rawevt-runtime-001")
+        self.assertEqual(routed_item["status"], "processed")
+        self.assertEqual(routed_item["current_stage"], "industry_analysis_completed")
+        self.assertEqual(routed_item["focus_stage"], "industry_analysis_completed")
+        routed_timeline = {step["step_id"]: step for step in routed_item["timeline"]}
+        self.assertEqual(routed_timeline["industry_analysis_completed"]["status"], "success")
+        routed_main_stage = next(stage for stage in routed_item["agent_stages"] if stage["stage_id"] == "industry_main_agent")
+        self.assertEqual(routed_main_stage["status"], "success")
+        self.assertEqual(routed_main_stage["key_fields"]["agent_chat_session_id"], "chat_sess_event_001")
+        self.assertEqual(stage_response.status_code, 200)
+        self.assertEqual(
+            [item["raw_event_id"] for item in stage_response.json()["data"]["items"]],
+            ["rawevt-runtime-001"],
+        )
 
     def test_runtime_audit_news_filters_by_backend_refs_and_time_range(self) -> None:
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -2739,6 +2778,7 @@ class ApiAppTestCase(unittest.TestCase):
             session = client.app.state.db_session_factory()
             try:
                 self._seed_runtime_audit_news(session)
+                self._seed_agent_chat_for_routed_event(session)
                 session.commit()
             finally:
                 session.close()
@@ -2755,7 +2795,13 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(item["routed_event_id"], "evt-routed-runtime-001")
         self.assertEqual(item["target_industries"], ["semiconductor"])
         self.assertEqual(item["target_topics"], ["memory"])
+        self.assertEqual(item["quality"]["event_score"], 0.7576)
+        self.assertEqual(item["router_stage_summary"]["key_fields"]["event_score"], 0.7576)
         self.assertEqual(item["router_stage_summary"]["key_fields"]["short_summary"], "HBM demand is directly relevant.")
+        self.assertEqual(len(item["agent_stages"]), 2)
+        main_stage = next(stage for stage in item["agent_stages"] if stage["stage_id"] == "industry_main_agent")
+        self.assertEqual(main_stage["status"], "success")
+        self.assertEqual(main_stage["key_fields"]["agent_chat_session_id"], "chat_sess_event_001")
         self.assertNotIn("output_json", item)
         self.assertNotIn("raw_payload", serialized)
         self.assertNotIn("full HBM body", serialized)
@@ -2845,6 +2891,70 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertNotIn("full HBM body", serialized_output)
         self.assertNotIn("must redact", serialized_detail)
         self.assertNotIn("must redact", serialized_output)
+
+    def test_events_detail_links_industry_main_agent_chat_session(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                self._seed_runtime_audit_news(session)
+                session.add(
+                    AgentChatSessionORM(
+                        session_id="chat_sess_event_001",
+                        thread_id="chat_thread_event_001",
+                        workspace_id="chat_workspace_event_001",
+                        industry_id="quantagent.official.industry.semiconductor",
+                        agent_id="quantagent.official.industry.semiconductor.agent.main",
+                        title="HBM demand update",
+                        status="active",
+                        metadata_json={"source": "event.routed", "routed_event_id": "evt-routed-runtime-001"},
+                        created_at=datetime(2026, 6, 1, 9, 0, 7, tzinfo=UTC),
+                        updated_at=datetime(2026, 6, 1, 9, 0, 8, tzinfo=UTC),
+                    )
+                )
+                session.add(
+                    AgentChatRunORM(
+                        run_id="chat_run_event_001",
+                        session_id="chat_sess_event_001",
+                        agent_run_id="agent_run_event_001",
+                        trace_id="trace-event-agent-chat",
+                        status="completed",
+                        metadata_json={"routed_event_id": "evt-routed-runtime-001"},
+                    )
+                )
+                session.add(
+                    AgentChatMessageORM(
+                        message_id="msg_event_agent_001",
+                        session_id="chat_sess_event_001",
+                        run_id="chat_run_event_001",
+                        seq=1,
+                        role="assistant",
+                        kind="final",
+                        content="行业 MainAgent 已完成处理。",
+                        payload={},
+                    )
+                )
+                session.commit()
+            finally:
+                session.close()
+            self._login_with_client(client, settings)
+            response = client.get("/api/v1/events/rawevt-runtime-001")
+
+        detail = response.json()["data"]
+        main_agent_stage = next(stage for stage in detail["agent_stages"] if stage["stage_id"] == "industry_main_agent")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(main_agent_stage["status"], "success")
+        self.assertEqual(main_agent_stage["key_fields"]["agent_chat_session_id"], "chat_sess_event_001")
+        self.assertEqual(main_agent_stage["key_fields"]["agent_chat_run_id"], "chat_run_event_001")
+        self.assertEqual(main_agent_stage["key_fields"]["agent_run_status"], "completed")
+        self.assertEqual(main_agent_stage["key_fields"]["agent_chat_message_count"], 1)
+        self.assertIn("Agent Chat", main_agent_stage["summary"])
 
     def test_events_detail_article_snapshot_does_not_leak_long_rss_summary(self) -> None:
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -2999,6 +3109,36 @@ class ApiAppTestCase(unittest.TestCase):
             [item["routed_event_id"] for item in industry_response.json()["data"]["items"]],
             ["evt-routed-runtime-002", "evt-routed-runtime-001"],
         )
+
+    def test_events_time_filter_does_not_hide_history_without_explicit_window(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                self._seed_runtime_audit_news(session)
+                session.commit()
+            finally:
+                session.close()
+            self._login_with_client(client, settings)
+            default_response = client.get("/api/v1/events", params={"limit": 20})
+            future_response = client.get(
+                "/api/v1/events",
+                params={"time_from": "2026-06-17T00:00:00Z", "limit": 20},
+            )
+
+        self.assertEqual(default_response.status_code, 200)
+        self.assertEqual(future_response.status_code, 200)
+        self.assertEqual(
+            [item["routed_event_id"] for item in default_response.json()["data"]["items"]],
+            ["evt-routed-runtime-001"],
+        )
+        self.assertEqual(future_response.json()["data"]["items"], [])
 
     def test_events_filters_are_applied_before_pagination(self) -> None:
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -4614,6 +4754,16 @@ class ApiAppTestCase(unittest.TestCase):
                             "target_industries": ["semiconductor"],
                             "target_topics": ["memory"],
                             "priority": "high",
+                            "score_breakdown": {
+                                "source_quality": 0.74,
+                                "information_freshness": 0.68,
+                                "entity_specificity": 0.82,
+                                "market_materiality": 0.79,
+                                "industry_relevance": 0.86,
+                                "actionability_urgency": 0.66,
+                                "reason_summary": "来源较可靠、实体和产品明确，对存储链条有较强影响，但不是一手财报或监管突发。",
+                            },
+                            "event_score": 0.7576,
                             "requires_deep_analysis": True,
                             "requires_human_review": False,
                             "dedupe_key_hint": "https://example.com/hbm",
@@ -4655,6 +4805,16 @@ class ApiAppTestCase(unittest.TestCase):
                         "target_industries": ["semiconductor"],
                         "target_topics": ["memory"],
                         "priority": "high",
+                        "score_breakdown": {
+                            "source_quality": 0.74,
+                            "information_freshness": 0.68,
+                            "entity_specificity": 0.82,
+                            "market_materiality": 0.79,
+                            "industry_relevance": 0.86,
+                            "actionability_urgency": 0.66,
+                            "reason_summary": "来源较可靠、实体和产品明确，对存储链条有较强影响，但不是一手财报或监管突发。",
+                        },
+                        "event_score": 0.7576,
                         "requires_deep_analysis": True,
                         "requires_human_review": False,
                         "confidence": 0.88,
@@ -4743,6 +4903,52 @@ class ApiAppTestCase(unittest.TestCase):
             ]
         )
 
+    def _seed_agent_chat_for_routed_event(
+        self,
+        session,
+        *,
+        routed_event_id: str = "evt-routed-runtime-001",
+        raw_event_title: str = "HBM demand update",
+    ) -> None:
+        session.add(
+            AgentChatSessionORM(
+                session_id="chat_sess_event_001",
+                thread_id="chat_thread_event_001",
+                workspace_id="chat_workspace_event_001",
+                industry_id="quantagent.official.industry.semiconductor",
+                agent_id="quantagent.official.industry.semiconductor.agent.main",
+                title=raw_event_title,
+                status="active",
+                metadata_json={"source": "event.routed", "routed_event_id": routed_event_id},
+                created_at=datetime(2026, 6, 1, 9, 0, 7, tzinfo=UTC),
+                updated_at=datetime(2026, 6, 1, 9, 0, 9, tzinfo=UTC),
+            )
+        )
+        session.add(
+            AgentChatRunORM(
+                run_id="chat_run_event_001",
+                session_id="chat_sess_event_001",
+                agent_run_id="agent_run_event_001",
+                trace_id="trace-event-agent-chat",
+                status="completed",
+                started_at=datetime(2026, 6, 1, 9, 0, 8, tzinfo=UTC),
+                completed_at=datetime(2026, 6, 1, 9, 0, 20, tzinfo=UTC),
+                metadata_json={"routed_event_id": routed_event_id},
+            )
+        )
+        session.add(
+            AgentChatMessageORM(
+                message_id="msg_event_agent_001",
+                session_id="chat_sess_event_001",
+                run_id="chat_run_event_001",
+                seq=1,
+                role="assistant",
+                kind="final",
+                content="行业 MainAgent 已完成处理。",
+                payload={},
+            )
+        )
+
     def _event_routed_row(
         self,
         *,
@@ -4755,8 +4961,19 @@ class ApiAppTestCase(unittest.TestCase):
         created_at: datetime,
         target_industries: list[str] | None = None,
         relationship: str = "direct",
+        event_score: float = 0.64,
+        score_breakdown: dict[str, object] | None = None,
     ) -> EventIntakeRoutedEventORM:
         industries = target_industries or [owner_id]
+        breakdown = score_breakdown or {
+            "source_quality": event_score,
+            "information_freshness": event_score,
+            "entity_specificity": event_score,
+            "market_materiality": event_score,
+            "industry_relevance": event_score,
+            "actionability_urgency": event_score,
+            "reason_summary": "测试 fixture 使用等权同值维度，便于按筛选场景构造不同总分。",
+        }
         return EventIntakeRoutedEventORM(
             event_id=event_id,
             schema_version="event_intake_decision.v2",
@@ -4779,7 +4996,13 @@ class ApiAppTestCase(unittest.TestCase):
                 "quality": {"is_spam": False, "confidence": 0.7, "reason_summary": summary},
                 "industry_relevance": [{"industry_id": owner_id, "relationship": relationship, "relevance_score": 0.7}],
                 "structured_news": {"canonical_title": summary, "short_summary": summary, "event_type": "test"},
-                "routing": {"target_industries": industries, "target_topics": target_topics, "priority": priority},
+                "routing": {
+                    "target_industries": industries,
+                    "target_topics": target_topics,
+                    "priority": priority,
+                    "score_breakdown": breakdown,
+                    "event_score": event_score,
+                },
                 "audit": {"reason_summary": summary, "schema_validation_status": "valid"},
             },
             key_fields={
@@ -4788,6 +5011,8 @@ class ApiAppTestCase(unittest.TestCase):
                 "target_industries": industries,
                 "target_topics": target_topics,
                 "priority": priority,
+                "score_breakdown": breakdown,
+                "event_score": event_score,
                 "confidence": 0.7,
                 "relationship": relationship,
                 "relevance": f"{owner_id} / {relationship} / 0.7",

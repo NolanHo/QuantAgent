@@ -15,6 +15,7 @@ import {
   toEventAgentAuditSubject,
   toAgentAuditSafeRecord,
 } from '../../utils';
+import { AgentMainAgentTranscriptPreview } from '../AgentMainAgentTranscriptPreview';
 
 export function EventDetailPage({ rawEventId }: { rawEventId: string }) {
   const page = useEventDetailPage(rawEventId);
@@ -34,6 +35,7 @@ export function EventDetailPage({ rawEventId }: { rawEventId: string }) {
 
   return (
     <EventDetailContent
+      agentChatSessionId={page.agentChatSessionId}
       detail={detail}
       onOpenAgentStage={(stage) => selectAgentStage(detail.agent_stages, stage, page.setSelectedAgentStage)}
       selectedAgentStage={page.selectedAgentStage}
@@ -69,6 +71,7 @@ export function EventAuditPage({ rawEventId }: { rawEventId: string }) {
         </div>
       </PageSectionCard>
       <SharedRouterStageSection
+        agentChatSessionId={page.agentChatSessionId}
         detail={detail}
         onOpenAgentStage={(stage) => selectAgentStage(detail.agent_stages, stage, page.setSelectedAgentStage)}
         selectedAgentStage={page.selectedAgentStage}
@@ -79,11 +82,13 @@ export function EventAuditPage({ rawEventId }: { rawEventId: string }) {
 }
 
 function EventDetailContent({
+  agentChatSessionId,
   detail,
   onOpenAgentStage,
   selectedAgentStage,
   selectedRouterOutput,
 }: {
+  agentChatSessionId: null | string;
   detail: EventDetailResponse;
   onOpenAgentStage: (stage: AgentAuditStage) => void;
   selectedAgentStage: EventAgentStage | null;
@@ -112,6 +117,7 @@ function EventDetailContent({
       </PageSectionCard>
 
       <SharedRouterStageSection
+        agentChatSessionId={agentChatSessionId}
         detail={detail}
         onOpenAgentStage={onOpenAgentStage}
         selectedAgentStage={selectedAgentStage}
@@ -143,11 +149,13 @@ function EventDetailContent({
 }
 
 function SharedRouterStageSection({
+  agentChatSessionId,
   detail,
   onOpenAgentStage,
   selectedAgentStage,
   selectedRouterOutput,
 }: {
+  agentChatSessionId: null | string;
   detail: EventDetailResponse;
   onOpenAgentStage: (stage: AgentAuditStage) => void;
   selectedAgentStage: EventAgentStage | null;
@@ -160,16 +168,44 @@ function SharedRouterStageSection({
 
   return (
     <PageSectionCard>
-      <SectionHeader eyebrow="Agent 处理" title="Router Agent 输出" />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionHeader eyebrow="Agent 处理" title="Router Agent 输出" />
+        {agentChatSessionId ? (
+          <LinkButton
+            search={{ sessionId: agentChatSessionId }}
+            size="sm"
+            to="/agent-chat"
+            variant="secondary"
+          >
+            查看 Agent Chat 处理记录
+          </LinkButton>
+        ) : null}
+      </div>
       <AgentStagePanel
         detailStage={selectedStage}
         onOpenStage={onOpenAgentStage}
+        renderDetailExtra={renderStageTranscript}
         stages={stages}
         subject={subject}
         title="Router Agent 审计"
       />
     </PageSectionCard>
   );
+}
+
+function renderStageTranscript(stage: AgentAuditStage) {
+  if (stage.stage_kind !== 'industry_main_agent') return null;
+  const sessionId = readStringKeyField(stage.key_fields.agent_chat_session_id);
+  if (!sessionId) return null;
+  return <AgentMainAgentTranscriptPreview sessionId={sessionId} />;
+}
+
+function readStringKeyField(value: unknown): string | null {
+  if (typeof value === 'string' && value) return value;
+  if (value && typeof value === 'object' && 'value' in value && typeof value.value === 'string' && value.value) {
+    return value.value;
+  }
+  return null;
 }
 
 function buildSelectedAuditStage(

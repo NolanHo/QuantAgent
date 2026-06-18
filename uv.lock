@@ -1755,11 +1755,15 @@ name = "quantagent-worker"
 version = "0.1.0"
 source = { editable = "apps/worker" }
 dependencies = [
+    { name = "quantagent-agent" },
     { name = "quantagent-core", extra = ["kafka"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "quantagent-core", extras = ["kafka"], editable = "packages/core" }]
+requires-dist = [
+    { name = "quantagent-agent", editable = "packages/agent" },
+    { name = "quantagent-core", extras = ["kafka"], editable = "packages/core" },
+]
 
 [[package]]
 name = "requests"

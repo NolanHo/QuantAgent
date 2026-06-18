@@ -108,6 +108,7 @@ const statusOptions: Array<{ label: string; value: RuntimeAuditNewsStatus | 'all
   { label: formatRuntimeAuditStatus('captured'), value: 'captured' },
   { label: formatRuntimeAuditStatus('linked'), value: 'linked' },
   { label: formatRuntimeAuditStatus('pending'), value: 'pending' },
+  { label: formatRuntimeAuditStatus('processed'), value: 'processed' },
   { label: formatRuntimeAuditStatus('routed'), value: 'routed' },
   { label: formatRuntimeAuditStatus('unavailable'), value: 'unavailable' },
 ];
@@ -119,6 +120,7 @@ const stageOptions: Array<{ label: string; value: RuntimeAuditNewsStage | 'all' 
   { label: formatRuntimeAuditStage('scheduler_linked'), value: 'scheduler_linked' },
   { label: formatRuntimeAuditStage('ai_intake_unavailable'), value: 'ai_intake_unavailable' },
   { label: formatRuntimeAuditStage('ai_intake_routed'), value: 'ai_intake_routed' },
+  { label: formatRuntimeAuditStage('industry_analysis_completed'), value: 'industry_analysis_completed' },
   { label: formatRuntimeAuditStage('route_decided'), value: 'route_decided' },
   { label: formatRuntimeAuditStage('route_unavailable'), value: 'route_unavailable' },
 ];

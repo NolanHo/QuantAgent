@@ -135,6 +135,7 @@ class AnalysisRequestHandlerTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(stored.key_fields["title"], "HBM demand update")
             self.assertEqual(stored.key_fields["short_summary"], "HBM demand is directly relevant.")
             self.assertEqual(stored.key_fields["priority"], "high")
+            self.assertEqual(stored.key_fields["event_score"], 0.7576)
             self.assertEqual(stored.output_json["schema_version"], EVENT_INTAKE_DECISION_SCHEMA_VERSION)
             self.assertNotIn("provider_raw_response", stored.output_json)
             self.assertNotIn("chain_of_thought", stored.output_json)
@@ -288,6 +289,16 @@ class AnalysisRequestHandlerTestCase(unittest.IsolatedAsyncioTestCase):
                 "target_industries": ("semiconductor",),
                 "target_topics": ("memory",),
                 "priority": "high",
+                "score_breakdown": {
+                    "source_quality": 0.74,
+                    "information_freshness": 0.68,
+                    "entity_specificity": 0.82,
+                    "market_materiality": 0.79,
+                    "industry_relevance": 0.86,
+                    "actionability_urgency": 0.66,
+                    "reason_summary": "来源较可靠、实体和产品明确，对存储链条有较强影响，但不是一手财报或监管突发。",
+                },
+                "event_score": 0.01,
                 "requires_deep_analysis": True,
                 "requires_human_review": False,
                 "dedupe_key_hint": "https://example.com/hbm",

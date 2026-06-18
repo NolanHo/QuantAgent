@@ -17,5 +17,12 @@ export function useEventDetailPage(rawEventId: string) {
     routerOutputQuery,
     selectedAgentStage,
     setSelectedAgentStage,
+    // 中文注释：事件详情页会把已关联的 Agent Chat session 透出给页面，不在 UI 层猜测处理记录位置。
+    agentChatSessionId: readAgentChatSessionId(detailQuery.data?.agent_stages),
   };
+}
+
+function readAgentChatSessionId(stages: EventAgentStage[] | undefined): string | null {
+  const value = stages?.find((stage) => stage.stage_id === 'industry_main_agent')?.key_fields.agent_chat_session_id;
+  return typeof value === 'string' && value ? value : null;
 }

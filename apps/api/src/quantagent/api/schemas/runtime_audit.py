@@ -6,13 +6,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-RuntimeAuditNewsStatus = Literal["captured", "linked", "pending", "routed", "unavailable"]
+RuntimeAuditNewsStatus = Literal["captured", "linked", "pending", "processed", "routed", "unavailable"]
 RuntimeAuditNewsStage = Literal[
     "captured",
     "persisted",
     "scheduler_linked",
     "ai_intake_unavailable",
     "ai_intake_routed",
+    "industry_analysis_completed",
     "route_decided",
     "route_unavailable",
 ]
