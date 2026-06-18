@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="quantagent-source-bindings")
+    parser = argparse.ArgumentParser(prog="source-bindings")
     subparsers = parser.add_subparsers(dest="command")
     install = subparsers.add_parser(
         "install-semiconductor-defaults",

@@ -85,6 +85,7 @@ class EventListItemResponse(BaseModel):
     quality: dict[str, Any] = Field(default_factory=dict)
     trace: EventTraceResponse
     timeline: list[EventTimelineStepResponse] = Field(default_factory=list)
+    agent_stages: list[EventAgentStageResponse] = Field(default_factory=list)
     router_stage_summary: EventAgentStageResponse
 
 

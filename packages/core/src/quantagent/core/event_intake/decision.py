@@ -49,6 +49,16 @@ class RoutingPriority(StrEnum):
     URGENT = "urgent"
 
 
+ROUTING_SCORE_WEIGHTS: dict[str, float] = {
+    "source_quality": 0.16,
+    "information_freshness": 0.16,
+    "entity_specificity": 0.14,
+    "market_materiality": 0.24,
+    "industry_relevance": 0.14,
+    "actionability_urgency": 0.16,
+}
+
+
 @dataclass(frozen=True)
 class QualityAssessmentV1:
     is_spam: bool
@@ -83,6 +93,43 @@ class IndustryRelevanceV1:
             "industry_id": self.industry_id,
             "relationship": self.relationship.value,
             "relevance_score": self.relevance_score,
+            "reason_summary": self.reason_summary,
+        }
+
+
+@dataclass(frozen=True)
+class RoutingScoreBreakdownV1:
+    source_quality: float
+    information_freshness: float
+    entity_specificity: float
+    market_materiality: float
+    industry_relevance: float
+    actionability_urgency: float
+    reason_summary: str | None = None
+
+    @property
+    def weighted_event_score(self) -> float:
+        # 路由总分由后端按固定权重计算，避免模型直接输出一个桶化分数。
+        total = (
+            self.source_quality * ROUTING_SCORE_WEIGHTS["source_quality"]
+            + self.information_freshness * ROUTING_SCORE_WEIGHTS["information_freshness"]
+            + self.entity_specificity * ROUTING_SCORE_WEIGHTS["entity_specificity"]
+            + self.market_materiality * ROUTING_SCORE_WEIGHTS["market_materiality"]
+            + self.industry_relevance * ROUTING_SCORE_WEIGHTS["industry_relevance"]
+            + self.actionability_urgency * ROUTING_SCORE_WEIGHTS["actionability_urgency"]
+        )
+        return round(total, 4)
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "source_quality": self.source_quality,
+            "information_freshness": self.information_freshness,
+            "entity_specificity": self.entity_specificity,
+            "market_materiality": self.market_materiality,
+            "industry_relevance": self.industry_relevance,
+            "actionability_urgency": self.actionability_urgency,
+            "weights": dict(ROUTING_SCORE_WEIGHTS),
+            "weighted_event_score": self.weighted_event_score,
             "reason_summary": self.reason_summary,
         }
 
@@ -132,6 +179,8 @@ class RoutingOutcomeV1:
     target_industries: tuple[str, ...]
     target_topics: tuple[str, ...] = field(default_factory=tuple)
     priority: RoutingPriority = RoutingPriority.NORMAL
+    event_score: float | None = None
+    score_breakdown: RoutingScoreBreakdownV1 | None = None
     requires_deep_analysis: bool = False
     requires_human_review: bool = False
     dedupe_key_hint: str | None = None
@@ -143,6 +192,8 @@ class RoutingOutcomeV1:
             "target_industries": list(self.target_industries),
             "target_topics": list(self.target_topics),
             "priority": self.priority.value,
+            "event_score": self.event_score,
+            "score_breakdown": self.score_breakdown.to_mapping() if self.score_breakdown else None,
             "requires_deep_analysis": self.requires_deep_analysis,
             "requires_human_review": self.requires_human_review,
             "dedupe_key_hint": self.dedupe_key_hint,
@@ -206,15 +257,11 @@ class EventIntakeDecisionV1:
             raise EventIntakeValidationError("Model output schema_version is invalid.", reason_code="EVENT_INTAKE_SCHEMA_VERSION_INVALID")
 
         decision = _enum_value(IntakeDecision, payload.get("decision"), "decision")
-        discard_reason = _enum_value(
-            DiscardReason,
-            payload.get("discard_reason", DiscardReason.NOT_DISCARDED.value),
-            "discard_reason",
-        )
+        discard_reason = _parse_discard_reason(payload.get("discard_reason"), decision=decision)
         quality_payload = _mapping(payload.get("quality"), "quality")
         quality = QualityAssessmentV1(
             is_spam=_bool(quality_payload.get("is_spam"), "quality.is_spam"),
-            noise_flags=_string_tuple(quality_payload.get("noise_flags")),
+            noise_flags=_string_tuple(quality_payload.get("noise_flags"), "quality.noise_flags"),
             content_completeness=context_content_completeness
             or _enum_value(
                 ContentCompleteness,
@@ -229,7 +276,7 @@ class EventIntakeDecisionV1:
             ),
             confidence=_score(quality_payload.get("confidence"), "quality.confidence"),
             reason_summary=_optional_string(quality_payload.get("reason_summary")),
-            risk_flags=_string_tuple(quality_payload.get("risk_flags")),
+            risk_flags=_string_tuple(quality_payload.get("risk_flags"), "quality.risk_flags"),
         )
         relevance_payloads = payload.get("industry_relevance", ())
         if not isinstance(relevance_payloads, tuple | list):
@@ -259,9 +306,15 @@ class EventIntakeDecisionV1:
                 raise EventIntakeValidationError("discard decision must include a concrete discard_reason.")
             if self.routing.requires_deep_analysis:
                 raise EventIntakeValidationError("discard decision must not require deep analysis.")
+        if self.decision != IntakeDecision.DISCARD and self.discard_reason != DiscardReason.NOT_DISCARDED:
+            raise EventIntakeValidationError("route or review decision must use not_discarded discard_reason.")
         if self.decision == IntakeDecision.ROUTE:
             if not self.routing.target_industries:
                 raise EventIntakeValidationError("route decision must include target_industries.")
+            if self.schema_version == EVENT_INTAKE_DECISION_SCHEMA_VERSION_V2 and self.routing.event_score is None:
+                raise EventIntakeValidationError("v2 route decision must include routing.event_score.")
+            if self.schema_version == EVENT_INTAKE_DECISION_SCHEMA_VERSION_V2 and self.routing.score_breakdown is None:
+                raise EventIntakeValidationError("v2 route decision must include routing.score_breakdown.")
             if not any(
                 item.relationship
                 in (RelevanceRelationship.DIRECT, RelevanceRelationship.INDIRECT, RelevanceRelationship.CONTEXTUAL)
@@ -388,28 +441,31 @@ def _parse_structured_news(payload: Mapping[str, Any]) -> StructuredNewsV1:
     return StructuredNewsV1(
         canonical_title=_optional_string(payload.get("canonical_title")),
         short_summary=_optional_string(payload.get("short_summary")),
-        bullet_summary=_string_tuple(payload.get("bullet_summary")),
+        bullet_summary=_string_tuple(payload.get("bullet_summary"), "structured_news.bullet_summary"),
         event_type=_optional_string(payload.get("event_type")),
         event_type_label=_optional_string(payload.get("event_type_label")),
         tags=_tag_tuple(payload.get("tags")),
-        entities=_string_tuple(payload.get("entities")),
-        companies=_string_tuple(payload.get("companies")),
-        tickers=_string_tuple(payload.get("tickers")),
-        technologies=_string_tuple(payload.get("technologies")),
-        products=_string_tuple(payload.get("products")),
-        locations=_string_tuple(payload.get("locations")),
-        numbers=_string_tuple(payload.get("numbers")),
+        entities=_string_tuple(payload.get("entities"), "structured_news.entities"),
+        companies=_string_tuple(payload.get("companies"), "structured_news.companies"),
+        tickers=_string_tuple(payload.get("tickers"), "structured_news.tickers"),
+        technologies=_string_tuple(payload.get("technologies"), "structured_news.technologies"),
+        products=_string_tuple(payload.get("products"), "structured_news.products"),
+        locations=_string_tuple(payload.get("locations"), "structured_news.locations"),
+        numbers=_string_tuple(payload.get("numbers"), "structured_news.numbers"),
         time_horizon=_optional_string(payload.get("time_horizon")),
-        source_facts=_string_tuple(payload.get("source_facts")),
-        uncertainties=_string_tuple(payload.get("uncertainties")),
+        source_facts=_string_tuple(payload.get("source_facts"), "structured_news.source_facts"),
+        uncertainties=_string_tuple(payload.get("uncertainties"), "structured_news.uncertainties"),
     )
 
 
 def _parse_routing(payload: Mapping[str, Any]) -> RoutingOutcomeV1:
+    score_breakdown = _parse_score_breakdown(payload.get("score_breakdown"))
     return RoutingOutcomeV1(
-        target_industries=_string_tuple(payload.get("target_industries")),
-        target_topics=_string_tuple(payload.get("target_topics")),
+        target_industries=_string_tuple(payload.get("target_industries"), "routing.target_industries"),
+        target_topics=_string_tuple(payload.get("target_topics"), "routing.target_topics"),
         priority=_enum_value(RoutingPriority, payload.get("priority", RoutingPriority.NORMAL.value), "routing.priority"),
+        event_score=_routing_event_score(payload.get("event_score"), score_breakdown),
+        score_breakdown=score_breakdown,
         requires_deep_analysis=_bool(payload.get("requires_deep_analysis"), "routing.requires_deep_analysis"),
         requires_human_review=_bool(payload.get("requires_human_review"), "routing.requires_human_review"),
         dedupe_key_hint=_optional_string(payload.get("dedupe_key_hint")),
@@ -418,10 +474,31 @@ def _parse_routing(payload: Mapping[str, Any]) -> RoutingOutcomeV1:
     )
 
 
+def _parse_score_breakdown(value: object) -> RoutingScoreBreakdownV1 | None:
+    if value is None:
+        return None
+    payload = _mapping(value, "routing.score_breakdown")
+    return RoutingScoreBreakdownV1(
+        source_quality=_score(payload.get("source_quality"), "routing.score_breakdown.source_quality"),
+        information_freshness=_score(payload.get("information_freshness"), "routing.score_breakdown.information_freshness"),
+        entity_specificity=_score(payload.get("entity_specificity"), "routing.score_breakdown.entity_specificity"),
+        market_materiality=_score(payload.get("market_materiality"), "routing.score_breakdown.market_materiality"),
+        industry_relevance=_score(payload.get("industry_relevance"), "routing.score_breakdown.industry_relevance"),
+        actionability_urgency=_score(payload.get("actionability_urgency"), "routing.score_breakdown.actionability_urgency"),
+        reason_summary=_optional_string(payload.get("reason_summary")),
+    )
+
+
+def _routing_event_score(value: object, score_breakdown: RoutingScoreBreakdownV1 | None) -> float | None:
+    if score_breakdown is not None:
+        return score_breakdown.weighted_event_score
+    return _optional_score(value, "routing.event_score")
+
+
 def _parse_audit(payload: Mapping[str, Any]) -> AuditSummaryV1:
     return AuditSummaryV1(
         reason_summary=_required_string(payload.get("reason_summary"), "audit.reason_summary"),
-        evidence_field_refs=_string_tuple(payload.get("evidence_field_refs")),
+        evidence_field_refs=_string_tuple(payload.get("evidence_field_refs"), "audit.evidence_field_refs"),
         schema_validation_status=_required_string(payload.get("schema_validation_status"), "audit.schema_validation_status"),
         failure_code=_optional_string(payload.get("failure_code")),
         safe_error_summary=_optional_string(payload.get("safe_error_summary")),
@@ -464,6 +541,39 @@ def _enum_value(enum_type: type[StrEnum], value: object, field_name: str):
         raise EventIntakeValidationError(f"{field_name} has unsupported value.") from exc
 
 
+def _parse_discard_reason(value: object, *, decision: IntakeDecision) -> DiscardReason:
+    if isinstance(value, str):
+        normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    elif value is None:
+        normalized = ""
+    else:
+        raise EventIntakeValidationError("discard_reason must be a string.")
+
+    if normalized:
+        try:
+            return DiscardReason(normalized)
+        except ValueError:
+            pass
+
+    # Router/review 输出经常把“没有丢弃原因”写成 null、none 或自然语言。
+    # 这些不是业务分歧，按协议归一化，避免可用路由因为轻微格式错误被打入待复核。
+    if decision in (IntakeDecision.ROUTE, IntakeDecision.REVIEW) and normalized in {
+        "",
+        "none",
+        "null",
+        "n/a",
+        "na",
+        "not_discard",
+        "not_discarded",
+        "not_applicable",
+        "not_relevant",
+        "no_discard",
+    }:
+        return DiscardReason.NOT_DISCARDED
+
+    raise EventIntakeValidationError("discard_reason has unsupported value.")
+
+
 def _bool(value: object, field_name: str) -> bool:
     if isinstance(value, bool):
         return value
@@ -478,6 +588,12 @@ def _score(value: object, field_name: str) -> float:
     raise EventIntakeValidationError(f"{field_name} must be a number between 0 and 1.")
 
 
+def _optional_score(value: object, field_name: str) -> float | None:
+    if value is None:
+        return None
+    return _score(value, field_name)
+
+
 def _required_string(value: object, field_name: str) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -490,15 +606,15 @@ def _optional_string(value: object) -> str | None:
     return None
 
 
-def _string_tuple(value: object) -> tuple[str, ...]:
+def _string_tuple(value: object, field_name: str) -> tuple[str, ...]:
     if value is None:
         return ()
     if not isinstance(value, tuple | list):
-        raise EventIntakeValidationError("string array field must be an array.")
+        raise EventIntakeValidationError(f"{field_name} must be an array.")
     result: list[str] = []
     for item in value:
         if not isinstance(item, str):
-            raise EventIntakeValidationError("string array field contains a non-string item.")
+            raise EventIntakeValidationError(f"{field_name} contains a non-string item.")
         if item.strip():
             result.append(item.strip())
     return tuple(result)

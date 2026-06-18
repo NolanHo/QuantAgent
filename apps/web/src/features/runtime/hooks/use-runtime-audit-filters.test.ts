@@ -52,4 +52,16 @@ describe('runtime audit filters', () => {
       status: 'routed',
     });
   });
+
+  it('keeps processed status and industry analysis stage', () => {
+    const filters = toRuntimeAuditFilters(toRuntimeAuditSearch({
+      current_stage: 'industry_analysis_completed',
+      status: 'processed',
+    }));
+
+    expect(toRuntimeAuditQueryParams(filters)).toEqual({
+      current_stage: 'industry_analysis_completed',
+      status: 'processed',
+    });
+  });
 });

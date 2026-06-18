@@ -56,7 +56,7 @@ class SemiconductorSourceBindingInstallOptions:
     baseline_interval_seconds: int = DEFAULT_BASELINE_INTERVAL_SECONDS
     expansion_interval_seconds: int = DEFAULT_EXPANSION_INTERVAL_SECONDS
     max_items_per_feed: int = DEFAULT_MAX_ITEMS_PER_FEED
-    actor: str = "quantagent-source-bindings"
+    actor: str = "source-bindings"
 
 
 class SemiconductorSourceBindingInstaller:

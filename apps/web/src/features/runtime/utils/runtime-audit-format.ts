@@ -14,6 +14,7 @@ export function formatRuntimeAuditStatus(
     failed: '失败',
     linked: '已关联调度',
     pending: '等待',
+    processed: '已处理',
     routed: '已路由',
     success: '成功',
     unavailable: '不可用',
@@ -27,6 +28,7 @@ export function formatRuntimeAuditStage(value: RuntimeAuditNewsStage): string {
     ai_intake_unavailable: 'AI intake 暂不可审计',
     ai_intake_routed: 'AI intake 已审计',
     captured: '采集',
+    industry_analysis_completed: '行业分析已完成',
     persisted: 'RawEvent 入库',
     route_decided: '路由结果已审计',
     route_unavailable: '路由结果暂不可审计',
@@ -62,6 +64,7 @@ export function getRuntimeAuditStatusTone(
     failed: 'border-trading-down/25 bg-trading-down/8 text-trading-down',
     linked: 'border-trading-up/25 bg-trading-up/8 text-trading-up',
     pending: 'border-info/25 bg-info/6 text-info',
+    processed: 'border-trading-up/25 bg-trading-up/8 text-trading-up',
     routed: 'border-trading-up/25 bg-trading-up/8 text-trading-up',
     success: 'border-trading-up/25 bg-trading-up/8 text-trading-up',
     unavailable: 'border-hairline bg-surface-card text-muted-strong',
@@ -74,7 +77,7 @@ export function getRuntimeAuditStageTone(value: RuntimeAuditNewsStage): string {
   if (value.endsWith('_unavailable')) {
     return 'border-hairline bg-surface-card text-muted-strong';
   }
-  if (value === 'scheduler_linked' || value === 'ai_intake_routed' || value === 'route_decided') {
+  if (value === 'scheduler_linked' || value === 'ai_intake_routed' || value === 'route_decided' || value === 'industry_analysis_completed') {
     return 'border-trading-up/25 bg-trading-up/8 text-trading-up';
   }
   return 'border-info/25 bg-info/6 text-info';

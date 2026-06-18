@@ -82,7 +82,7 @@ def _database_url_override(database_url: str | None):
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="quantagent-db",
+        prog="db",
         description="QuantAgent database migration CLI.",
     )
     parser.add_argument(

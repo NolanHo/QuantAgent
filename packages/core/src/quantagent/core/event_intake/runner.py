@@ -13,6 +13,7 @@ from quantagent.core.event_intake.decision import (
     build_discard_decision,
     build_review_decision,
 )
+from quantagent.core.model_config import ModelConfigServiceError
 from quantagent.plugin_sdk.io import JsonObject, freeze_json_mapping
 
 
@@ -26,12 +27,23 @@ class StructuredModelInvocation:
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata, stage="provider_metadata"))
 
 
+@dataclass(frozen=True)
+class StructuredModelRepairRequest:
+    attempt_index: int
+    validation_error: str
+    previous_output: JsonObject
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "previous_output", freeze_json_mapping(self.previous_output, stage="repair_previous_output"))
+
+
 class StructuredModelInvoker(Protocol):
     async def invoke(
         self,
         *,
         context: IndustryEventContextV1,
         output_schema: str,
+        repair: StructuredModelRepairRequest | None = None,
     ) -> StructuredModelInvocation: ...
 
 
@@ -47,6 +59,8 @@ class EventIntakeRunResult:
 
 
 class SingleCallEventIntakeRunner:
+    _repair_attempts: int = 3
+
     def __init__(
         self,
         *,
@@ -71,62 +85,109 @@ class SingleCallEventIntakeRunner:
                 invocation_metadata={"status": "skipped_precheck"},
             )
 
-        try:
-            # 单次调用边界：runner 只调用 provider port 一次，不提供工具、二次抓取或多轮 loop 的入口。
-            invocation = await self._invoker.invoke(
-                context=context,
-                output_schema=EVENT_INTAKE_DECISION_SCHEMA_VERSION,
-            )
-        except Exception as exc:
-            decision = build_review_decision(
-                trace=trace,
-                reason_summary="结构化模型服务暂时不可用，Router Agent 将该新闻保留为待复核。",
-                failure_code="PROVIDER_UNAVAILABLE",
-                content_completeness=context.article.content_completeness,
-                enrichment_status=context.source.enrichment_status,
-                safe_error_summary=exc.__class__.__name__,
-            )
-            return EventIntakeRunResult(
-                context=context,
-                decision=decision,
-                provider_invocation_count=1,
-                invocation_metadata={"status": "provider_failed", "error_type": exc.__class__.__name__},
-            )
+        attempts: list[StructuredModelInvocation] = []
+        last_schema_error: EventIntakeValidationError | None = None
+        for attempt_index in range(self._repair_attempts):
+            try:
+                invocation = await self._invoker.invoke(
+                    context=context,
+                    output_schema=EVENT_INTAKE_DECISION_SCHEMA_VERSION,
+                    repair=_repair_request(attempt_index=attempt_index, attempts=attempts, error=last_schema_error),
+                )
+            except Exception as exc:
+                failure = _model_invocation_failure(exc)
+                decision = build_review_decision(
+                    trace=trace,
+                    reason_summary=failure.reason_summary,
+                    failure_code=failure.failure_code,
+                    content_completeness=context.article.content_completeness,
+                    enrichment_status=context.source.enrichment_status,
+                    safe_error_summary=failure.safe_error_summary,
+                )
+                return EventIntakeRunResult(
+                    context=context,
+                    decision=decision,
+                    provider_invocation_count=attempt_index + 1,
+                    invocation_metadata={
+                        **failure.invocation_metadata,
+                        "attempt_count": attempt_index + 1,
+                    },
+                )
 
-        try:
-            decision = EventIntakeDecisionV1.from_mapping(
-                invocation.output,
-                trace=trace,
-                context_content_completeness=context.article.content_completeness,
-                context_enrichment_status=context.source.enrichment_status,
-                review_confidence_threshold=context.routing_policy.review_confidence_threshold,
-            )
-        except EventIntakeValidationError as exc:
-            decision = build_review_decision(
-                trace=trace,
-                reason_summary="结构化模型输出未通过 Router Agent schema 校验，已降级为待复核。",
-                failure_code=exc.reason_code,
-                content_completeness=context.article.content_completeness,
-                enrichment_status=context.source.enrichment_status,
-                safe_error_summary=str(exc),
-            )
+            attempts.append(invocation)
+            try:
+                decision = EventIntakeDecisionV1.from_mapping(
+                    invocation.output,
+                    trace=trace,
+                    context_content_completeness=context.article.content_completeness,
+                    context_enrichment_status=context.source.enrichment_status,
+                    review_confidence_threshold=context.routing_policy.review_confidence_threshold,
+                )
+            except EventIntakeValidationError as exc:
+                last_schema_error = exc
+                if attempt_index + 1 < self._repair_attempts:
+                    continue
+                decision = build_review_decision(
+                    trace=trace,
+                    reason_summary="结构化模型输出连续 3 次未通过 Router Agent schema 校验，已降级为待复核。",
+                    failure_code=exc.reason_code,
+                    content_completeness=context.article.content_completeness,
+                    enrichment_status=context.source.enrichment_status,
+                    safe_error_summary=str(exc),
+                )
+                return EventIntakeRunResult(
+                    context=context,
+                    decision=decision,
+                    provider_invocation_count=attempt_index + 1,
+                    invocation_metadata={
+                        "status": "schema_validation_failed",
+                        "error_code": exc.reason_code,
+                        "attempt_count": attempt_index + 1,
+                        "provider_metadata_chain": [dict(item.metadata) for item in attempts],
+                        "repair_error": {
+                            "reason_code": exc.reason_code,
+                            "message": str(exc),
+                        },
+                    },
+                )
+
             return EventIntakeRunResult(
                 context=context,
                 decision=decision,
-                provider_invocation_count=1,
+                provider_invocation_count=attempt_index + 1,
                 invocation_metadata={
-                    "status": "schema_validation_failed",
-                    "error_code": exc.reason_code,
+                    "status": "succeeded",
+                    "attempt_count": attempt_index + 1,
                     "provider_metadata": dict(invocation.metadata),
                 },
             )
 
-        return EventIntakeRunResult(
-            context=context,
-            decision=decision,
-            provider_invocation_count=1,
-            invocation_metadata={"status": "succeeded", "provider_metadata": dict(invocation.metadata)},
-        )
+        if last_schema_error is not None:
+            decision = build_review_decision(
+                trace=trace,
+                reason_summary="结构化模型输出连续 3 次未通过 Router Agent schema 校验，已降级为待复核。",
+                failure_code=last_schema_error.reason_code,
+                content_completeness=context.article.content_completeness,
+                enrichment_status=context.source.enrichment_status,
+                safe_error_summary=str(last_schema_error),
+            )
+            return EventIntakeRunResult(
+                context=context,
+                decision=decision,
+                provider_invocation_count=len(attempts),
+                invocation_metadata={
+                    "status": "schema_validation_failed",
+                    "error_code": last_schema_error.reason_code,
+                    "attempt_count": len(attempts),
+                    "provider_metadata_chain": [dict(item.metadata) for item in attempts],
+                    "repair_error": {
+                        "reason_code": last_schema_error.reason_code,
+                        "message": str(last_schema_error),
+                    },
+                },
+            )
+
+        raise RuntimeError("Event intake runner exhausted attempts without producing a decision.")
 
     def _deterministic_precheck(
         self,
@@ -168,6 +229,7 @@ class ReviewOnlyStructuredModelInvoker:
         *,
         context: IndustryEventContextV1,
         output_schema: str,
+        repair: StructuredModelRepairRequest | None = None,
     ) -> StructuredModelInvocation:
         return StructuredModelInvocation(
             output={
@@ -218,6 +280,76 @@ class ReviewOnlyStructuredModelInvoker:
         )
 
 
+@dataclass(frozen=True)
+class _ModelInvocationFailure:
+    failure_code: str
+    reason_summary: str
+    safe_error_summary: str
+    invocation_metadata: JsonObject
+
+
+def _model_invocation_failure(exc: Exception) -> _ModelInvocationFailure:
+    if isinstance(exc, ModelConfigServiceError):
+        return _model_config_failure(exc)
+    return _ModelInvocationFailure(
+        failure_code="PROVIDER_UNAVAILABLE",
+        reason_summary="结构化模型调用异常，Router Agent 将该新闻保留为待复核。",
+        safe_error_summary=exc.__class__.__name__,
+        invocation_metadata={
+            "status": "provider_failed",
+            "error_type": exc.__class__.__name__,
+            "error_code": "PROVIDER_UNAVAILABLE",
+        },
+    )
+
+
+def _model_config_failure(exc: ModelConfigServiceError) -> _ModelInvocationFailure:
+    reason_summary = _model_config_reason_summary(exc.code)
+    safe_details = _json_safe_string_map(exc.safe_details)
+    metadata: dict[str, object] = {
+        "status": "provider_failed",
+        "error_type": exc.__class__.__name__,
+        "error_code": exc.code,
+        "retryable": exc.retryable,
+        "safe_details": safe_details,
+    }
+    return _ModelInvocationFailure(
+        failure_code=exc.code,
+        reason_summary=reason_summary,
+        safe_error_summary=_safe_error_summary(exc),
+        invocation_metadata=metadata,
+    )
+
+
+def _model_config_reason_summary(error_code: str) -> str:
+    if error_code == "MODEL_PROVIDER_RESPONSE_INVALID":
+        return "模型返回内容无法解析为 Router Agent 需要的结构化 JSON，已保留待复核。"
+    if error_code in {"MODEL_PROVIDER_KEY_MISSING", "MODEL_PROVIDER_DECRYPT_FAILED", "MODEL_CONFIG_ENCRYPTION_UNAVAILABLE"}:
+        return "Router Agent 模型配置不可用，已将该新闻保留为待复核。"
+    if error_code in {"MODEL_PROVIDER_HTTP_ERROR", "MODEL_PROVIDER_UNREACHABLE", "MODEL_PROVIDER_TIMEOUT"}:
+        return "Router Agent 模型调用失败，已将该新闻保留为待复核。"
+    if error_code.startswith("MODEL_"):
+        return "Router Agent 模型服务未能完成结构化路由，已将该新闻保留为待复核。"
+    return "结构化模型调用异常，Router Agent 将该新闻保留为待复核。"
+
+
+def _safe_error_summary(exc: ModelConfigServiceError) -> str:
+    message = exc.message.strip()
+    if message:
+        return f"{exc.code}: {message}"
+    return exc.code
+
+
+def _json_safe_string_map(value: Mapping[str, object]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if isinstance(item, str | int | float | bool) or item is None:
+            result[str(key)] = item
+        else:
+            result[str(key)] = str(item)
+    return result
+
+
 class FakeStructuredModelInvoker:
     def __init__(
         self,
@@ -235,6 +367,7 @@ class FakeStructuredModelInvoker:
         *,
         context: IndustryEventContextV1,
         output_schema: str,
+        repair: StructuredModelRepairRequest | None = None,
     ) -> StructuredModelInvocation:
         self.invocations.append(context)
         if callable(self._outputs):
@@ -244,5 +377,25 @@ class FakeStructuredModelInvoker:
             output = self._outputs[index]
         return StructuredModelInvocation(
             output=output,
-            metadata={"fake_invocation_index": len(self.invocations) - 1, "output_schema": output_schema},
+            metadata={
+                "fake_invocation_index": len(self.invocations) - 1,
+                "output_schema": output_schema,
+                "repair_attempt": repair.attempt_index if repair else None,
+                "repair_error": repair.validation_error if repair else None,
+            },
         )
+
+
+def _repair_request(
+    *,
+    attempt_index: int,
+    attempts: Sequence[StructuredModelInvocation],
+    error: EventIntakeValidationError | None,
+) -> StructuredModelRepairRequest | None:
+    if attempt_index == 0 or not attempts or error is None:
+        return None
+    return StructuredModelRepairRequest(
+        attempt_index=attempt_index + 1,
+        validation_error=str(error),
+        previous_output=dict(attempts[-1].output),
+    )

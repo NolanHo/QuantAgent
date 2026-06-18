@@ -67,6 +67,7 @@ export interface EventListItem {
   quality: Record<string, unknown>;
   trace: EventTrace;
   timeline: EventTimelineStep[];
+  agent_stages: EventAgentStage[];
   router_stage_summary: EventAgentStage;
 }
 

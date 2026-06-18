@@ -18,7 +18,7 @@
 
 | Demo | 说明 |
 | --- | --- |
-| [quantagent-demo CLI](demo/quantagent-demo-cli.md) | 最小闭环：插件扫描 → 触发 → 事件发布 → 消费 |
+| [demo CLI](demo/demo-cli.md) | 最小闭环：插件扫描 → 触发 → 事件发布 → 消费 |
 | [插件底座 Demo](demo/plugin-registry-v1-pseudocode.md) | Registry → Runtime → Scheduling 全链路说明 |
 
 ## 参考文档

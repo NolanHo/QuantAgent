@@ -70,6 +70,7 @@ export function isRuntimeAuditNewsStatus(value: unknown): value is RuntimeAuditN
     value === 'captured' ||
     value === 'linked' ||
     value === 'pending' ||
+    value === 'processed' ||
     value === 'routed' ||
     value === 'unavailable';
 }
@@ -81,6 +82,7 @@ export function isRuntimeAuditStage(value: unknown): value is RuntimeAuditNewsSt
     value === 'scheduler_linked' ||
     value === 'ai_intake_unavailable' ||
     value === 'ai_intake_routed' ||
+    value === 'industry_analysis_completed' ||
     value === 'route_decided' ||
     value === 'route_unavailable';
 }

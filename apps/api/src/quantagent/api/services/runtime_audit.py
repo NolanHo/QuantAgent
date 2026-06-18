@@ -24,6 +24,7 @@ from quantagent.core.db.models.raw_event import RawEventORM
 from quantagent.core.db.models.raw_event_capture import RawEventCaptureORM
 from quantagent.core.db.models.scheduler_run import SchedulerRunORM
 from quantagent.core.db.repositories.event_intake_repository import EventIntakeRoutedEventRepository
+from quantagent.core.db.repositories.agent_chat_repository import AgentChatRepository, AgentChatSessionSummary
 from quantagent.core.db.models.event_intake import EventIntakeRoutedEventORM
 from quantagent.core.events.codec import REDACTED, sanitize_mapping
 from quantagent.plugin_sdk.io import to_json_value
@@ -70,12 +71,16 @@ class RuntimeAuditNewsQueryService:
         routed_events = EventIntakeRoutedEventRepository(self._session).list_latest_by_raw_event_ids(
             [item.raw_event_id for item in items]
         )
+        chat_summaries = AgentChatRepository(self._session).find_latest_session_summaries_by_routed_event_ids(
+            [routed.event_id for routed in routed_events.values()]
+        )
         response_items = [
             _to_news_item(
                 item,
                 captures_by_event.get(item.raw_event_id, []),
                 scheduler_runs,
                 routed_events.get(item.raw_event_id),
+                chat_summaries.get(routed_events[item.raw_event_id].event_id) if item.raw_event_id in routed_events else None,
             )
             for item in items
         ]
@@ -277,6 +282,7 @@ def _to_news_item(
     captures: list[RawEventCaptureORM],
     scheduler_runs: dict[str, SchedulerRunORM],
     routed_event: EventIntakeRoutedEventORM | None,
+    chat_summary: AgentChatSessionSummary | None,
 ) -> RuntimeAuditNewsItemResponse:
     first_capture = captures[0] if captures else None
     run = _first_scheduler_run(captures, scheduler_runs)
@@ -302,10 +308,22 @@ def _to_news_item(
             _metadata_string(run.metadata_json, "correlation_id") if run else None,
         ),
     )
-    timeline = _build_timeline(raw_event=raw_event, captures=captures, run=run, trace=trace, routed_event=routed_event)
-    status = "routed" if routed_event else ("linked" if run else "captured")
-    current_stage = "route_decided" if routed_event else ("scheduler_linked" if run else "persisted")
-    focus_stage = "route_decided" if routed_event else "ai_intake_unavailable"
+    timeline = _build_timeline(
+        raw_event=raw_event,
+        captures=captures,
+        run=run,
+        trace=trace,
+        routed_event=routed_event,
+        chat_summary=chat_summary,
+    )
+    has_completed_agent_chat = chat_summary is not None and chat_summary.latest_run is not None and chat_summary.latest_run.status == "completed"
+    status = "processed" if has_completed_agent_chat else ("routed" if routed_event else ("linked" if run else "captured"))
+    current_stage = (
+        "industry_analysis_completed"
+        if has_completed_agent_chat
+        else ("route_decided" if routed_event else ("scheduler_linked" if run else "persisted"))
+    )
+    focus_stage = "industry_analysis_completed" if has_completed_agent_chat else ("route_decided" if routed_event else "ai_intake_unavailable")
     return RuntimeAuditNewsItemResponse(
         raw_event_id=raw_event.raw_event_id,
         title=raw_event.title,
@@ -323,7 +341,7 @@ def _to_news_item(
         focus_stage=focus_stage,
         trace=trace,
         timeline=timeline,
-        agent_stages=_build_agent_stages(raw_event=raw_event, trace=trace, routed_event=routed_event),
+        agent_stages=_build_agent_stages(raw_event=raw_event, trace=trace, routed_event=routed_event, chat_summary=chat_summary),
         safe_details=_safe_details(raw_event=raw_event, captures=captures, run=run),
     )
 
@@ -335,6 +353,7 @@ def _build_timeline(
     run: SchedulerRunORM | None,
     trace: RuntimeAuditNewsTraceResponse,
     routed_event: EventIntakeRoutedEventORM | None,
+    chat_summary: AgentChatSessionSummary | None,
 ) -> list[RuntimeAuditNewsTimelineStepResponse]:
     refs = [RuntimeAuditNewsRefResponse(kind="raw_event", id=raw_event.raw_event_id, label="RawEvent")]
     timeline = [
@@ -366,6 +385,36 @@ def _build_timeline(
                 refs=[RuntimeAuditNewsRefResponse(kind="scheduler_run", id=run.run_id, label="SchedulerRun")],
             )
         )
+        if chat_summary is not None:
+            session = chat_summary.session
+            run_status = chat_summary.latest_run.status if chat_summary.latest_run is not None else "active"
+            timeline.append(
+                RuntimeAuditNewsTimelineStepResponse(
+                    step_id="industry_analysis_completed",
+                    label="行业 MainAgent",
+                    status="success" if run_status == "completed" else ("warning" if run_status == "failed" else "pending"),
+                    occurred_at=(
+                        chat_summary.latest_run.completed_at
+                        if chat_summary.latest_run is not None and chat_summary.latest_run.completed_at is not None
+                        else session.updated_at
+                    ),
+                    summary=f"行业 MainAgent 已创建 Agent Chat 处理记录，run_status={run_status}。",
+                    refs=[
+                        RuntimeAuditNewsRefResponse(kind="agent_chat_session", id=session.session_id, label="Agent Chat session"),
+                        *(
+                            [
+                                RuntimeAuditNewsRefResponse(
+                                    kind="agent_chat_run",
+                                    id=chat_summary.latest_run.run_id,
+                                    label="Agent Chat run",
+                                )
+                            ]
+                            if chat_summary.latest_run is not None
+                            else []
+                        ),
+                    ],
+                )
+            )
     elif captures:
         capture = captures[0]
         timeline.append(
@@ -432,6 +481,7 @@ def _build_agent_stages(
     raw_event: RawEventORM,
     trace: RuntimeAuditNewsTraceResponse,
     routed_event: EventIntakeRoutedEventORM | None,
+    chat_summary: AgentChatSessionSummary | None,
 ) -> list[RuntimeAuditAgentStageResponse]:
     raw_event_ref = RuntimeAuditNewsRefResponse(kind="raw_event", id=raw_event.raw_event_id, label="RawEvent")
     binding_refs = (
@@ -475,9 +525,8 @@ def _build_agent_stages(
             refs=[raw_event_ref, *binding_refs],
             unavailable_reason="当前数据库尚未提供 Router Agent output_json / route decision read model。",
         )
-    return [
-        router_stage,
-        RuntimeAuditAgentStageResponse(
+    if chat_summary is None:
+        industry_stage = RuntimeAuditAgentStageResponse(
             stage_id="industry_main_agent",
             agent_name="行业 MainAgent",
             agent_type="industry_main_agent",
@@ -490,8 +539,41 @@ def _build_agent_stages(
             output_json=None,
             refs=[raw_event_ref],
             unavailable_reason="V1 尚未落库行业 MainAgent 消费记录。",
-        ),
-    ]
+        )
+    else:
+        session = chat_summary.session
+        latest_run = chat_summary.latest_run
+        run_status = latest_run.status if latest_run is not None else "active"
+        industry_stage = RuntimeAuditAgentStageResponse(
+            stage_id="industry_main_agent",
+            agent_name="行业 MainAgent",
+            agent_type="industry_main_agent",
+            status="failed" if run_status == "failed" else ("pending" if run_status not in {"completed", "aborted"} else "success"),
+            summary="行业 MainAgent 已创建 Agent Chat 处理记录，可查看完整聊天、工具调用和产物。",
+            key_fields={
+                "agent_chat_session_id": session.session_id,
+                "agent_chat_thread_id": session.thread_id,
+                "agent_chat_workspace_id": session.workspace_id,
+                "agent_chat_run_id": latest_run.run_id if latest_run is not None else None,
+                "agent_run_id": latest_run.agent_run_id if latest_run is not None else None,
+                "agent_run_status": run_status,
+                "agent_chat_title": session.title,
+                "agent_chat_message_count": chat_summary.message_count,
+                "impact_score_status": "pending_structured_output",
+            },
+            output_json=None,
+            refs=[
+                raw_event_ref,
+                RuntimeAuditNewsRefResponse(kind="agent_chat_session", id=session.session_id, label="Agent Chat session"),
+                *(
+                    [RuntimeAuditNewsRefResponse(kind="agent_chat_run", id=latest_run.run_id, label="Agent Chat run")]
+                    if latest_run is not None
+                    else []
+                ),
+            ],
+            unavailable_reason=None,
+        )
+    return [router_stage, industry_stage]
 
 
 def _route_decision_summary(routed_event: EventIntakeRoutedEventORM) -> str:

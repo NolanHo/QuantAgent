@@ -233,7 +233,7 @@ function EventListCard({ item }: { item: EventListItem }) {
           <div className="grid grid-cols-3 gap-2">
             <ScorePill label="优先级" toneClass={priorityTone.scoreClass} value={card.priorityScore} />
             <ScorePill label="可信度" toneClass={reliabilityTone.scoreClass} value={card.reliabilityScore} />
-            <ScorePill label="影响" toneClass={impactTone.scoreClass} value={card.impactScore ?? '待'} />
+            <ScorePill label="影响" toneClass={impactTone.scoreClass} value={card.impactValue} />
           </div>
           <div className="rounded-2xl bg-surface px-3 py-2 text-[12px] font-extrabold text-muted-strong">
             {card.verificationLabel}
@@ -272,25 +272,31 @@ function ScorePill({
 function toEventCardDisplay(item: EventListItem) {
   const confidence = toPercent(item.quality.confidence ?? item.router_stage_summary.key_fields.confidence);
   const relevanceScore = parseRelevanceScore(item.relationship_summary);
-  const priorityScore = priorityToScore(item.priority);
+  const industryStage = item.agent_stages.find((stage) => stage.stage_id === 'industry_main_agent');
+  const processedState = getProcessedState(item, industryStage);
+  const impactScore = getImpactScore(item, confidence, relevanceScore, industryStage);
+  const priorityScore = eventScoreForItem(item, confidence, relevanceScore);
   const topicTags = [...item.target_industries, ...item.target_topics, ...item.tags].filter(Boolean).slice(0, 6);
 
   return {
-    analysisState: analysisStateLabel(item),
-    impactLabel: '影响待行业分析',
-    impactScore: null,
-    impactTagClass: scoreNeutralTone.tagClass,
+    analysisState: analysisStateLabel(item, processedState),
+    impactLabel: impactLabel(impactScore, processedState),
+    impactScore,
+    impactTagClass: impactToneClass(impactScore, processedState),
+    impactValue: impactValue(impactScore, processedState),
     priorityBand: priorityToBand(item.priority),
     priorityScore,
     rankLabel: decisionRankLabel(item),
     reliabilityScore: confidence ?? relevanceScore ?? 60,
     timeLabel: `${formatEventDate(item.published_at)} · ${item.source_name ?? item.source_plugin_id ?? '未知来源'}`,
     topicTags: topicTags.length > 0 ? topicTags : ['Router Agent 已处理'],
-    verificationLabel: verificationLabel(item, confidence, relevanceScore),
+    verificationLabel: verificationLabel(item, confidence, relevanceScore, processedState),
   };
 }
 
-function analysisStateLabel(item: EventListItem): string {
+function analysisStateLabel(item: EventListItem, processedState: ProcessedState): string {
+  if (processedState === 'processed') return '行业 MainAgent 已处理';
+  if (processedState === 'processing') return '行业 MainAgent 处理中';
   if (item.decision === 'discard') return 'Router 已丢弃';
   if (item.decision === 'review') return 'Router 需复核';
   return 'Router 已路由';
@@ -303,11 +309,66 @@ function decisionRankLabel(item: EventListItem): string {
   return '#B';
 }
 
-function verificationLabel(item: EventListItem, confidence: number | null, relevanceScore: number | null): string {
+function verificationLabel(
+  item: EventListItem,
+  confidence: number | null,
+  relevanceScore: number | null,
+  processedState: ProcessedState,
+): string {
   const confidenceLabel = confidence === null ? '可信度未给出' : `可信度 ${confidence}`;
   const relevanceLabel = relevanceScore === null ? '相关性未给出' : `相关性 ${relevanceScore}`;
-  const nextStage = item.decision === 'route' ? '影响评分待行业 MainAgent' : '暂不进入影响评分';
+  const nextStage = processedState === 'processed'
+    ? '行业 MainAgent 已处理'
+    : item.decision === 'route'
+      ? '影响评分待行业 MainAgent'
+      : '暂不进入影响评分';
   return `${confidenceLabel} · ${relevanceLabel} · ${nextStage}`;
+}
+
+type ProcessedState = 'none' | 'processing' | 'processed';
+
+function getProcessedState(item: EventListItem, industryStage: EventListItem['agent_stages'][number] | undefined): ProcessedState {
+  if (!industryStage || industryStage.status === 'unavailable') return 'none';
+  if (industryStage.status === 'success' || industryStage.status === 'failed') return 'processed';
+  if (item.decision === 'route') return 'processing';
+  return 'none';
+}
+
+function getImpactScore(
+  item: EventListItem,
+  confidence: number | null,
+  relevanceScore: number | null,
+  industryStage: EventListItem['agent_stages'][number] | undefined,
+): number | null {
+  const explicitIndustryScore = toPercent(
+    industryStage?.key_fields.impact_score ?? industryStage?.key_fields.industry_impact_score,
+    { precision: 1 },
+  );
+  if (explicitIndustryScore !== null) return explicitIndustryScore;
+  if (industryStage && (industryStage.status === 'success' || industryStage.status === 'failed')) {
+    return eventScoreForItem(item, confidence, relevanceScore);
+  }
+  return null;
+}
+
+function impactLabel(score: number | null, processedState: ProcessedState): string {
+  if (score !== null) return processedState === 'processed' ? '影响已评估' : '影响评估中';
+  if (processedState === 'processed') return '影响已处理';
+  if (processedState === 'processing') return '影响评估中';
+  return '影响待行业分析';
+}
+
+function impactToneClass(score: number | null, processedState: ProcessedState): string {
+  if (score !== null) return getImpactTone(score).tagClass;
+  if (processedState === 'processing') return getImpactTone(75).tagClass;
+  return scoreNeutralTone.tagClass;
+}
+
+function impactValue(score: number | null, processedState: ProcessedState): number | string {
+  if (score !== null) return score;
+  if (processedState === 'processed') return '已处理';
+  if (processedState === 'processing') return '处理中';
+  return '待';
 }
 
 function priorityToBand(priority: string | null): 'A' | 'B' | 'C' | 'S' {
@@ -324,9 +385,50 @@ function priorityToScore(priority: string | null): number {
   return 55;
 }
 
-function toPercent(value: unknown): number | null {
+function eventScoreForItem(
+  item: EventListItem,
+  confidence: number | null,
+  relevanceScore: number | null,
+): number {
+  const explicitScore = toPercent(
+    nestedValue(item.router_stage_summary.key_fields, ['routing', 'event_score'])
+      ?? item.router_stage_summary.key_fields.event_score,
+    { precision: 1 },
+  );
+  if (explicitScore !== null) return explicitScore;
+
+  const fallbackBase = priorityToScore(item.priority);
+  if (confidence !== null && relevanceScore !== null) {
+    return clampScore(Math.round((fallbackBase * 0.35) + (confidence * 0.25) + (relevanceScore * 0.4)));
+  }
+  if (relevanceScore !== null) {
+    return clampScore(Math.round((fallbackBase * 0.45) + (relevanceScore * 0.55)));
+  }
+  if (confidence !== null) {
+    return clampScore(Math.round((fallbackBase * 0.55) + (confidence * 0.45)));
+  }
+  return fallbackBase;
+}
+
+function toPercent(value: unknown, options?: { precision?: number }): number | null {
   if (typeof value !== 'number' || Number.isNaN(value)) return null;
-  return Math.round(value <= 1 ? value * 100 : value);
+  const percent = value <= 1 ? value * 100 : value;
+  const precision = options?.precision ?? 0;
+  const factor = 10 ** precision;
+  return Math.round(percent * factor) / factor;
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function nestedValue(value: Record<string, unknown>, path: string[]): unknown {
+  let current: unknown = value;
+  for (const key of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
 }
 
 function parseRelevanceScore(value: string | null): number | null {

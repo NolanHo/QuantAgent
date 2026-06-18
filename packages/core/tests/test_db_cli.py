@@ -107,7 +107,7 @@ class DatabaseCliTestCase(unittest.TestCase):
         config = cli.create_alembic_config()
         script = ScriptDirectory.from_config(config)
 
-        self.assertEqual(script.get_heads(), ["20260605_0001"])
+        self.assertEqual(script.get_heads(), ["20260607_0001"])
 
     def test_upgrade_accepts_postgresql_url_override(self) -> None:
         with patch.object(settings, "DATABASE_URL", None):

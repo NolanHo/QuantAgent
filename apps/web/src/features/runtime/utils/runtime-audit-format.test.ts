@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   formatRuntimeAuditStage,
+  formatRuntimeAuditStatus,
   formatRuntimeAuditTimeline,
   getRuntimeAuditStatusTone,
 } from './runtime-audit-format';
@@ -22,5 +23,11 @@ describe('runtime audit format helpers', () => {
 
   it('formats unavailable status with neutral tone', () => {
     expect(getRuntimeAuditStatusTone('unavailable')).toContain('text-muted-strong');
+  });
+
+  it('formats processed news stage and status labels', () => {
+    expect(formatRuntimeAuditStage('industry_analysis_completed')).toBe('行业分析已完成');
+    expect(formatRuntimeAuditStatus('processed')).toBe('已处理');
+    expect(getRuntimeAuditStatusTone('processed')).toContain('text-trading-up');
   });
 });

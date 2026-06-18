@@ -151,22 +151,69 @@ def _select_targets(
     if not any((raw_event_ids, capture_ids, binding_id, replay_all)):
         raise ValueError("Provide --raw-event-id, --capture-id, --binding-id, or --all.")
     bounded_limit = _bounded_limit(limit)
+
+    if capture_ids:
+        return _select_explicit_capture_targets(session=session, capture_ids=capture_ids, limit=bounded_limit)
+
+    return _select_latest_raw_event_targets(
+        session=session,
+        raw_event_ids=raw_event_ids,
+        binding_id=binding_id,
+        limit=bounded_limit,
+    )
+
+
+def _select_explicit_capture_targets(*, session: Session, capture_ids: list[str], limit: int) -> list[ReplayTarget]:
     statement: Select[tuple[RawEventORM, RawEventCaptureORM, SchedulerRunORM | None]] = (
         select(RawEventORM, RawEventCaptureORM, SchedulerRunORM)
         .join(RawEventCaptureORM, RawEventCaptureORM.raw_event_id == RawEventORM.raw_event_id)
         .outerjoin(SchedulerRunORM, SchedulerRunORM.run_id == RawEventCaptureORM.scheduler_run_id)
+        .where(RawEventCaptureORM.capture_id.in_(capture_ids))
         .order_by(desc(RawEventCaptureORM.captured_at), desc(RawEventCaptureORM.capture_id))
-        .limit(bounded_limit)
+        .limit(limit)
+    )
+    rows = session.execute(statement).all()
+    return [ReplayTarget(raw_event=row[0], capture=row[1], run=row[2]) for row in rows]
+
+
+def _select_latest_raw_event_targets(
+    *,
+    session: Session,
+    raw_event_ids: list[str],
+    binding_id: str | None,
+    limit: int,
+) -> list[ReplayTarget]:
+    # 全量回放按 raw_event 去重，每个事件只取最近一次 capture，避免重复抓取记录把重跑结果稀释成局部样本。
+    ranked_captures = (
+        select(
+            RawEventCaptureORM.capture_id.label("capture_id"),
+            func.row_number()
+            .over(
+                partition_by=RawEventCaptureORM.raw_event_id,
+                order_by=(desc(RawEventCaptureORM.captured_at), desc(RawEventCaptureORM.capture_id)),
+            )
+            .label("rank"),
+        )
+        .join(RawEventORM, RawEventORM.raw_event_id == RawEventCaptureORM.raw_event_id)
     )
     predicates = []
     if raw_event_ids:
-        predicates.append(RawEventORM.raw_event_id.in_(raw_event_ids))
-    if capture_ids:
-        predicates.append(RawEventCaptureORM.capture_id.in_(capture_ids))
+        predicates.append(RawEventCaptureORM.raw_event_id.in_(raw_event_ids))
     if binding_id:
         predicates.append(RawEventCaptureORM.source_binding_id == binding_id)
     if predicates:
-        statement = statement.where(or_(*predicates))
+        ranked_captures = ranked_captures.where(or_(*predicates))
+
+    latest_captures = ranked_captures.subquery()
+    statement: Select[tuple[RawEventORM, RawEventCaptureORM, SchedulerRunORM | None]] = (
+        select(RawEventORM, RawEventCaptureORM, SchedulerRunORM)
+        .join(RawEventCaptureORM, RawEventCaptureORM.raw_event_id == RawEventORM.raw_event_id)
+        .join(latest_captures, latest_captures.c.capture_id == RawEventCaptureORM.capture_id)
+        .outerjoin(SchedulerRunORM, SchedulerRunORM.run_id == RawEventCaptureORM.scheduler_run_id)
+        .where(latest_captures.c.rank == 1)
+        .order_by(desc(RawEventCaptureORM.captured_at), desc(RawEventCaptureORM.capture_id))
+        .limit(limit)
+    )
     rows = session.execute(statement).all()
     return [ReplayTarget(raw_event=row[0], capture=row[1], run=row[2]) for row in rows]
 
@@ -327,7 +374,7 @@ def _iso(value: object) -> str | None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="quantagent-source-event-replay",
+        prog="source-event-replay",
         description="Diagnose and replay RawEvent captures back to source.event.captured.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

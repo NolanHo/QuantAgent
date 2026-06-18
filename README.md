@@ -43,7 +43,7 @@ cp .env.example .env
 默认分两套变量：
 
 - `DATABASE_URL`、`RUNTIME_DIR`
-  给宿主机直跑命令使用，例如 `uv run api`、`uv run quantagent-worker`、`uv run quantagent-scheduler`、`uv run quantagent-db upgrade`
+  给宿主机直跑命令使用，例如 `uv run api`、`uv run worker`、`uv run scheduler`、`uv run db upgrade`
 - `COMPOSE_DATABASE_URL`、`COMPOSE_RUNTIME_DIR`
   给 Compose 容器内部的 `api`、`worker`、`scheduler`、`migrate` 服务使用
 
@@ -79,12 +79,12 @@ docker compose --profile migration run --rm migrate
 本地直跑数据库迁移命令由 `packages/core` 提供，API 启动流程不负责自动迁移：
 
 ```bash
-uv run quantagent-db upgrade
-uv run quantagent-db current
-uv run quantagent-db check
+uv run db upgrade
+uv run db current
+uv run db check
 ```
 
-如果依赖仓库根目录 `.env` 中的 `DATABASE_URL`，请从仓库根目录运行这些 `uv run` 命令。若在 `packages/core` 或其他子目录执行，需要显式提供 `DATABASE_URL`，或改用 `uv run quantagent-db --database-url <DATABASE_URL> upgrade` 这类带参数的调用。服务器或容器中如果已经把 `quantagent-db` 安装进虚拟环境或镜像 `PATH`，命令默认会从当前目录及其祖先目录尝试定位 `packages/core/alembic.ini` 和 `packages/core/alembic/`；如果部署目录不保留这类仓库结构，需要通过 `QUANTAGENT_CORE_MIGRATION_ROOT=/path/to/packages/core` 显式指定迁移目录。
+如果依赖仓库根目录 `.env` 中的 `DATABASE_URL`，请从仓库根目录运行这些 `uv run` 命令。若在 `packages/core` 或其他子目录执行，需要显式提供 `DATABASE_URL`，或改用 `uv run db --database-url <DATABASE_URL> upgrade` 这类带参数的调用。服务器或容器中如果已经把 `db` 安装进虚拟环境或镜像 `PATH`，命令默认会从当前目录及其祖先目录尝试定位 `packages/core/alembic.ini` 和 `packages/core/alembic/`；如果部署目录不保留这类仓库结构，需要通过 `QUANTAGENT_CORE_MIGRATION_ROOT=/path/to/packages/core` 显式指定迁移目录。
 
 ## 本地运行入口
 
@@ -92,9 +92,9 @@ uv run quantagent-db check
 
 - `uv run api`
   只启动 FastAPI HTTP 服务
-- `uv run quantagent-worker`
+- `uv run worker`
   启动后台消费入口，常驻消费 `source.event.captured`、做后置 Readability 正文增强，继续消费 `industry.analysis.requested`，发布 `industry.analysis.requested` / `event.routed`，并把 Router Agent 结构化输出写入 runtime audit read model
-- `uv run quantagent-scheduler`
+- `uv run scheduler`
   启动调度入口，负责扫描 due `SourceBinding`、触发 `source.fetch`、写 `SchedulerRun` 并发布 `source.event.captured`
 
 这意味着：
@@ -139,7 +139,7 @@ uv run python -c 'import asyncio; from quantagent.worker.main import run_once; a
 
 - 上面两个 `run_once()` 只适合各自单独 smoke；如果 `EVENT_BUS_BACKEND=memory`，两者分开运行不会共享事件
 - 真正的跨进程端到端链路需要 Kafka backend
-- 默认 `uv run quantagent-worker` 是常驻 worker；只有 `run_once()` 是单条 smoke 入口
+- 默认 `uv run worker` 是常驻 worker；只有 `run_once()` 是单条 smoke 入口
 
 ### 本地端到端建议
 
@@ -152,13 +152,13 @@ docker compose up -d db
 2. 迁移数据库：
 
 ```bash
-uv run quantagent-db upgrade
+uv run db upgrade
 ```
 
 3. 安装半导体默认 RSS SourceBinding：
 
 ```bash
-uv run quantagent-source-bindings install-semiconductor-defaults
+uv run source-bindings install-semiconductor-defaults
 ```
 
 这个命令会从官方半导体行业包模板生成两个可调度绑定：
@@ -169,7 +169,7 @@ uv run quantagent-source-bindings install-semiconductor-defaults
 两者默认都会设为 `active` 并把 `next_run_at` 设为当前时间，方便下一次 scheduler tick 立刻抓取。只想先跑稳定源时可用：
 
 ```bash
-uv run quantagent-source-bindings install-semiconductor-defaults --no-expansion
+uv run source-bindings install-semiconductor-defaults --no-expansion
 ```
 
 如果跳过这一步，scheduler 只会扫描数据库里已经存在的绑定；本地库可能只有旧的 `binding-semiconductor-rss-smoke`，它只抓 Micron 单一 RSS，重复 URL 会被 RawEvent 去重，因此 `/runtime` 不会持续新增新闻。
@@ -188,11 +188,11 @@ docker compose up -d kafka
 5. 分别启动 scheduler 和 worker。默认 env 已经指向 `127.0.0.1:19092`：
 
 ```bash
-uv run quantagent-scheduler
+uv run scheduler
 ```
 
 ```bash
-uv run quantagent-worker
+uv run worker
 ```
 
 如果只想验证调度能否真实抓到 RSS，可以只跑数据库 + scheduler，不必带 worker。
@@ -233,7 +233,7 @@ PY
 如果 `/runtime` 没看到新的 Router Agent 输出，先区分是没有新抓取、没有入队、worker 没消费，还是 AI intake 没落库：
 
 ```bash
-uv run quantagent-source-event-replay diagnose --limit 10
+uv run source-event-replay diagnose --limit 10
 ```
 
 该命令会输出运行配置、DB 计数、最近已 capture 但没有 routed read model 的新闻、最近 routed 输出摘要，以及本地 Kafka topic / consumer group 诊断信息。
@@ -242,26 +242,26 @@ uv run quantagent-source-event-replay diagnose --limit 10
 
 ```bash
 # 只预览会重放哪些新闻，不发 Kafka
-uv run quantagent-source-event-replay replay --raw-event-id rawevt_xxx --dry-run
+uv run source-event-replay replay --raw-event-id rawevt_xxx --dry-run
 
 # 重放指定 RawEvent
-uv run quantagent-source-event-replay replay --raw-event-id rawevt_xxx
+uv run source-event-replay replay --raw-event-id rawevt_xxx
 
 # 重放指定 capture
-uv run quantagent-source-event-replay replay --capture-id rawevtcap_xxx
+uv run source-event-replay replay --capture-id rawevtcap_xxx
 
 # 重放某个 binding 最近 20 条 capture
-uv run quantagent-source-event-replay replay --binding-id binding-semiconductor-rss-baseline --limit 20
+uv run source-event-replay replay --binding-id binding-semiconductor-rss-baseline --limit 20
 
 # 清掉这些 RawEvent 已有的 routed read model，再重新入队，方便 UI 观察重新处理结果
-uv run quantagent-source-event-replay replay --raw-event-id rawevt_xxx --clear-routed
+uv run source-event-replay replay --raw-event-id rawevt_xxx --clear-routed
 ```
 
 注意：
 
 - 回放不会删除 `raw_events` / `raw_event_captures`，只会重新发布 `source.event.captured`。
 - `--clear-routed` 只删除所选 RawEvent 对应的 `event_intake_routed_events` read model，用于回测重新观察；不要在生产环境随意使用。
-- worker 必须运行：`uv run quantagent-worker`。如果 worker 没启动，回放消息只会留在 Kafka 等待消费。
+- worker 必须运行：`uv run worker`。如果 worker 没启动，回放消息只会留在 Kafka 等待消费。
 - worker 默认最多同时处理 10 条 Kafka 消息，可通过 `EVENT_BUS_KAFKA_CONSUMER_CONCURRENCY` 调整；legacy batch 消息内的文章并发可通过 `WORKER_ARTICLE_CONCURRENCY` 调整。Kafka offset 只提交每个 partition 上连续成功的 offset，避免并发乱序完成造成消息丢失。
 
 ### AI intake 模型兼容要求
@@ -309,7 +309,7 @@ docker compose up --build scheduler worker
 - `scheduler` 需要单独启动，负责抓 RSS、写 `SchedulerRun`、发布 `source.event.captured`
 - `worker` 需要单独启动，负责消费 `source.event.captured`、尝试 Readability、再发布 `industry.analysis.requested`；后续 AI intake 发布 `event.routed` 后会写入 `event_intake_routed_events`，供 `/runtime` 展示真实 Router output
 - `EVENT_BUS_BACKEND=memory` 只能证明单进程内链路；默认跨进程运行必须使用 Kafka
-- `uv run quantagent-source-bindings install-semiconductor-defaults` 负责把行业包模板安装成真实 DB `SourceBinding`；只提交模板文件不会自动让 scheduler 开始抓取
+- `uv run source-bindings install-semiconductor-defaults` 负责把行业包模板安装成真实 DB `SourceBinding`；只提交模板文件不会自动让 scheduler 开始抓取
 
 ### 已验证的实际运行结果
 
