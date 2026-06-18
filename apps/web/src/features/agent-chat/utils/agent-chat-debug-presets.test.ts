@@ -8,6 +8,7 @@ describe("agent chat debug presets", () => {
       agent: semiconductorMainAgentId,
       preset: "nvda-earnings",
       routedEvent: "nvda-earnings",
+      sessionId: null,
     });
   });
 
@@ -16,6 +17,16 @@ describe("agent chat debug presets", () => {
       agent: semiconductorMainAgentId,
       preset: "nvda-media-followup",
       routedEvent: "nvda-media-followup",
+      sessionId: null,
+    });
+  });
+
+  it("keeps existing Agent Chat session id for routed event processing records", () => {
+    expect(normalizeAgentChatSearch({ sessionId: " chat_sess_1 " })).toEqual({
+      agent: semiconductorMainAgentId,
+      preset: "nvda-earnings",
+      routedEvent: "nvda-earnings",
+      sessionId: "chat_sess_1",
     });
   });
 });

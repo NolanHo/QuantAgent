@@ -24,6 +24,7 @@ from quantagent.api.schemas.events import (
 from quantagent.core.db.models.event_intake import EventIntakeRoutedEventORM
 from quantagent.core.db.models.raw_event import RawEventORM
 from quantagent.core.db.models.raw_event_capture import RawEventCaptureORM
+from quantagent.core.db.repositories.agent_chat_repository import AgentChatRepository
 from quantagent.core.db.repositories.event_intake_repository import EventIntakeRoutedEventRepository
 from quantagent.core.events.codec import sanitize_mapping
 from quantagent.plugin_sdk.io import to_json_value
@@ -73,6 +74,7 @@ class EventReadModelQueryService:
     def __init__(self, *, session: Session) -> None:
         self._session = session
         self._repository = EventIntakeRoutedEventRepository(session)
+        self._agent_chat_repository = AgentChatRepository(session)
 
     def list_events(
         self,
@@ -141,17 +143,7 @@ class EventReadModelQueryService:
             safe_details=_safe_details(routed_event, raw_event),
             agent_stages=[
                 list_item.router_stage_summary,
-                EventAgentStageResponse(
-                    stage_id="industry_main_agent",
-                    agent_name="行业 MainAgent",
-                    agent_type="industry_main_agent",
-                    status="unavailable",
-                    summary="当前还没有持久化的行业 MainAgent 输出。",
-                    key_fields={},
-                    refs=list_item.router_stage_summary.refs,
-                    unavailable_reason="MainAgent read model 尚未接入，本页只展示 Router Agent 阶段。",
-                    has_output_json=False,
-                ),
+                self._industry_main_agent_stage(routed_event, list_item.router_stage_summary.refs),
             ],
         )
 
@@ -180,6 +172,58 @@ class EventReadModelQueryService:
             return {}
         statement: Select[tuple[RawEventORM]] = select(RawEventORM).where(RawEventORM.raw_event_id.in_(raw_event_ids))
         return {item.raw_event_id: item for item in self._session.scalars(statement).all()}
+
+    def _industry_main_agent_stage(
+        self,
+        routed_event: EventIntakeRoutedEventORM,
+        router_refs: list[EventRefResponse],
+    ) -> EventAgentStageResponse:
+        chat_session = self._agent_chat_repository.find_session_by_routed_event_id(routed_event.event_id)
+        if chat_session is None:
+            return EventAgentStageResponse(
+                stage_id="industry_main_agent",
+                routed_event_id=routed_event.event_id,
+                agent_name="行业 MainAgent",
+                agent_type="industry_main_agent",
+                status="unavailable",
+                summary="当前还没有持久化的行业 MainAgent 处理记录。",
+                key_fields={},
+                refs=router_refs,
+                unavailable_reason="尚未发现由该 routed event 创建的 Agent Chat session；请确认 worker 已消费 event.routed。",
+                has_output_json=False,
+            )
+
+        runs = self._agent_chat_repository.list_runs(chat_session.session_id)
+        latest_run = runs[0] if runs else None
+        latest_status = latest_run.status if latest_run is not None else "active"
+        stage_status = "failed" if latest_status == "failed" else "success"
+        refs = [
+            *router_refs,
+            EventRefResponse(kind="agent_chat_session", id=chat_session.session_id, label="Agent Chat session"),
+        ]
+        if latest_run is not None:
+            refs.append(EventRefResponse(kind="agent_chat_run", id=latest_run.run_id, label="Agent Chat run"))
+        return EventAgentStageResponse(
+            stage_id="industry_main_agent",
+            routed_event_id=routed_event.event_id,
+            agent_name="行业 MainAgent",
+            agent_type="industry_main_agent",
+            status=stage_status,
+            summary="行业 MainAgent 已创建 Agent Chat 处理记录，可在 Agent Chat 页面查看完整运行过程。",
+            key_fields=_agent_chat_stage_key_fields(
+                chat_session_id=chat_session.session_id,
+                thread_id=chat_session.thread_id,
+                workspace_id=chat_session.workspace_id,
+                run_id=latest_run.run_id if latest_run is not None else None,
+                agent_run_id=latest_run.agent_run_id if latest_run is not None else None,
+                run_status=latest_status,
+                title=chat_session.title,
+                message_count=len(self._agent_chat_repository.list_messages(chat_session.session_id)),
+            ),
+            refs=refs,
+            unavailable_reason=None,
+            has_output_json=False,
+        )
 
 
 def _to_list_item(routed_event: EventIntakeRoutedEventORM, raw_event: RawEventORM | None) -> EventListItemResponse:
@@ -273,6 +317,33 @@ def _safe_details(routed_event: EventIntakeRoutedEventORM, raw_event: RawEventOR
                 "first_binding_id": raw_event.first_binding_id if raw_event else None,
                 "first_run_id": raw_event.first_run_id if raw_event else None,
             },
+        }
+    )
+
+
+def _agent_chat_stage_key_fields(
+    *,
+    agent_run_id: str | None,
+    chat_session_id: str,
+    message_count: int,
+    run_id: str | None,
+    run_status: str,
+    thread_id: str,
+    title: str | None,
+    workspace_id: str,
+) -> dict[str, object]:
+    # 这些是前端跳转和排查所需的内部对象 ID，不是用户登录 session 或 secret；
+    # 因此不复用通用 sanitizer，避免 "session_id" 被误判为敏感字段后页面无法跳转。
+    return to_json_value(
+        {
+            "agent_chat_session_id": chat_session_id,
+            "agent_chat_thread_id": thread_id,
+            "agent_chat_workspace_id": workspace_id,
+            "agent_chat_run_id": run_id,
+            "agent_run_id": agent_run_id,
+            "agent_run_status": run_status,
+            "agent_chat_title": title,
+            "agent_chat_message_count": message_count,
         }
     )
 

@@ -3,7 +3,7 @@ import { Link, type LinkProps } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { twMerge } from 'tailwind-merge'
 
-interface LinkButtonProps extends Pick<LinkProps, 'to' | 'params'> {
+interface LinkButtonProps extends Pick<LinkProps, 'params' | 'search' | 'to'> {
   children: ReactNode
   className?: string
   size?: 'sm' | 'md' | 'lg'
@@ -14,6 +14,7 @@ export function LinkButton({
   children,
   className,
   params,
+  search,
   size = 'sm',
   to,
   variant = 'primary',
@@ -22,6 +23,7 @@ export function LinkButton({
     <Link
       className={twMerge(buttonVariants({ size, variant }), className)}
       params={params}
+      search={search}
       to={to}
     >
       {children}

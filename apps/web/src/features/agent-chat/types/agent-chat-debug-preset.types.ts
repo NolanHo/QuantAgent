@@ -6,4 +6,5 @@ export interface AgentChatSearch {
   agent?: AgentChatIndustryAgentId | null;
   preset?: AgentChatDebugPreset | null;
   routedEvent?: AgentChatRoutedEventPreset | null;
+  sessionId?: string | null;
 }

@@ -21,10 +21,29 @@ class AgentChatRepository:
     def get_session(self, session_id: str) -> AgentChatSessionORM | None:
         return self._session.get(AgentChatSessionORM, session_id)
 
+    def find_session_by_routed_event_id(self, routed_event_id: str) -> AgentChatSessionORM | None:
+        # metadata 是 JSON 字段，当前 SQLite/Postgres 方言都可通过 SQLAlchemy JSON index 编译；
+        # 这里把查询封在 repository，避免 API read model 层依赖具体 JSON 语法。
+        statement: Select[tuple[AgentChatSessionORM]] = (
+            select(AgentChatSessionORM)
+            .where(AgentChatSessionORM.metadata_json["routed_event_id"].as_string() == routed_event_id)
+            .order_by(AgentChatSessionORM.updated_at.desc(), AgentChatSessionORM.created_at.desc())
+            .limit(1)
+        )
+        return self._session.scalars(statement).first()
+
     def create_run(self, row: AgentChatRunORM) -> AgentChatRunORM:
         self._session.add(row)
         self._session.flush()
         return row
+
+    def list_runs(self, session_id: str) -> list[AgentChatRunORM]:
+        statement: Select[tuple[AgentChatRunORM]] = (
+            select(AgentChatRunORM)
+            .where(AgentChatRunORM.session_id == session_id)
+            .order_by(AgentChatRunORM.started_at.desc(), AgentChatRunORM.created_at.desc())
+        )
+        return list(self._session.scalars(statement).all())
 
     def update_run_status(self, run_id: str, *, status: str, error_summary: str | None = None) -> AgentChatRunORM | None:
         row = self._session.get(AgentChatRunORM, run_id)
@@ -77,4 +96,3 @@ class AgentChatRepository:
             .order_by(AgentChatMessageORM.seq.asc(), AgentChatMessageORM.created_at.asc())
         )
         return list(self._session.scalars(statement).all())
-

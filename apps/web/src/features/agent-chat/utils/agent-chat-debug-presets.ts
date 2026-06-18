@@ -48,7 +48,8 @@ export function normalizeAgentChatSearch(search: Record<string, unknown>): Agent
       : typeof search.preset === "string" && isAgentChatRoutedEventPreset(search.preset)
         ? search.preset
         : "nvda-earnings";
-  return { agent, preset: routedEvent, routedEvent };
+  const sessionId = typeof search.sessionId === "string" && search.sessionId.trim() ? search.sessionId.trim() : null;
+  return { agent, preset: routedEvent, routedEvent, sessionId };
 }
 
 export function getAgentChatPresetMessage(preset: AgentChatRoutedEventPreset | null | undefined): string {

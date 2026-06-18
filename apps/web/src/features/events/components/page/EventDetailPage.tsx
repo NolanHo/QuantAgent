@@ -34,6 +34,7 @@ export function EventDetailPage({ rawEventId }: { rawEventId: string }) {
 
   return (
     <EventDetailContent
+      agentChatSessionId={page.agentChatSessionId}
       detail={detail}
       onOpenAgentStage={(stage) => selectAgentStage(detail.agent_stages, stage, page.setSelectedAgentStage)}
       selectedAgentStage={page.selectedAgentStage}
@@ -69,6 +70,7 @@ export function EventAuditPage({ rawEventId }: { rawEventId: string }) {
         </div>
       </PageSectionCard>
       <SharedRouterStageSection
+        agentChatSessionId={page.agentChatSessionId}
         detail={detail}
         onOpenAgentStage={(stage) => selectAgentStage(detail.agent_stages, stage, page.setSelectedAgentStage)}
         selectedAgentStage={page.selectedAgentStage}
@@ -79,11 +81,13 @@ export function EventAuditPage({ rawEventId }: { rawEventId: string }) {
 }
 
 function EventDetailContent({
+  agentChatSessionId,
   detail,
   onOpenAgentStage,
   selectedAgentStage,
   selectedRouterOutput,
 }: {
+  agentChatSessionId: null | string;
   detail: EventDetailResponse;
   onOpenAgentStage: (stage: AgentAuditStage) => void;
   selectedAgentStage: EventAgentStage | null;
@@ -112,6 +116,7 @@ function EventDetailContent({
       </PageSectionCard>
 
       <SharedRouterStageSection
+        agentChatSessionId={agentChatSessionId}
         detail={detail}
         onOpenAgentStage={onOpenAgentStage}
         selectedAgentStage={selectedAgentStage}
@@ -143,11 +148,13 @@ function EventDetailContent({
 }
 
 function SharedRouterStageSection({
+  agentChatSessionId,
   detail,
   onOpenAgentStage,
   selectedAgentStage,
   selectedRouterOutput,
 }: {
+  agentChatSessionId: null | string;
   detail: EventDetailResponse;
   onOpenAgentStage: (stage: AgentAuditStage) => void;
   selectedAgentStage: EventAgentStage | null;
@@ -160,7 +167,19 @@ function SharedRouterStageSection({
 
   return (
     <PageSectionCard>
-      <SectionHeader eyebrow="Agent 处理" title="Router Agent 输出" />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionHeader eyebrow="Agent 处理" title="Router Agent 输出" />
+        {agentChatSessionId ? (
+          <LinkButton
+            search={{ sessionId: agentChatSessionId }}
+            size="sm"
+            to="/agent-chat"
+            variant="secondary"
+          >
+            查看 Agent Chat 处理记录
+          </LinkButton>
+        ) : null}
+      </div>
       <AgentStagePanel
         detailStage={selectedStage}
         onOpenStage={onOpenAgentStage}

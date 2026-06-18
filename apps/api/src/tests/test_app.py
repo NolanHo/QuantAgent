@@ -48,6 +48,7 @@ from quantagent.api.routers.v1.register import (
     register_api_v1_protected_router,
 )
 from quantagent.core.db.base import Base
+from quantagent.core.db.models.agent_chat import AgentChatMessageORM, AgentChatRunORM, AgentChatSessionORM
 from quantagent.core.db.models.scheduler_run import SchedulerRunORM
 from quantagent.core.db.models.raw_event import RawEventORM
 from quantagent.core.db.models.raw_event_capture import RawEventCaptureORM
@@ -2845,6 +2846,70 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertNotIn("full HBM body", serialized_output)
         self.assertNotIn("must redact", serialized_detail)
         self.assertNotIn("must redact", serialized_output)
+
+    def test_events_detail_links_industry_main_agent_chat_session(self) -> None:
+        database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        database_file.close()
+        self.addCleanup(lambda: os.unlink(database_file.name))
+        settings = self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}")
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            Base.metadata.create_all(client.app.state.db_engine)
+            session = client.app.state.db_session_factory()
+            try:
+                self._seed_runtime_audit_news(session)
+                session.add(
+                    AgentChatSessionORM(
+                        session_id="chat_sess_event_001",
+                        thread_id="chat_thread_event_001",
+                        workspace_id="chat_workspace_event_001",
+                        industry_id="quantagent.official.industry.semiconductor",
+                        agent_id="quantagent.official.industry.semiconductor.agent.main",
+                        title="HBM demand update",
+                        status="active",
+                        metadata_json={"source": "event.routed", "routed_event_id": "evt-routed-runtime-001"},
+                        created_at=datetime(2026, 6, 1, 9, 0, 7, tzinfo=UTC),
+                        updated_at=datetime(2026, 6, 1, 9, 0, 8, tzinfo=UTC),
+                    )
+                )
+                session.add(
+                    AgentChatRunORM(
+                        run_id="chat_run_event_001",
+                        session_id="chat_sess_event_001",
+                        agent_run_id="agent_run_event_001",
+                        trace_id="trace-event-agent-chat",
+                        status="completed",
+                        metadata_json={"routed_event_id": "evt-routed-runtime-001"},
+                    )
+                )
+                session.add(
+                    AgentChatMessageORM(
+                        message_id="msg_event_agent_001",
+                        session_id="chat_sess_event_001",
+                        run_id="chat_run_event_001",
+                        seq=1,
+                        role="assistant",
+                        kind="final",
+                        content="行业 MainAgent 已完成处理。",
+                        payload={},
+                    )
+                )
+                session.commit()
+            finally:
+                session.close()
+            self._login_with_client(client, settings)
+            response = client.get("/api/v1/events/rawevt-runtime-001")
+
+        detail = response.json()["data"]
+        main_agent_stage = next(stage for stage in detail["agent_stages"] if stage["stage_id"] == "industry_main_agent")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(main_agent_stage["status"], "success")
+        self.assertEqual(main_agent_stage["key_fields"]["agent_chat_session_id"], "chat_sess_event_001")
+        self.assertEqual(main_agent_stage["key_fields"]["agent_chat_run_id"], "chat_run_event_001")
+        self.assertEqual(main_agent_stage["key_fields"]["agent_run_status"], "completed")
+        self.assertEqual(main_agent_stage["key_fields"]["agent_chat_message_count"], 1)
+        self.assertIn("Agent Chat", main_agent_stage["summary"])
 
     def test_events_detail_article_snapshot_does_not_leak_long_rss_summary(self) -> None:
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
