@@ -9,6 +9,7 @@ from quantagent.api.http.middleware import get_request_id
 from quantagent.api.config.settings import Settings
 from quantagent.api.http.errors import BadRequestError, NotFoundError, ServiceUnavailableError
 from quantagent.api.services import plugin_registry as plugin_registry_service
+from quantagent.core.approval import ApprovalNotificationHandoffAdapter
 from quantagent.core.notifications.handoff import NotificationApprovalHandoffPort
 from quantagent.core.notifications.ingress import NotificationIngressService, NotificationIngressServiceUnavailableError
 from quantagent.core.registry import PluginRegistry
@@ -89,7 +90,7 @@ class NotificationIngressHostService:
 def get_notification_ingress_service(request: Request) -> NotificationIngressHostService:
     service = getattr(request.app.state, "notification_ingress_service", None)
     if service is None:
-        approval_handoff = getattr(request.app.state, "notification_approval_handoff", None)
+        approval_handoff = _get_notification_approval_handoff(request)
         ingress_service = getattr(request.app.state, "notification_core_ingress_service", None)
         service = NotificationIngressHostService(
             settings=request.app.state.settings,
@@ -100,6 +101,19 @@ def get_notification_ingress_service(request: Request) -> NotificationIngressHos
         )
         request.app.state.notification_ingress_service = service
     return service
+
+
+def _get_notification_approval_handoff(request: Request) -> NotificationApprovalHandoffPort | None:
+    approval_handoff = getattr(request.app.state, "notification_approval_handoff", None)
+    if approval_handoff is not None:
+        return approval_handoff
+    runtime = getattr(request.app.state, "event_bus_runtime", None)
+    publisher = getattr(runtime, "publisher", None)
+    if publisher is None:
+        return None
+    approval_handoff = ApprovalNotificationHandoffAdapter(publisher=publisher)
+    request.app.state.notification_approval_handoff = approval_handoff
+    return approval_handoff
 
 
 def get_notification_ingress_request_id(request: Request) -> str:

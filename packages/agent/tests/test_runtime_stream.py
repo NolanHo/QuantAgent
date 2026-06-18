@@ -217,7 +217,8 @@ class RuntimeStreamTest(TestCase):
             final = next(event for event in reversed(events) if event.type == AgentRunEventType.RUN_OUTPUT)
             self.assertIn("行动链路已完成", final.content or "")
             submit_event = next(event for event in events if event.type == AgentRunEventType.TOOL_COMPLETED and event.payload.get("name") == "submit_action_plan")
-            self.assertEqual(submit_event.payload["result"]["resolved_mode"], "execute_then_notify")
+            self.assertEqual(submit_event.payload["result"]["dispatch_status"], "action_submission_unavailable")
+            self.assertEqual(submit_event.payload["result"]["execution_status"], "not_executed")
             self.assertEqual(submit_event.payload["runtime_event"]["render"]["lane"], "main")
 
         asyncio.run(_run())

@@ -583,7 +583,7 @@ def _redact_json_value(value: object, *, key: str | None = None) -> object:
         return _MASKED
     if isinstance(value, Mapping):
         return {str(item_key): _redact_json_value(item_value, key=str(item_key)) for item_key, item_value in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, list | tuple):
         return [_redact_json_value(item) for item in value]
     return value
 

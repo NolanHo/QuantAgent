@@ -2,9 +2,8 @@ import { Card } from '@heroui/react'
 
 import {
   ApprovalSummaryCard,
-  listApprovalWorkbenchItems,
-  sortApprovalWorkbenchItems,
 } from '../../approvals'
+import { useApprovalWorkbenchListQuery } from '@/features/approvals/queries/use-approval-workbench-list'
 import {
   dashboardMetrics,
   healthAlerts,
@@ -16,14 +15,15 @@ import { selectDashboardHighlightedEvents } from '@/features/event-scoring/utils
 import { LinkButton } from '@/shared/ui'
 
 export function DashboardPageContent() {
+  const approvalsQuery = useApprovalWorkbenchListQuery({
+    status: 'pending',
+    sort: 'recommendation',
+  })
   const dashboardHighlightedEvents = selectDashboardHighlightedEvents(scoredEvents)
   const highlightedTitle = dashboardHighlightedEvents.length === 0
     ? '当前暂无符合条件的重点事件'
     : `今天最值得先看的 ${dashboardHighlightedEvents.length} 条`
-  const approvalsQueue = sortApprovalWorkbenchItems(
-    listApprovalWorkbenchItems().filter((item) => item.status === 'pending'),
-    'recommendation',
-  ).slice(0, 3)
+  const approvalsQueue = (approvalsQuery.data ?? []).slice(0, 3)
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1.05fr)] xl:[grid-template-areas:'hero_side''metrics_side''events_approvals''events_health']">

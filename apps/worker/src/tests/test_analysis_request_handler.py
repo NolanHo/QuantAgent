@@ -49,7 +49,7 @@ class _ConcurrencyRecordingInvoker:
         self.max_active = 0
         self.invocation_count = 0
 
-    async def invoke(self, *, context, output_schema: str):
+    async def invoke(self, *, context, output_schema: str, repair=None):
         from quantagent.core.event_intake import StructuredModelInvocation
 
         self.active += 1

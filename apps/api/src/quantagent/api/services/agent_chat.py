@@ -15,6 +15,7 @@ from quantagent.agent.runtime import AgentRuntime
 from quantagent.agent.runtime.requests import AgentRunRequest
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
 from quantagent.agent.tools import (
+    ActionSubmissionPort,
     build_build_action_plan_tool,
     build_evaluate_thesis_tool,
     build_get_account_context_tool,
@@ -48,10 +49,17 @@ TAVILY_API_KEY_PATH = "api_key"
 
 
 class AgentChatService:
-    def __init__(self, *, session: Session, encryption_key: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        session: Session,
+        encryption_key: str | None = None,
+        action_submission_port: ActionSubmissionPort | None = None,
+    ) -> None:
         self._session = session
         self._repo = AgentChatRepository(session)
         self._encryption_key = encryption_key
+        self._action_submission_port = action_submission_port
 
     def create_session(
         self,
@@ -141,7 +149,10 @@ class AgentChatService:
                     build_get_account_context_tool(run_request.run_context),
                     build_evaluate_thesis_tool(run_request.run_context),
                     build_build_action_plan_tool(run_request.run_context),
-                    build_submit_action_plan_tool(run_request.run_context),
+                    build_submit_action_plan_tool(
+                        run_request.run_context,
+                        action_submission_port=self._action_submission_port,
+                    ),
                 ]
             )
             async for event in runtime.run_stream(run_request):

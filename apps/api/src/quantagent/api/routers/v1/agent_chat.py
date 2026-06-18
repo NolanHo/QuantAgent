@@ -12,6 +12,7 @@ from quantagent.api.schemas.agent_chat import (
     AgentChatSessionResponse,
     AgentChatStreamRequest,
 )
+from quantagent.api.services.agent_action_submission import EventBusActionSubmissionPort
 from quantagent.api.services.agent_chat import AgentChatService
 
 
@@ -20,7 +21,14 @@ router = APIRouter(prefix="/agent-chat", tags=["agent-chat"])
 
 def _service(request: Request, session: Session) -> AgentChatService:
     settings: Settings = request.app.state.settings
-    return AgentChatService(session=session, encryption_key=settings.MODEL_CONFIG_ENCRYPTION_KEY)
+    runtime = getattr(request.app.state, "event_bus_runtime", None)
+    publisher = getattr(runtime, "publisher", None)
+    action_submission_port = EventBusActionSubmissionPort(publisher) if publisher is not None else None
+    return AgentChatService(
+        session=session,
+        encryption_key=settings.MODEL_CONFIG_ENCRYPTION_KEY,
+        action_submission_port=action_submission_port,
+    )
 
 
 @router.post("/sessions", response_model=ApiResponse[AgentChatSessionResponse])

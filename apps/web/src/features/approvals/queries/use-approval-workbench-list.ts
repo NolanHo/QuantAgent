@@ -1,19 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 
-import { listApprovalWorkbenchItems } from '../mock/approval-workbench.mock'
+import { useApis } from '@/app/runtime'
 import type { ApprovalWorkbenchSearch } from '../types/approval-workbench.types'
-import { filterApprovalWorkbenchItems, sortApprovalWorkbenchItems } from '../utils/approval-rules'
+import { mapApprovalListResponse, toApprovalWorkbenchListParams } from '../api/approval-workbench.contracts'
 import { approvalWorkbenchKeys } from './approval-workbench.keys'
 
 export function useApprovalWorkbenchListQuery(search: ApprovalWorkbenchSearch) {
+  const { approvalWorkbench } = useApis()
+
   return useQuery({
-    queryFn: () => {
-      const items = listApprovalWorkbenchItems()
-      return sortApprovalWorkbenchItems(
-        filterApprovalWorkbenchItems(items, search),
-        search.sort ?? 'recommendation',
-      )
-    },
+    queryFn: async () => mapApprovalListResponse(await approvalWorkbench.listApprovals(toApprovalWorkbenchListParams(search)), search),
     queryKey: approvalWorkbenchKeys.list(search),
   })
 }

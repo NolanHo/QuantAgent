@@ -728,6 +728,7 @@ class ApiAppTestCase(unittest.TestCase):
 
     def test_agent_chat_message_stream_persists_runtime_transcript(self) -> None:
         from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
+        from quantagent.agent.runtime.context import ToolRuntimeContext
 
         database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         database_file.close()
@@ -735,6 +736,11 @@ class ApiAppTestCase(unittest.TestCase):
         app = create_app(self._settings(DATABASE_URL=f"sqlite+pysqlite:///{database_file.name}"))
         captured_requests = []
         captured_tools = []
+        action_requested_events = []
+
+        class RecordingHandler:
+            async def handle(self, envelope):
+                action_requested_events.append(envelope)
 
         class FakeAgentRuntime:
             def __init__(self, *, tools):
@@ -742,6 +748,31 @@ class ApiAppTestCase(unittest.TestCase):
 
             async def run_stream(self, request):
                 captured_requests.append(request)
+                submit_tool = next(tool for tool in captured_tools if tool.binding.name == "submit_action_plan")
+                await submit_tool.callable(
+                    submit_tool.input_model.model_validate(
+                        {
+                            "action_plan_artifact_id": "artifact_api_stream_nvda_action",
+                            "industry_analysis_artifact_id": "artifact_api_stream_nvda_analysis",
+                            "evidence_artifact_ids": ["artifact_api_stream_nvda_evidence"],
+                            "requested_mode_hint": "auto_if_allowed",
+                            "dry_run_allowed": True,
+                            "idempotency_key": "api-stream-nvda-action",
+                        }
+                    ),
+                    ToolRuntimeContext(
+                        session_id=request.session_id,
+                        thread_id=request.thread_id,
+                        workspace_id=request.workspace_id,
+                        agent_run_id=request.agent_run_id,
+                        event_id=request.event_id,
+                        industry_id=request.industry_id,
+                        agent_id=request.agent_definition.agent_id,
+                        trace_id=request.trace_id,
+                        tool_profile_id=request.tool_profile.profile_id,
+                        artifact_store=None,
+                    ),
+                )
                 yield AgentRunEvent(
                     agent_run_id=request.agent_run_id,
                     trace_id=request.trace_id,
@@ -773,6 +804,15 @@ class ApiAppTestCase(unittest.TestCase):
             patch("quantagent.api.services.agent_chat.AgentRuntime", FakeAgentRuntime),
         ):
             Base.metadata.create_all(client.app.state.db_engine)
+            action_bus = InMemoryEventBus()
+            client.app.state.event_bus_runtime = SimpleNamespace(publisher=action_bus)
+            asyncio.run(
+                action_bus.subscribe(
+                    topics=("action.requested",),
+                    group_id="api-agent-chat-smoke",
+                    handler=RecordingHandler(),
+                )
+            )
             self._login_with_client(client, self.settings)
             create_response = client.post(
                 "/api/v1/agent-chat/sessions",
@@ -858,6 +898,16 @@ class ApiAppTestCase(unittest.TestCase):
                 "submit_action_plan",
             ],
         )
+        self.assertEqual(len(action_requested_events), 1)
+        self.assertEqual(action_requested_events[0].topic, "action.requested")
+        self.assertEqual(action_requested_events[0].payload["target_id"], "NVDA")
+        self.assertEqual(action_requested_events[0].payload["strategy_policy"]["broker_mode"], "dry_run")
+        self.assertEqual(
+            action_requested_events[0].payload["proposed_payload"]["artifact_refs"]["action_plan_artifact_id"],
+            None,
+        )
+        self.assertNotIn("secret", str(action_requested_events[0].payload).lower())
+        self.assertNotIn("prompt", str(action_requested_events[0].payload).lower())
 
     def test_agent_chat_uses_saved_tavily_plugin_config_for_search_tool(self) -> None:
         from quantagent.agent.runtime.context import ToolRuntimeContext

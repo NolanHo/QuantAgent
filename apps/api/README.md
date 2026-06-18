@@ -67,7 +67,7 @@ POST /api/v1/integrations/notifications/ingress
 
 当前实现只落地第一版 HTTP host adapter，但模型设计需要兼容 webhook、websocket、polling 三类 transport。任何平台专属字段都通过 `NOTIFICATION_INGRESS_PLUGIN_CONFIG` 进入目标 notification 插件，API 层不再维护平台专属 env 名称。
 
-Discord approval loop 的发送侧 dispatcher 属于 core/worker/scheduler 可复用能力；当前仓库没有在 API 进程内自动读取这些变量并启动 dispatcher 的默认入口。下面仅给出推荐的环境变量命名，实际需要在 worker/consumer 组装 `NotificationDispatchService` 时读取并接线：
+Discord approval loop 的发送侧 dispatcher 属于 core/worker 可复用能力；API 进程不启动发送 consumer，`apps/worker` 会消费 `notification.requested` 并读取下面的配置组装 `NotificationDispatchService`：
 
 ```bash
 NOTIFICATION_DISPATCH_ENABLED=true
@@ -78,7 +78,7 @@ NOTIFICATION_DISPATCH_PLUGIN_CONFIG='{
 NOTIFICATION_DISPATCH_CHANNEL=discord
 ```
 
-`NOTIFICATION_INGRESS_PLUGIN_CONFIG` 与 `NOTIFICATION_DISPATCH_PLUGIN_CONFIG` 只放插件配置或 secret reference，不写真实 webhook URL、公钥私钥、token、完整 prompt、私有策略或 broker credential。API host 可以注入带 `ApprovalNotificationHandoffAdapter` 的 core ingress service；没有配置 approval runtime 时会保留 no-op handoff，表示 ingress fact 已记录但不代表真实审批 input 已进入 approval 编排。
+`NOTIFICATION_INGRESS_PLUGIN_CONFIG` 与 `NOTIFICATION_DISPATCH_PLUGIN_CONFIG` 只放插件配置或 secret reference，不写真实 webhook URL、公钥私钥、token、完整 prompt、私有策略或 broker credential。API host 默认在存在 `EventBusRuntime` 时注入 publisher 模式 `ApprovalNotificationHandoffAdapter`，把 Discord 回流移交为 `approval.input_received`；没有 event bus runtime 时会保留 no-op handoff，表示 ingress fact 已记录但不代表真实审批 input 已进入 worker 编排。
 
 真实 Discord `smoke_send.py` / `smoke_receive.py` 仅作为显式 env-gated 补充验证，不属于默认验收；smoke 通过也不表示生产级重试、投递持久化、审批执行或 broker 执行已完成。
 

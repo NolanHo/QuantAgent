@@ -8,6 +8,7 @@ import type { RuntimeAuditApi } from "@/features/runtime/api";
 import type { EventAuditApi } from "@/features/event-audit/api";
 import type { AgentChatApi } from "@/features/agent-chat/api";
 import type { EventsApi } from "@/features/events/api";
+import type { ApprovalWorkbenchApi } from "@/features/approvals/api/approval-workbench.api";
 
 export type RealtimeStatus = "connected" | "disabled" | "reconnecting";
 
@@ -27,6 +28,7 @@ export interface RuntimeApis {
   eventAudit: EventAuditApi;
   agentChat: AgentChatApi;
   events: EventsApi;
+  approvalWorkbench: ApprovalWorkbenchApi;
 }
 
 export interface AppRuntime {

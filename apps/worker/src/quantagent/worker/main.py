@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,10 +43,21 @@ from quantagent.worker.consumer import (
     InMemoryWorkerRouteAuditSink,
     RoutedAgentRunConfig,
     RoutedAgentRunHandler,
+    WorkerApprovalEventHandler,
+    WorkerNotificationDispatchConfig,
+    WorkerNotificationRequestedHandler,
 )
 
 logger = logging.getLogger(__name__)
-_WORKER_TOPICS = ("source.event.captured", "industry.analysis.requested", "event.routed")
+
+WORKER_TOPICS = (
+    "source.event.captured",
+    "industry.analysis.requested",
+    "event.routed",
+    "action.requested",
+    "approval.input_received",
+    "notification.requested",
+)
 
 
 def create_worker_runtime() -> EventBusRuntime:
@@ -60,21 +72,26 @@ class WorkerApp:
     analysis_request_handler: IndustryAnalysisRequestHandler
     routed_agent_run_handler: RoutedAgentRunHandler
     session: object
+    approval_handler: WorkerApprovalEventHandler | None = None
+    notification_handler: WorkerNotificationRequestedHandler | None = None
+    plugin_runtime: PluginRuntimeService | None = None
 
     async def consume_once(self) -> None:
         logger.info(
             "Worker consume_once started: backend=%s group_id=%s topics=%s",
             getattr(self.runtime, "backend", "unknown"),
             settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID,
-            ",".join(_WORKER_TOPICS),
+            ",".join(WORKER_TOPICS),
         )
         await self.runtime.consumer.subscribe(
-            topics=_WORKER_TOPICS,
+            topics=WORKER_TOPICS,
             group_id=settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID,
             handler=_TopicDispatchHandler(
                 captured_handler=self.handler,
                 analysis_request_handler=self.analysis_request_handler,
                 routed_agent_run_handler=self.routed_agent_run_handler,
+                approval_handler=self.approval_handler,
+                notification_handler=self.notification_handler,
             ),
         )
 
@@ -84,15 +101,17 @@ class WorkerApp:
             "Worker service started: backend=%s group_id=%s topics=%s",
             getattr(self.runtime, "backend", "unknown"),
             settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID,
-            ",".join(_WORKER_TOPICS),
+            ",".join(WORKER_TOPICS),
         )
         await self.runtime.consumer.consume_forever(
-            topics=_WORKER_TOPICS,
+            topics=WORKER_TOPICS,
             group_id=settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID,
             handler=_TopicDispatchHandler(
                 captured_handler=self.handler,
                 analysis_request_handler=self.analysis_request_handler,
                 routed_agent_run_handler=self.routed_agent_run_handler,
+                approval_handler=self.approval_handler,
+                notification_handler=self.notification_handler,
             ),
         )
 
@@ -100,6 +119,12 @@ class WorkerApp:
         close = getattr(self.session, "close", None)
         if callable(close):
             close()
+        if self.plugin_runtime is not None:
+            plugin_close = getattr(self.plugin_runtime, "close", None)
+            if callable(plugin_close):
+                result = plugin_close()
+                if inspect.isawaitable(result):
+                    await result
         await self.runtime.close()
 
 
@@ -149,12 +174,30 @@ def create_worker_app() -> WorkerApp:
         session_factory=session_factory,
         config=RoutedAgentRunConfig(encryption_key=settings.MODEL_CONFIG_ENCRYPTION_KEY),
     )
+    approval_handler = WorkerApprovalEventHandler(
+        session_factory=session_factory,
+        publisher=runtime.publisher,
+    )
+    notification_handler = WorkerNotificationRequestedHandler(
+        registry=registry,
+        runtime=plugin_runtime,
+        publisher=runtime.publisher,
+        config=WorkerNotificationDispatchConfig(
+            enabled=settings.NOTIFICATION_DISPATCH_ENABLED,
+            plugin_id=settings.NOTIFICATION_DISPATCH_PLUGIN_ID,
+            plugin_config=settings.NOTIFICATION_DISPATCH_PLUGIN_CONFIG,
+            channel=settings.NOTIFICATION_DISPATCH_CHANNEL,
+        ),
+    )
     return WorkerApp(
         runtime=runtime,
         handler=handler,
         analysis_request_handler=analysis_request_handler,
         routed_agent_run_handler=routed_agent_run_handler,
         session=session,
+        approval_handler=approval_handler,
+        notification_handler=notification_handler,
+        plugin_runtime=plugin_runtime,
     )
 
 
@@ -192,12 +235,13 @@ def _build_intake_invoker(session: object):
     return ReviewOnlyStructuredModelInvoker()
 
 
-def _build_analysis_processing_scope_factory(session_factory):
+def _build_analysis_processing_scope_factory(session_factory, encryption_key: str | None = None):
+    resolved_encryption_key = encryption_key if encryption_key is not None else settings.MODEL_CONFIG_ENCRYPTION_KEY
+
     def model_service_factory() -> ModelConfigService:
-        encryption_key = settings.MODEL_CONFIG_ENCRYPTION_KEY
-        if not encryption_key:
+        if not resolved_encryption_key:
             raise ValueError("MODEL_CONFIG_ENCRYPTION_KEY must be configured for model service factory.")
-        return ModelConfigService(session_factory(), encryption_key=encryption_key)
+        return ModelConfigService(session_factory(), encryption_key=resolved_encryption_key)
 
     def close_model_service(service: ModelConfigService) -> None:
         session = getattr(service, "_session", None)
@@ -207,7 +251,7 @@ def _build_analysis_processing_scope_factory(session_factory):
 
     def create_scope() -> AnalysisRequestProcessingScope:
         routed_session = session_factory()
-        if settings.MODEL_CONFIG_ENCRYPTION_KEY:
+        if resolved_encryption_key:
             invoker = ModelConfigStructuredModelInvoker(
                 service_factory=model_service_factory,
                 close_service=close_model_service,
@@ -244,6 +288,8 @@ class _TopicDispatchHandler:
     captured_handler: _EnvelopeHandler
     analysis_request_handler: _EnvelopeHandler
     routed_agent_run_handler: _EnvelopeHandler
+    approval_handler: WorkerApprovalEventHandler | None
+    notification_handler: _EnvelopeHandler | None
 
     async def handle(self, envelope) -> None:
         logger.info(
@@ -261,5 +307,20 @@ class _TopicDispatchHandler:
             return
         if envelope.topic == "event.routed":
             await self.routed_agent_run_handler.handle(envelope)
+            return
+        if envelope.topic == "action.requested":
+            if self.approval_handler is None:
+                raise ValueError("Worker approval handler is not configured.")
+            await self.approval_handler.handle_action_requested(envelope)
+            return
+        if envelope.topic == "approval.input_received":
+            if self.approval_handler is None:
+                raise ValueError("Worker approval handler is not configured.")
+            await self.approval_handler.handle_approval_input_received(envelope)
+            return
+        if envelope.topic == "notification.requested":
+            if self.notification_handler is None:
+                raise ValueError("Worker notification handler is not configured.")
+            await self.notification_handler.handle(envelope)
             return
         raise ValueError(f"Unsupported worker topic: {envelope.topic}")

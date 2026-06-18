@@ -9,6 +9,7 @@ import { createRuntimeAuditApi } from "@/features/runtime/api";
 import { createEventAuditApi } from "@/features/event-audit/api";
 import { createAgentChatApi } from "@/features/agent-chat/api";
 import { createEventsApi } from "@/features/events/api";
+import { createApprovalWorkbenchApi } from "@/features/approvals/api/approval-workbench.api";
 
 import type { AppRuntime, AuthRuntimeBridge } from "./runtime.types";
 
@@ -30,6 +31,7 @@ export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): App
   const eventAuditApi = createEventAuditApi(apiClient);
   const agentChatApi = createAgentChatApi(apiClient);
   const eventsApi = createEventsApi(apiClient);
+  const approvalWorkbenchApi = createApprovalWorkbenchApi(apiClient);
 
   return {
     apiClient,
@@ -45,6 +47,7 @@ export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): App
       eventAudit: eventAuditApi,
       agentChat: agentChatApi,
       events: eventsApi,
+      approvalWorkbench: approvalWorkbenchApi,
     },
     realtime: {
       client: null,

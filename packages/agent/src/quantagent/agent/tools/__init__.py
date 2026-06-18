@@ -8,6 +8,14 @@ from quantagent.agent.tools.actions import (
     build_get_account_context_tool,
     build_submit_action_plan_tool,
 )
+from quantagent.agent.tools.action_submission import (
+    ActionSubmissionPort,
+    ActionSubmissionRequest,
+    ActionSubmissionResult,
+    NoopActionSubmissionPort,
+    new_action_request_id,
+    new_submission_id,
+)
 from quantagent.agent.tools.adapter import PlatformTool, ToolAdapter
 from quantagent.agent.tools.catalog import PUBLIC_TOOL_BINDINGS, resolve_tool_profile
 from quantagent.agent.tools.context import GET_RUN_CONTEXT_TOOL_ID, build_get_run_context_tool
@@ -23,6 +31,10 @@ __all__ = [
     "SUBMIT_ACTION_PLAN_TOOL_ID",
     "PlatformTool",
     "PUBLIC_TOOL_BINDINGS",
+    "ActionSubmissionPort",
+    "ActionSubmissionRequest",
+    "ActionSubmissionResult",
+    "NoopActionSubmissionPort",
     "ToolAdapter",
     "ToolBinding",
     "ToolProfile",
@@ -32,5 +44,7 @@ __all__ = [
     "build_get_run_context_tool",
     "build_search_web_tool",
     "build_submit_action_plan_tool",
+    "new_action_request_id",
+    "new_submission_id",
     "resolve_tool_profile",
 ]

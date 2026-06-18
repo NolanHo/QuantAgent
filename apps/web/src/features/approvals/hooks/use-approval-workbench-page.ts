@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 
-import { getApprovalWorkbenchItem } from '../mock/approval-workbench.mock'
 import { useApprovalWorkbenchActions } from './use-approval-workbench-actions'
 import { useApprovalWorkbenchListQuery } from '../queries/use-approval-workbench-list'
 import { useApprovalWorkbenchOverviewQuery } from '../queries/use-approval-workbench-overview'
@@ -92,14 +91,9 @@ export function useApprovalWorkbenchPage(search: ApprovalWorkbenchSearch) {
     onAfterSuccess: clearSelectionForAppliedIds,
   })
 
-  function getApprovalById(approvalId: string) {
-    return getApprovalWorkbenchItem(approvalId)
-  }
-
   return {
     actions,
     batchEligibility,
-    getApprovalById,
     items,
     listQuery,
     overview,

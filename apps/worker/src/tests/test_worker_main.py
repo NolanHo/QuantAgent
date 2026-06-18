@@ -68,8 +68,7 @@ class WorkerMainTestCase(unittest.IsolatedAsyncioTestCase):
             sessions.append(session)
             return session
 
-        with patch("quantagent.worker.main.settings.MODEL_CONFIG_ENCRYPTION_KEY", "test-key"):
-            scope = _build_analysis_processing_scope_factory(session_factory)()
+        scope = _build_analysis_processing_scope_factory(session_factory, encryption_key="test-key")()
 
         invoker = scope.runner._invoker
         self.assertIsInstance(invoker, ModelConfigStructuredModelInvoker)
@@ -94,7 +93,14 @@ class WorkerMainTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(app.runtime.consumer.subscriptions), 1)
         topics, group_id, handler = app.runtime.consumer.subscriptions[0]
-        self.assertEqual(topics, ("source.event.captured", "industry.analysis.requested", "event.routed"))
+        self.assertEqual(topics, (
+            "source.event.captured",
+            "industry.analysis.requested",
+            "event.routed",
+            "action.requested",
+            "approval.input_received",
+            "notification.requested",
+        ))
         self.assertEqual(group_id, "group")
         self.assertEqual(handler.__class__.__name__, "_TopicDispatchHandler")
 
@@ -105,7 +111,14 @@ class WorkerMainTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(app.runtime.consumer.forever_subscriptions), 1)
         topics, group_id, handler = app.runtime.consumer.forever_subscriptions[0]
-        self.assertEqual(topics, ("source.event.captured", "industry.analysis.requested", "event.routed"))
+        self.assertEqual(topics, (
+            "source.event.captured",
+            "industry.analysis.requested",
+            "event.routed",
+            "action.requested",
+            "approval.input_received",
+            "notification.requested",
+        ))
         self.assertEqual(group_id, "group")
         self.assertEqual(handler.__class__.__name__, "_TopicDispatchHandler")
 
@@ -179,11 +192,26 @@ class _RecordingConsumer:
         self.forever_subscriptions.append((tuple(topics), group_id, handler))
 
 
+class _FakeEnvelopeHandler:
+    async def handle(self, _envelope) -> None:
+        pass
+
+
+class _FakeApprovalHandler:
+    async def handle_action_requested(self, _envelope) -> None:
+        pass
+
+    async def handle_approval_input_received(self, _envelope) -> None:
+        pass
+
+
 class _SubscribingWorkerApp:
     def __init__(self) -> None:
         self.handler = object()
         self.analysis_request_handler = object()
-        self.routed_agent_run_handler = object()
+        self.routed_agent_run_handler = _FakeEnvelopeHandler()
+        self.approval_handler = _FakeApprovalHandler()
+        self.notification_handler = _FakeEnvelopeHandler()
         self.runtime = type("Runtime", (), {"consumer": _RecordingConsumer()})()
 
     async def consume_once(self) -> None:
@@ -194,6 +222,8 @@ class _SubscribingWorkerApp:
             handler=self.handler,
             analysis_request_handler=self.analysis_request_handler,
             routed_agent_run_handler=self.routed_agent_run_handler,
+            approval_handler=self.approval_handler,
+            notification_handler=self.notification_handler,
             session=object(),
         )
         with patch("quantagent.worker.main.settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID", "group"):
@@ -207,6 +237,8 @@ class _SubscribingWorkerApp:
             handler=self.handler,
             analysis_request_handler=self.analysis_request_handler,
             routed_agent_run_handler=self.routed_agent_run_handler,
+            approval_handler=self.approval_handler,
+            notification_handler=self.notification_handler,
             session=object(),
         )
         with patch("quantagent.worker.main.settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID", "group"):

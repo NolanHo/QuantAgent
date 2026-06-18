@@ -9,6 +9,7 @@ from quantagent.agent.runtime.context import RunContextSection, RunContextSnapsh
 from quantagent.agent.streaming.adapter import EventSequencer
 from quantagent.agent.streaming.events import AgentRunEventType
 from quantagent.agent.tools import (
+    ActionSubmissionResult,
     build_build_action_plan_tool,
     build_evaluate_thesis_tool,
     build_get_account_context_tool,
@@ -192,11 +193,59 @@ class ContextAndSearchToolsTest(TestCase):
                 },
             )
 
-            self.assertEqual(submission["resolved_mode"], "execute_then_notify")
-            self.assertEqual(submission["execution_status"], "dry_run_execution_requested")
+            self.assertEqual(submission["dispatch_status"], "action_submission_unavailable")
+            self.assertEqual(submission["approval_status_hint"], "unavailable")
+            self.assertEqual(submission["notification_status_hint"], "unavailable")
+            self.assertEqual(submission["resolved_mode"], "action_submission_unavailable")
+            self.assertEqual(submission["execution_status"], "not_executed")
+            self.assertEqual(submission["policy_gate"]["status"], "not_executed")
+            self.assertEqual(submission["action_request"]["target_id"], "NVDA")
+            self.assertNotIn("prompt", str(submission["action_request"]))
+            self.assertNotIn("secret", str(submission["action_request"]))
             self.assertGreaterEqual(len(store.list_for_run()), 4)
             emitted_types = [event.type for event in [*account_events, *evaluation_events, *action_events, *submission_events]]
             self.assertGreaterEqual(emitted_types.count(AgentRunEventType.ARTIFACT_CREATED), 4)
+
+        asyncio.run(_run())
+
+    def test_submit_action_plan_publishes_through_submission_port(self) -> None:
+        async def _run() -> None:
+            store = InMemoryArtifactStore()
+            runtime_context = _runtime_context(artifact_store=store)
+            action_plan_ref = store.put(
+                kind="action_plan",
+                producer_id="test",
+                payload={
+                    "action_plan_artifact_id": "artifact_action",
+                    "action_side": "increase_risk",
+                    "orders": [{"symbol": "NVDA", "side": "buy", "notional_usd": 9500.0}],
+                    "risk_controls": {"stop_loss_pct": -4.5, "secret": "do-not-leak"},
+                    "summary": "NVDA dry-run action plan.",
+                },
+                content="NVDA dry-run action plan.",
+                confidence_score=0.92,
+            )
+            port = _RecordingActionSubmissionPort()
+            adapter = ToolAdapter(runtime_context=runtime_context, sequencer=EventSequencer())
+
+            result, _events = await adapter.invoke(
+                build_submit_action_plan_tool(_nvda_run_context(), action_submission_port=port),
+                {
+                    "action_plan_artifact_id": action_plan_ref.artifact_id,
+                    "industry_analysis_artifact_id": "artifact_analysis_1",
+                    "evidence_artifact_ids": ["artifact_evidence_1"],
+                    "requested_mode_hint": "auto_if_allowed",
+                    "dry_run_allowed": True,
+                    "idempotency_key": "nvda-earnings-open-long",
+                },
+            )
+
+            self.assertEqual(result["dispatch_status"], "action_requested")
+            self.assertEqual(result["approval_status_hint"], "pending_dispatch")
+            self.assertEqual(result["notification_status_hint"], "pending_dispatch")
+            self.assertEqual(len(port.requests), 1)
+            self.assertEqual(port.requests[0].action_request["target_id"], "NVDA")
+            self.assertNotIn("do-not-leak", str(port.requests[0].action_request))
 
         asyncio.run(_run())
 
@@ -294,3 +343,18 @@ def _nvda_run_context() -> RunContextSnapshot:
         ],
         content="NVDA run context",
     )
+
+
+class _RecordingActionSubmissionPort:
+    def __init__(self) -> None:
+        self.requests = []
+
+    async def submit(self, request):
+        self.requests.append(request)
+        return ActionSubmissionResult(
+            action_request_id=request.action_request_id,
+            submission_id=request.submission_id,
+            dispatch_status="action_requested",
+            approval_status_hint="pending_dispatch",
+            notification_status_hint="pending_dispatch",
+        )

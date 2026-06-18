@@ -1,13 +1,26 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { runApprovalAction } from '../mock/approval-workbench.mock'
+import { useApis } from '@/app/runtime'
+import { mapApprovalActionResponse } from '../api/approval-workbench.contracts'
 import type {
   ApprovalActionResult,
   ApprovalActionType,
 } from '../types/approval-workbench.types'
 import { approvalWorkbenchKeys } from '../queries/approval-workbench.keys'
 
+export function invalidateApprovalWorkbenchActionQueries(
+  queryClient: Pick<ReturnType<typeof useQueryClient>, 'invalidateQueries'>,
+  approvalIds: string[],
+) {
+  void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.overview() })
+  void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.lists() })
+  for (const approvalId of approvalIds) {
+    void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.detail(approvalId) })
+  }
+}
+
 export function useApprovalWorkbenchActionMutation() {
+  const { approvalWorkbench } = useApis()
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -19,13 +32,14 @@ export function useApprovalWorkbenchActionMutation() {
       action: ApprovalActionType
       approvalIds: string[]
       reason?: string
-    }): Promise<ApprovalActionResult> => runApprovalAction({ action, approvalIds, reason }),
+    }): Promise<ApprovalActionResult> => {
+      const responses = await Promise.all(
+        approvalIds.map((approvalId) => approvalWorkbench.submitAction({ action, approvalId, reason })),
+      )
+      return mapApprovalActionResponse(action, approvalIds, responses)
+    },
     onSuccess: (_result, variables) => {
-      void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.overview() })
-      void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.lists() })
-      for (const approvalId of variables.approvalIds) {
-        void queryClient.invalidateQueries({ queryKey: approvalWorkbenchKeys.detail(approvalId) })
-      }
+      invalidateApprovalWorkbenchActionQueries(queryClient, variables.approvalIds)
     },
   })
 }

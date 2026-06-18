@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from collections.abc import Mapping
 from typing import Any
 from uuid import uuid4
@@ -7,6 +6,14 @@ from uuid import uuid4
 from quantagent.agent.artifacts import ArtifactStore
 from quantagent.agent.runtime.context import RunContextSection, RunContextSnapshot, ToolRuntimeContext
 from quantagent.agent.tools.adapter import PlatformTool
+from quantagent.agent.tools.action_submission import (
+    ActionSubmissionPort,
+    ActionSubmissionRequest,
+    ActionSubmissionResult,
+    NoopActionSubmissionPort,
+    new_action_request_id,
+    new_submission_id,
+)
 from quantagent.agent.tools.profiles import ToolBinding
 from quantagent.agent.tools.schemas import (
     BuildActionPlanInput,
@@ -247,39 +254,67 @@ def build_build_action_plan_tool(run_context: RunContextSnapshot) -> PlatformToo
     )
 
 
-def build_submit_action_plan_tool(run_context: RunContextSnapshot) -> PlatformTool[SubmitActionPlanInput]:
-    def _submit_action_plan(input_data: SubmitActionPlanInput, runtime_context: ToolRuntimeContext) -> dict[str, Any]:
-        broker_mode = _broker_mode(run_context)
-        if input_data.requested_mode_hint == "manual":
-            resolved_mode = "approval_required"
-            execution_status = "pending_human_approval"
-        elif broker_mode in {"mock", "dry_run"} and input_data.dry_run_allowed:
-            resolved_mode = "execute_then_notify"
-            execution_status = f"{broker_mode}_execution_requested"
-        else:
-            resolved_mode = "blocked"
-            execution_status = "broker_mode_not_allowed"
+def build_submit_action_plan_tool(
+    run_context: RunContextSnapshot,
+    *,
+    action_submission_port: ActionSubmissionPort | None = None,
+) -> PlatformTool[SubmitActionPlanInput]:
+    submission_port = action_submission_port or NoopActionSubmissionPort()
 
-        submission_id = f"submission_{uuid4().hex}"
+    async def _submit_action_plan(input_data: SubmitActionPlanInput, runtime_context: ToolRuntimeContext) -> dict[str, Any]:
+        broker_mode = _broker_mode(run_context)
+        submission_id = new_submission_id()
+        action_request_id = new_action_request_id()
+        action_request = _build_action_request(
+            input_data,
+            runtime_context,
+            run_context,
+            broker_mode=broker_mode,
+            action_request_id=action_request_id,
+        )
+        submission_request = ActionSubmissionRequest(
+            action_request_id=action_request_id,
+            submission_id=submission_id,
+            action_request=action_request,
+            correlation_id=runtime_context.trace_id,
+        )
+        try:
+            submission_result = await submission_port.submit(submission_request)
+        except Exception as exc:  # noqa: BLE001
+            submission_result = ActionSubmissionResult(
+                action_request_id=None,
+                submission_id=submission_id,
+                dispatch_status="action_request_failed",
+                approval_status_hint="failed",
+                notification_status_hint="failed",
+                error_summary=f"{exc.__class__.__name__}: action.requested publish failed",
+            )
         output = {
             "ok": True,
             "submission_id": submission_id,
+            "action_request_id": submission_result.action_request_id,
             "action_plan_artifact_id": input_data.action_plan_artifact_id,
             "industry_analysis_artifact_id": input_data.industry_analysis_artifact_id,
             "evidence_artifact_ids": input_data.evidence_artifact_ids,
             "requested_mode_hint": input_data.requested_mode_hint,
-            "resolved_mode": resolved_mode,
             "broker_mode": broker_mode,
+            "resolved_mode": submission_result.dispatch_status,
+            "dispatch_status": submission_result.dispatch_status,
+            "approval_status_hint": submission_result.approval_status_hint,
+            "notification_status_hint": submission_result.notification_status_hint,
+            "action_request": action_request,
             "policy_gate": {
-                "status": "allowed" if resolved_mode == "execute_then_notify" else "not_executed",
-                "reason": "MVP 使用 dry-run/mock 执行边界，不会真实下单。",
+                "status": "pending_worker_evaluation" if submission_result.dispatch_status == "action_requested" else "not_executed",
+                "reason": "ActionPlan 已进入 action.requested 生产事件入口；Policy Gate 由 worker approval handler 处理。",
             },
-            "execution_status": execution_status,
-            "notification_status": "requested" if resolved_mode != "blocked" else "blocked_notice_requested",
-            "monitoring_status": "created" if resolved_mode == "execute_then_notify" else "not_created",
+            "execution_status": "not_executed",
+            "notification_status": submission_result.notification_status_hint,
+            "monitoring_status": "pending_dispatch" if submission_result.dispatch_status == "action_requested" else "not_created",
             "idempotency_key": input_data.idempotency_key,
-            "summary": _submission_summary(resolved_mode, broker_mode),
+            "summary": _submission_summary(submission_result, broker_mode),
         }
+        if submission_result.error_summary:
+            output["error_summary"] = submission_result.error_summary
         artifact_ref = _store_artifact(
             runtime_context,
             kind="submission_result",
@@ -287,7 +322,7 @@ def build_submit_action_plan_tool(run_context: RunContextSnapshot) -> PlatformTo
             payload=output,
             content=output["summary"],
             created_from_ids=[item for item in [input_data.action_plan_artifact_id, input_data.industry_analysis_artifact_id, *input_data.evidence_artifact_ids] if item],
-            confidence_score=0.92 if resolved_mode == "execute_then_notify" else 0.75,
+            confidence_score=0.92 if submission_result.dispatch_status == "action_requested" else 0.75,
         )
         if artifact_ref:
             output["submission_artifact_id"] = artifact_ref.artifact_id
@@ -329,6 +364,152 @@ def _store_artifact(
         created_from_ids=created_from_ids,
         confidence_score=confidence_score,
     )
+
+
+def _build_action_request(
+    input_data: SubmitActionPlanInput,
+    runtime_context: ToolRuntimeContext,
+    run_context: RunContextSnapshot,
+    *,
+    broker_mode: str,
+    action_request_id: str,
+) -> dict[str, Any]:
+    action_plan = _artifact_payload(runtime_context, input_data.action_plan_artifact_id)
+    order = _first_mapping(action_plan.get("orders"))
+    event_section = _section(run_context, "event")
+    symbol = str(order.get("symbol") or _symbols([], event_section)[0]).upper()
+    amount = _number_or_none(order.get("notional_usd"))
+    side = str(order.get("side") or "buy")
+    action_side = str(action_plan.get("action_side") or ("increase_risk" if side.lower() in {"buy", "long"} else "reduce_risk"))
+    risk_flags = _safe_string_list(_risk_flags(event_section, duplicate=False))
+    proposed_payload = _redacted_action_payload(
+        action_plan,
+        order=order,
+        symbol=symbol,
+        broker_mode=broker_mode,
+        evidence_artifact_ids=input_data.evidence_artifact_ids,
+        industry_analysis_artifact_id=input_data.industry_analysis_artifact_id,
+        idempotency_key=input_data.idempotency_key,
+    )
+    return {
+        "id": action_request_id,
+        "action_type": "trade_plan",
+        "action_side": action_side,
+        "target_type": "instrument",
+        "target_id": symbol,
+        "instrument": symbol,
+        "market": "US",
+        "amount": amount,
+        "leverage": None,
+        "confidence_score": _confidence_from_store(runtime_context, input_data.action_plan_artifact_id),
+        "risk_flags": risk_flags,
+        "urgency": "normal",
+        "proposed_payload": proposed_payload,
+        "strategy_policy": {
+            "requested_mode_hint": input_data.requested_mode_hint,
+            "dry_run_allowed": input_data.dry_run_allowed,
+            "broker_mode": broker_mode,
+        },
+        "user_policy": {
+            "manual_confirmation_required": input_data.requested_mode_hint == "manual",
+        },
+        "ai_policy_hint": {
+            "source": "agent_chat_submit_action_plan",
+            "idempotency_key": input_data.idempotency_key,
+        },
+        "correlation_id": runtime_context.trace_id,
+    }
+
+
+def _artifact_payload(runtime_context: ToolRuntimeContext, artifact_id: str) -> dict[str, Any]:
+    store = runtime_context.artifact_store
+    if store is None:
+        return {}
+    try:
+        stored = store.get(artifact_id)
+    except Exception:
+        return {}
+    return dict(stored.payload)
+
+
+def _confidence_from_store(runtime_context: ToolRuntimeContext, artifact_id: str) -> float | None:
+    store = runtime_context.artifact_store
+    if store is None:
+        return None
+    try:
+        confidence = store.get(artifact_id).ref.confidence_score
+    except Exception:
+        return None
+    return confidence
+
+
+def _redacted_action_payload(
+    action_plan: Mapping[str, Any],
+    *,
+    order: Mapping[str, Any],
+    symbol: str,
+    broker_mode: str,
+    evidence_artifact_ids: list[str],
+    industry_analysis_artifact_id: str | None,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    # 脱敏边界：action.requested 只携带审批和审计需要的结构化摘要，不携带 prompt、secret 或 broker credential。
+    risk_controls = action_plan.get("risk_controls")
+    monitoring_plan = action_plan.get("monitoring_plan")
+    user_notification = action_plan.get("user_notification")
+    return {
+        "symbol": symbol,
+        "broker_mode": broker_mode,
+        "order_summary": {
+            "side": order.get("side"),
+            "order_intent": order.get("order_intent"),
+            "notional_usd": _number_or_none(order.get("notional_usd")),
+            "portfolio_pct": _number_or_none(order.get("portfolio_pct")),
+            "order_type": order.get("order_type"),
+            "time_in_force": order.get("time_in_force"),
+        },
+        "risk_controls": _safe_mapping(risk_controls),
+        "monitoring_plan": _safe_mapping(monitoring_plan),
+        "notification_summary": _safe_mapping(user_notification),
+        "artifact_refs": {
+            "action_plan_artifact_id": action_plan.get("action_plan_artifact_id"),
+            "industry_analysis_artifact_id": industry_analysis_artifact_id,
+            "evidence_artifact_ids": evidence_artifact_ids,
+        },
+        "idempotency_key": idempotency_key,
+        "summary": action_plan.get("summary"),
+    }
+
+
+def _first_mapping(value: object) -> dict[str, Any]:
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, Mapping):
+                return dict(item)
+    return {}
+
+
+def _safe_mapping(value: object) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    blocked = {"prompt", "secret", "token", "cookie", "credential", "broker_credential", "provider_raw_response", "private_policy"}
+    return {
+        str(key): item
+        for key, item in value.items()
+        if not any(marker in str(key).lower() for marker in blocked)
+    }
+
+
+def _safe_string_list(values: list[str]) -> list[str]:
+    return [str(value) for value in values if str(value)]
+
+
+def _number_or_none(value: object) -> float | int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (float, int)):
+        return value
+    return None
 
 
 def _section(run_context: RunContextSnapshot, name: str) -> RunContextSection | None:
@@ -465,9 +646,9 @@ def _default_industry_analysis_summary(event_section: RunContextSection | None, 
     return f"{metric_text}{guidance_text}{gap_text}"
 
 
-def _submission_summary(resolved_mode: str, broker_mode: str) -> str:
-    if resolved_mode == "execute_then_notify":
-        return f"ActionPlan 已进入 execute_then_notify；broker_mode={broker_mode}，仅请求 dry-run/mock 执行并通知用户。"
-    if resolved_mode == "approval_required":
-        return "ActionPlan 已提交，等待人工审批；未请求 broker 执行。"
-    return f"ActionPlan 被阻断；broker_mode={broker_mode} 不允许当前提交模式。"
+def _submission_summary(result: ActionSubmissionResult, broker_mode: str) -> str:
+    if result.dispatch_status == "action_requested":
+        return f"ActionPlan 已发布 action.requested；broker_mode={broker_mode}，等待 worker 创建审批与通知。"
+    if result.dispatch_status == "action_request_failed":
+        return "ActionPlan 发布 action.requested 失败；未创建审批、未发送通知、未执行 broker。"
+    return "ActionPlan 未进入生产提交端口；未创建审批、未发送通知、未执行 broker。"
