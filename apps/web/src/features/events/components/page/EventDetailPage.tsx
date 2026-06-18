@@ -15,6 +15,7 @@ import {
   toEventAgentAuditSubject,
   toAgentAuditSafeRecord,
 } from '../../utils';
+import { AgentMainAgentTranscriptPreview } from '../AgentMainAgentTranscriptPreview';
 
 export function EventDetailPage({ rawEventId }: { rawEventId: string }) {
   const page = useEventDetailPage(rawEventId);
@@ -183,12 +184,28 @@ function SharedRouterStageSection({
       <AgentStagePanel
         detailStage={selectedStage}
         onOpenStage={onOpenAgentStage}
+        renderDetailExtra={renderStageTranscript}
         stages={stages}
         subject={subject}
         title="Router Agent 审计"
       />
     </PageSectionCard>
   );
+}
+
+function renderStageTranscript(stage: AgentAuditStage) {
+  if (stage.stage_kind !== 'industry_main_agent') return null;
+  const sessionId = readStringKeyField(stage.key_fields.agent_chat_session_id);
+  if (!sessionId) return null;
+  return <AgentMainAgentTranscriptPreview sessionId={sessionId} />;
+}
+
+function readStringKeyField(value: unknown): string | null {
+  if (typeof value === 'string' && value) return value;
+  if (value && typeof value === 'object' && 'value' in value && typeof value.value === 'string' && value.value) {
+    return value.value;
+  }
+  return null;
 }
 
 function buildSelectedAuditStage(

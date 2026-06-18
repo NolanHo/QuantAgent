@@ -1,4 +1,5 @@
 import { Button, Chip, Modal, useOverlayState } from '@heroui/react';
+import type { ReactNode } from 'react';
 import { twMerge } from 'tailwind-merge';
 
 import type { AgentAuditStage, AgentAuditSubject } from '../types';
@@ -13,12 +14,13 @@ import { AgentKeyFields } from './AgentKeyFields';
 import { AgentTraceRefs } from './AgentTraceRefs';
 
 interface AgentStageDetailModalProps {
+  renderExtraDetail?: (stage: AgentAuditStage) => ReactNode;
   subject: AgentAuditSubject;
   stage: AgentAuditStage | null;
   state: ReturnType<typeof useOverlayState>;
 }
 
-export function AgentStageDetailModal({ subject, stage, state }: AgentStageDetailModalProps) {
+export function AgentStageDetailModal({ renderExtraDetail, subject, stage, state }: AgentStageDetailModalProps) {
   if (!stage) {
     return null;
   }
@@ -74,6 +76,8 @@ export function AgentStageDetailModal({ subject, stage, state }: AgentStageDetai
                     </p>
                   ) : null}
                 </section>
+
+                {renderExtraDetail?.(stage)}
 
                 <section className="grid gap-2">
                   <h3 className="m-0 text-[13px] font-semibold text-ink">关键字段</h3>

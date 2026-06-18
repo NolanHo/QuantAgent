@@ -1,6 +1,7 @@
 import { Button, Chip, useOverlayState } from '@heroui/react';
 import { useState } from 'react';
 import { twMerge } from 'tailwind-merge';
+import type { ReactNode } from 'react';
 
 import type { AgentAuditStage, AgentAuditSubject } from '../types';
 import {
@@ -14,13 +15,14 @@ import { AgentAuditEmptyState } from './states';
 
 interface AgentStagePanelProps {
   detailStage?: AgentAuditStage | null;
+  renderDetailExtra?: (stage: AgentAuditStage) => ReactNode;
   onOpenStage?: (stage: AgentAuditStage) => void;
   subject: AgentAuditSubject;
   stages: AgentAuditStage[];
   title?: string;
 }
 
-export function AgentStagePanel({ detailStage, onOpenStage, subject, stages, title = 'Agent 处理' }: AgentStagePanelProps) {
+export function AgentStagePanel({ detailStage, onOpenStage, renderDetailExtra, subject, stages, title = 'Agent 处理' }: AgentStagePanelProps) {
   const detailState = useOverlayState();
   const [selectedStage, setSelectedStage] = useState<AgentAuditStage | null>(null);
 
@@ -74,7 +76,7 @@ export function AgentStagePanel({ detailStage, onOpenStage, subject, stages, tit
           </article>
         ))}
       </div>
-      <AgentStageDetailModal subject={subject} stage={modalStage} state={detailState} />
+      <AgentStageDetailModal renderExtraDetail={renderDetailExtra} subject={subject} stage={modalStage} state={detailState} />
     </section>
   );
 }
