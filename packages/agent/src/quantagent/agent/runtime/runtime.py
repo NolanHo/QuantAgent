@@ -20,6 +20,12 @@ from quantagent.agent.streaming.adapter import (
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
 from quantagent.agent.streaming.normalizer import AgentRuntimeProtocolState, normalize_agent_run_event
 from quantagent.agent.tools.adapter import PlatformTool
+from quantagent.agent.tools.actions import (
+    BUILD_ACTION_PLAN_TOOL_ID,
+    EVALUATE_THESIS_TOOL_ID,
+    GET_ACCOUNT_CONTEXT_TOOL_ID,
+    SUBMIT_ACTION_PLAN_TOOL_ID,
+)
 
 
 class DeepAgentGraph(Protocol):
@@ -202,6 +208,7 @@ class AgentRuntime:
         pending_message_buffers: dict[str, dict[str, Any]] = {}
         emitted_report_text_by_key: dict[str, str] = {}
         main_report_outputs: list[str] = []
+        completed_platform_tool_outputs: dict[str, Mapping[str, Any]] = {}
         stream = _open_deepagents_stream(graph, input_data, config)
         last_summary = ""
         async for chunk in stream:
@@ -221,6 +228,7 @@ class AgentRuntime:
                     yield buffered_event
                 tool_event = tool_events.pop(0)
                 _remember_platform_tool_call(platform_tool_call_names, tool_event)
+                _remember_completed_platform_tool_output(completed_platform_tool_outputs, tool_event)
                 yield tool_event
             for event_type, payload, summary in iter_deepagents_stream_events(chunk):
                 _remember_subagent_namespace(subagent_scope_by_namespace, pending_task_subagents, event_type, payload, request)
@@ -275,6 +283,7 @@ class AgentRuntime:
                         if not is_subagent_event:
                             main_report_outputs.append(summary)
                             last_summary = _strip_known_report_outputs(last_summary, main_report_outputs)
+                        drop_current_event = False
                 else:
                     for buffered_event in _flush_message_buffers(
                         pending_message_buffers,
@@ -327,7 +336,17 @@ class AgentRuntime:
                 yield buffered_event
             tool_event = tool_events.pop(0)
             _remember_platform_tool_call(platform_tool_call_names, tool_event)
+            _remember_completed_platform_tool_output(completed_platform_tool_outputs, tool_event)
             yield tool_event
+        async for guard_event in self._run_action_flow_guard(
+            request,
+            sequencer=sequencer,
+            completed_tool_outputs=completed_platform_tool_outputs,
+            last_summary=last_summary,
+        ):
+            if guard_event.type == AgentRunEventType.TOOL_COMPLETED:
+                _remember_completed_platform_tool_output(completed_platform_tool_outputs, guard_event)
+            yield guard_event
         for buffered_event in _flush_message_buffers(
             pending_message_buffers,
             emitted_report_text_by_key,
@@ -347,7 +366,7 @@ class AgentRuntime:
             trace_id=request.trace_id,
             event_type=AgentRunEventType.RUN_OUTPUT,
             payload={"source": "stream", "session_id": request.session_id, "thread_id": request.thread_id},
-            content=last_summary,
+            content=_append_action_flow_guard_summary(last_summary, completed_platform_tool_outputs),
         )
 
     @staticmethod
@@ -540,6 +559,75 @@ class AgentRuntime:
 
         return ToolAdapter(runtime_context=runtime_context, sequencer=sequencer)
 
+    async def _run_action_flow_guard(
+        self,
+        request: AgentRunRequest,
+        *,
+        sequencer: EventSequencer,
+        completed_tool_outputs: dict[str, Mapping[str, Any]],
+        last_summary: str,
+    ) -> AsyncIterator[AgentRunEvent]:
+        if not _should_guard_action_flow(request, completed_tool_outputs):
+            return
+
+        injected_tools = {tool.binding.tool_id: tool for tool in self._deps.tools}
+        required_tool_ids = [
+            GET_ACCOUNT_CONTEXT_TOOL_ID,
+            EVALUATE_THESIS_TOOL_ID,
+            BUILD_ACTION_PLAN_TOOL_ID,
+            SUBMIT_ACTION_PLAN_TOOL_ID,
+        ]
+        if any(tool_id not in injected_tools for tool_id in required_tool_ids):
+            return
+
+        runtime_context = self.tool_runtime_context(request)
+        adapter = self._tool_adapter(runtime_context=runtime_context, sequencer=sequencer)
+
+        account_output = completed_tool_outputs.get("get_account_context")
+        if not isinstance(account_output, Mapping):
+            account_input = _action_guard_account_input(request)
+            result, events = await adapter.invoke(injected_tools[GET_ACCOUNT_CONTEXT_TOOL_ID], account_input)
+            account_output = result
+            for event in events:
+                yield event
+
+        evaluation_output = completed_tool_outputs.get("evaluate_thesis")
+        if not isinstance(evaluation_output, Mapping):
+            evaluation_input = _action_guard_evaluation_input(
+                request,
+                artifact_store=self._deps.artifact_store,
+                account_output=account_output,
+                last_summary=last_summary,
+            )
+            result, events = await adapter.invoke(injected_tools[EVALUATE_THESIS_TOOL_ID], evaluation_input)
+            evaluation_output = result
+            for event in events:
+                yield event
+
+        if evaluation_output.get("suggested_intent") != "propose_trade":
+            return
+
+        action_plan_output = completed_tool_outputs.get("build_action_plan")
+        if not isinstance(action_plan_output, Mapping):
+            action_input = _action_guard_action_plan_input(
+                request,
+                evaluation_output=evaluation_output,
+                account_output=account_output,
+                last_summary=last_summary,
+            )
+            result, events = await adapter.invoke(injected_tools[BUILD_ACTION_PLAN_TOOL_ID], action_input)
+            action_plan_output = result
+            for event in events:
+                yield event
+
+        if completed_tool_outputs.get("submit_action_plan"):
+            return
+
+        submit_input = _action_guard_submit_input(request, action_plan_output=action_plan_output, evaluation_output=evaluation_output)
+        _result, events = await adapter.invoke(injected_tools[SUBMIT_ACTION_PLAN_TOOL_ID], submit_input)
+        for event in events:
+            yield event
+
 
 def _runtime_error_content(exc: Exception) -> str:
     message = str(exc)
@@ -560,6 +648,15 @@ def _remember_platform_tool_call(platform_tool_call_names: dict[str, str], event
     name = event.payload.get("name") or event.payload.get("tool_name")
     if isinstance(call_id, str) and isinstance(name, str):
         platform_tool_call_names[call_id] = name
+
+
+def _remember_completed_platform_tool_output(completed_tool_outputs: dict[str, Mapping[str, Any]], event: AgentRunEvent) -> None:
+    if event.type != AgentRunEventType.TOOL_COMPLETED:
+        return
+    name = event.payload.get("name") or event.payload.get("tool_name")
+    output = event.payload.get("result") if "result" in event.payload else event.payload.get("output")
+    if isinstance(name, str) and isinstance(output, Mapping):
+        completed_tool_outputs[name] = output
 
 
 def _is_platform_tool_message(
@@ -699,10 +796,9 @@ def _configured_subagent_names(request: AgentRunRequest) -> set[str]:
 def _is_intermediate_report_output(payload: Mapping[str, Any], summary: str) -> bool:
     if payload.get("source") == "stream":
         return False
-    stripped = summary.strip()
-    if len(stripped) >= 900:
-        return True
-    return len(stripped) >= 420 and any(marker in stripped for marker in ("# ", "## ", "### ", "|", "- ", "1. "))
+    # 中文注释：报告产物边界必须基于完整结构，而不是看到 ###、| 或短标题就截断；
+    # 否则流式 chunk 会把半截表格误判为报告，造成正文前后丢失和重复产物。
+    return _is_report_like_message(summary)
 
 
 def _is_main_intermediate_report_event(event: AgentRunEvent) -> bool:
@@ -731,6 +827,8 @@ def _strip_known_report_outputs(summary: str, reports: Sequence[str]) -> str:
 
 def _clean_final_summary(summary: str, reports: Sequence[str]) -> str:
     cleaned = _strip_known_report_outputs(summary, reports)
+    if reports and not cleaned.strip():
+        return "报告已生成，详见上方产物卡片。"
     if _looks_like_compacted_report_replay(cleaned):
         return "报告已生成，详见上方产物卡片。"
     if _report_body_start_index(cleaned) is None:
@@ -862,7 +960,7 @@ def _should_buffer_message_delta(pending_message_buffers: Mapping[str, dict[str,
             return True
         return not _looks_like_post_report_final_delta(text)
     stripped = text.lstrip()
-    return stripped.startswith(("#", "##", "###")) or _looks_like_report_start(stripped) or _is_report_like_message(stripped)
+    return _looks_like_report_start(stripped) or _is_report_like_message(stripped)
 
 
 def _remember_report_output(
@@ -1038,14 +1136,37 @@ def _is_report_like_message(text: str) -> bool:
             break
     report_terms = ("报告", "简报", "总结", "结论", "分析", "IndustryAnalysis", "Research")
     has_report_title = any(term in title for term in report_terms)
-    table_lines = sum(1 for line in stripped.splitlines() if line.strip().startswith("|"))
+    has_complete_table = _has_complete_markdown_table(stripped)
     heading_lines = sum(1 for line in stripped.splitlines() if line.lstrip().startswith("#"))
     list_lines = sum(1 for line in stripped.splitlines() if line.lstrip().startswith(("- ", "1. ")))
-    if table_lines >= 3 and (heading_lines >= 1 or has_report_title):
+    if has_complete_table and (heading_lines >= 1 or has_report_title):
         return True
     if len(stripped) < 420:
         return False
-    return has_report_title or table_lines >= 2 or heading_lines >= 2 or (heading_lines >= 1 and list_lines >= 3)
+    return has_report_title or has_complete_table or heading_lines >= 2 or (heading_lines >= 1 and list_lines >= 3)
+
+
+def _has_complete_markdown_table(text: str) -> bool:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for index, line in enumerate(lines[:-2]):
+        if not _is_markdown_table_row(line):
+            continue
+        separator = lines[index + 1]
+        data_row = lines[index + 2]
+        if _is_markdown_table_separator(separator) and _is_markdown_table_row(data_row):
+            return True
+    return False
+
+
+def _is_markdown_table_row(line: str) -> bool:
+    return line.startswith("|") and line.endswith("|") and line.count("|") >= 2
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    if not _is_markdown_table_row(line):
+        return False
+    cells = [cell.strip() for cell in line.strip("|").split("|")]
+    return bool(cells) and all(cell and set(cell) <= {"-", ":"} and "-" in cell for cell in cells)
 
 
 def _looks_like_report_start(text: str) -> bool:
@@ -1106,3 +1227,204 @@ def _runtime_recursion_limit(request: AgentRunRequest) -> int | None:
     # DeepAgents 的一次工具 loop 通常包含 model/tool 多个 graph step；给出保守余量，
     # 让 Research SubAgent 搜索后仍有预算执行 account/evaluate/plan/submit。
     return max(25, configured * 3 + 8)
+
+
+def _should_guard_action_flow(request: AgentRunRequest, completed_tool_outputs: Mapping[str, Mapping[str, Any]]) -> bool:
+    if completed_tool_outputs.get("submit_action_plan"):
+        return False
+    route = _context_section_data(request, "route_context")
+    if not route.get("action_flow_required"):
+        return False
+    risk = _context_section_data(request, "risk_policy")
+    broker_mode = risk.get("broker_mode")
+    if broker_mode not in {"dry_run", "mock"}:
+        return False
+    event = _context_section_data(request, "event")
+    return (
+        event.get("event_kind") == "first_party_earnings_release"
+        and event.get("source_kind") == "official_investor_relations_press_release"
+    )
+
+
+def _context_section_data(request: AgentRunRequest, name: str) -> Mapping[str, Any]:
+    aliases = {
+        "route_context": {"route_context", "route"},
+        "risk_policy": {"risk_policy", "risk"},
+        "recent_activity_summary": {"recent_activity_summary", "recent_activity"},
+    }
+    names = aliases.get(name, {name})
+    for section in request.run_context.sections:
+        if section.name in names:
+            return section.data
+    return {}
+
+
+def _action_guard_account_input(request: AgentRunRequest) -> dict[str, Any]:
+    return {
+        "symbols": _event_symbols(request),
+        "include_positions": True,
+        "include_open_orders": True,
+        "include_risk_limits": True,
+        "include_user_policy": True,
+        "include_broker_mode": True,
+        "include_recent_activity": True,
+        "activity_lookback_window": "24h",
+        "relation_hints": [
+            {"key": "event_family", "value": str(_context_section_data(request, "event").get("event_family") or "quarterly_earnings")},
+            {"key": "topic_key", "value": str(_context_section_data(request, "market_mapping").get("topic_key") or "nvda_earnings")},
+        ],
+    }
+
+
+def _action_guard_evaluation_input(
+    request: AgentRunRequest,
+    *,
+    artifact_store: ArtifactStore,
+    account_output: Mapping[str, Any],
+    last_summary: str,
+) -> dict[str, Any]:
+    evidence_artifact_id = _latest_artifact_id_for_kind(artifact_store, "evidence_board")
+    evidence_summary = _action_guard_evidence_summary(request, last_summary)
+    payload: dict[str, Any] = {
+        "account_context_id": _string_value(account_output.get("account_context_id")),
+        "intent_hint": "evaluate",
+    }
+    if evidence_artifact_id:
+        payload["evidence_board_artifact_id"] = evidence_artifact_id
+    else:
+        payload["evidence_summary"] = evidence_summary
+    return payload
+
+
+def _action_guard_action_plan_input(
+    request: AgentRunRequest,
+    *,
+    evaluation_output: Mapping[str, Any],
+    account_output: Mapping[str, Any],
+    last_summary: str,
+) -> dict[str, Any]:
+    next_input = evaluation_output.get("next_tool_input")
+    if isinstance(next_input, Mapping):
+        payload = dict(next_input)
+    else:
+        payload = {
+            "industry_analysis_summary": _action_guard_industry_summary(request, last_summary),
+            "thesis_evaluation_artifact_id": _string_value(evaluation_output.get("thesis_evaluation_artifact_id")) or "thesis_evaluation_missing",
+            "account_context_id": _string_value(account_output.get("account_context_id")) or "account_context_missing",
+            "target_symbols": _event_symbols(request),
+            "intended_action": "open_long",
+            "conviction": "high" if float(evaluation_output.get("confidence_score") or 0) >= 0.9 else "medium",
+            "time_horizon": "24h_to_5d",
+            "constraints": [
+                "broker_mode=dry_run，不执行真实下单",
+                "外部检索缺口必须在通知中透明披露",
+            ],
+        }
+    if not payload.get("industry_analysis_artifact_id") and not payload.get("industry_analysis_summary"):
+        payload["industry_analysis_summary"] = _action_guard_industry_summary(request, last_summary)
+    if not payload.get("account_context_id"):
+        payload["account_context_id"] = _string_value(account_output.get("account_context_id")) or "account_context_missing"
+    if not payload.get("target_symbols"):
+        payload["target_symbols"] = _event_symbols(request)
+    return payload
+
+
+def _action_guard_submit_input(
+    request: AgentRunRequest,
+    *,
+    action_plan_output: Mapping[str, Any],
+    evaluation_output: Mapping[str, Any],
+) -> dict[str, Any]:
+    next_input = action_plan_output.get("next_tool_input")
+    if isinstance(next_input, Mapping):
+        payload = dict(next_input)
+    else:
+        payload = {
+            "action_plan_artifact_id": _string_value(action_plan_output.get("action_plan_artifact_id")) or "action_plan_missing",
+            "industry_analysis_artifact_id": _string_value(action_plan_output.get("industry_analysis_artifact_id")),
+            "evidence_artifact_ids": [
+                item
+                for item in [
+                    _string_value(evaluation_output.get("thesis_evaluation_artifact_id")),
+                    _string_value(evaluation_output.get("evidence_board_artifact_id")),
+                ]
+                if item
+            ],
+            "requested_mode_hint": "auto_if_allowed",
+            "dry_run_allowed": True,
+            "idempotency_key": f"{request.event_id}:{_string_value(action_plan_output.get('action_plan_id')) or request.agent_run_id}",
+        }
+    if not payload.get("idempotency_key"):
+        payload["idempotency_key"] = f"{request.event_id}:{request.agent_run_id}"
+    if payload.get("dry_run_allowed") is None:
+        payload["dry_run_allowed"] = True
+    if not payload.get("requested_mode_hint"):
+        payload["requested_mode_hint"] = "auto_if_allowed"
+    return payload
+
+
+def _event_symbols(request: AgentRunRequest) -> list[str]:
+    event = _context_section_data(request, "event")
+    raw_symbols = event.get("symbols")
+    if isinstance(raw_symbols, list):
+        symbols = [str(symbol).upper() for symbol in raw_symbols if str(symbol)]
+        if symbols:
+            return symbols
+    mapping = _context_section_data(request, "market_mapping")
+    raw_mapping_symbols = mapping.get("symbols")
+    if isinstance(raw_mapping_symbols, list):
+        symbols = [str(symbol).upper() for symbol in raw_mapping_symbols if str(symbol)]
+        if symbols:
+            return symbols[:1]
+    return ["NVDA"]
+
+
+def _action_guard_evidence_summary(request: AgentRunRequest, last_summary: str) -> str:
+    event = _context_section_data(request, "event")
+    metrics = event.get("reported_metrics")
+    guidance = event.get("guidance")
+    metric_text = ""
+    if isinstance(metrics, Mapping):
+        metric_text = (
+            f"一手财报：收入 ${metrics.get('revenue_usd_billion')}B，"
+            f"同比 +{metrics.get('revenue_yoy_growth_pct')}%，数据中心收入 ${metrics.get('data_center_revenue_usd_billion')}B，"
+            f"Non-GAAP EPS ${metrics.get('non_gaap_diluted_eps_usd')}。"
+        )
+    guidance_text = ""
+    if isinstance(guidance, Mapping):
+        guidance_text = f"公司给出下季度收入指引 ${guidance.get('next_quarter_revenue_usd_billion')}B，并提示 {guidance.get('guidance_note')}。"
+    gap_text = "市场预期和盘后/盘前反应可能仍有缺口；若 Tavily 失败，该缺口可恢复但不应阻断 dry-run 行动链路。"
+    research_text = f"模型/Research 摘要：{last_summary[:600]}" if last_summary else ""
+    return " ".join(part for part in [metric_text, guidance_text, gap_text, research_text] if part).strip()
+
+
+def _action_guard_industry_summary(request: AgentRunRequest, last_summary: str) -> str:
+    event = _context_section_data(request, "event")
+    source = event.get("source")
+    source_title = source.get("title") if isinstance(source, Mapping) else "NVIDIA 官方财报"
+    return (
+        f"{source_title} 是发布后 5 分钟内进入系统的一手半导体高时效事件。"
+        f"{_action_guard_evidence_summary(request, last_summary)} "
+        "MVP 判断应进入小仓位 dry-run 做多计划，止损止盈和监控由 ActionPlan 工具生成；"
+        "真实交易仍由 broker_mode、Policy Gate、审批和用户策略约束。"
+    )
+
+
+def _append_action_flow_guard_summary(summary: str, completed_tool_outputs: Mapping[str, Mapping[str, Any]]) -> str:
+    submission = completed_tool_outputs.get("submit_action_plan")
+    if not submission:
+        return summary
+    status = submission.get("execution_status")
+    mode = submission.get("resolved_mode")
+    notification = submission.get("notification_status")
+    guard_summary = f"\n\n行动链路已完成：resolved_mode={mode}，execution_status={status}，notification_status={notification}。"
+    return f"{summary.strip()}{guard_summary}" if summary.strip() else guard_summary.strip()
+
+
+def _string_value(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _latest_artifact_id_for_kind(artifact_store: ArtifactStore, kind: str) -> str | None:
+    refs = [ref for ref in artifact_store.list_for_run() if ref.kind == kind]
+    return refs[-1].artifact_id if refs else None

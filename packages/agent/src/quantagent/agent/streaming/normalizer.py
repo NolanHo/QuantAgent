@@ -436,15 +436,38 @@ def _is_report_like_content(text: str | None) -> bool:
     title = _report_summary(stripped)
     report_terms = ("报告", "简报", "总结", "结论", "分析", "IndustryAnalysis", "Research")
     has_report_title = any(term in title for term in report_terms)
-    table_lines = sum(1 for line in stripped.splitlines() if line.strip().startswith("|"))
+    has_complete_table = _has_complete_markdown_table(stripped)
     heading_lines = sum(1 for line in stripped.splitlines() if line.lstrip().startswith("#"))
     list_lines = sum(1 for line in stripped.splitlines() if line.lstrip().startswith(("- ", "1. ")))
-    if table_lines >= 3 and (heading_lines >= 1 or has_report_title):
+    if has_complete_table and (heading_lines >= 1 or has_report_title):
         return True
     if len(stripped) < 420:
         return False
     # 中文注释：只把结构化长文产物化；普通长段落继续作为 COT 正文，避免过程内容被误吞成报告。
-    return has_report_title or table_lines >= 2 or heading_lines >= 2 or (heading_lines >= 1 and list_lines >= 3)
+    return has_report_title or has_complete_table or heading_lines >= 2 or (heading_lines >= 1 and list_lines >= 3)
+
+
+def _has_complete_markdown_table(text: str) -> bool:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for index, line in enumerate(lines[:-2]):
+        if not _is_markdown_table_row(line):
+            continue
+        separator = lines[index + 1]
+        data_row = lines[index + 2]
+        if _is_markdown_table_separator(separator) and _is_markdown_table_row(data_row):
+            return True
+    return False
+
+
+def _is_markdown_table_row(line: str) -> bool:
+    return line.startswith("|") and line.endswith("|") and line.count("|") >= 2
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    if not _is_markdown_table_row(line):
+        return False
+    cells = [cell.strip() for cell in line.strip("|").split("|")]
+    return bool(cells) and all(cell and set(cell) <= {"-", ":"} and "-" in cell for cell in cells)
 
 
 def _report_summary(markdown: str) -> str:

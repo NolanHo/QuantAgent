@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest import TestCase
 
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -9,9 +10,21 @@ from langchain_core.messages import ToolMessage
 
 from quantagent.agent.definitions.models import RuntimePolicy, SubAgentDefinition
 from quantagent.agent.runtime import AgentRuntime
+from quantagent.agent.runtime.context import RunContextSection
 from quantagent.agent.streaming.adapter import EventSequencer
 from quantagent.agent.streaming.events import AgentRunEventType
-from quantagent.agent.testing import build_echo_platform_tool, build_echo_run_request, scripted_echo_runner
+from quantagent.agent.testing import build_echo_platform_tool, build_echo_run_request, build_nvda_earnings_run_request, scripted_echo_runner
+from quantagent.agent.tools import (
+    build_build_action_plan_tool,
+    build_evaluate_thesis_tool,
+    build_get_account_context_tool,
+    build_get_run_context_tool,
+    build_search_web_tool,
+    build_submit_action_plan_tool,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class RuntimeStreamTest(TestCase):
@@ -155,6 +168,57 @@ class RuntimeStreamTest(TestCase):
             self.assertEqual(runtime_event["event_type"], "agent.message.final")
             self.assertEqual(runtime_event["render"]["lane"], "main")
             self.assertEqual(runtime_event["render"]["target"], "final")
+
+        asyncio.run(_run())
+
+    def test_runtime_action_flow_guard_completes_nvda_dry_run_when_model_stops_after_research(self) -> None:
+        class ResearchOnlyGraph:
+            def stream(self, input_data, config=None, stream_mode=None, subgraphs=False):
+                yield ("messages", (AIMessageChunk(content="Research Agent 已完成外部证据补充，但模型准备直接总结。"), {}))
+
+        async def _run() -> None:
+            request = _nvda_action_flow_required_request().model_copy(update={"runtime_policy": RuntimePolicy(model=object())})
+            runtime = AgentRuntime(
+                deep_agent_factory=lambda _request, _tools: ResearchOnlyGraph(),
+                tools=[
+                    build_get_run_context_tool(request.run_context),
+                    build_search_web_tool(),
+                    build_get_account_context_tool(request.run_context),
+                    build_evaluate_thesis_tool(request.run_context),
+                    build_build_action_plan_tool(request.run_context),
+                    build_submit_action_plan_tool(request.run_context),
+                ],
+            )
+
+            events = [event async for event in runtime.run_stream(request)]
+
+            completed_names = [
+                event.payload.get("name") or event.payload.get("tool_name")
+                for event in events
+                if event.type == AgentRunEventType.TOOL_COMPLETED
+            ]
+            self.assertIn("get_account_context", completed_names)
+            self.assertIn("evaluate_thesis", completed_names)
+            self.assertIn("build_action_plan", completed_names)
+            self.assertIn("submit_action_plan", completed_names)
+
+            action_plan_events = [
+                event
+                for event in events
+                if event.type == AgentRunEventType.ARTIFACT_CREATED and event.payload.get("kind") == "action_plan"
+            ]
+            submission_events = [
+                event
+                for event in events
+                if event.type == AgentRunEventType.ARTIFACT_CREATED and event.payload.get("kind") == "submission_result"
+            ]
+            self.assertTrue(action_plan_events)
+            self.assertTrue(submission_events)
+            final = next(event for event in reversed(events) if event.type == AgentRunEventType.RUN_OUTPUT)
+            self.assertIn("行动链路已完成", final.content or "")
+            submit_event = next(event for event in events if event.type == AgentRunEventType.TOOL_COMPLETED and event.payload.get("name") == "submit_action_plan")
+            self.assertEqual(submit_event.payload["result"]["resolved_mode"], "execute_then_notify")
+            self.assertEqual(submit_event.payload["runtime_event"]["render"]["lane"], "main")
 
         asyncio.run(_run())
 
@@ -1058,6 +1122,54 @@ class RuntimeStreamTest(TestCase):
 
         asyncio.run(_run())
 
+    def test_runtime_does_not_create_report_artifact_from_compact_table_fragment(self) -> None:
+        fragment = "提交状态|状态项 |结果 |"
+        complete = "\n".join(
+            [
+                "## 提交状态",
+                "",
+                "| 状态项 | 结果 |",
+                "| --- | --- |",
+                "| Policy Gate | allowed（dry-run/mock边界） |",
+                "| Broker | dry_run_execution_requested |",
+                "| Notification | requested |",
+                "",
+                "ActionPlan 已提交到 dry-run 路径，等待后续监控事件回写。",
+            ]
+        )
+
+        class CapturingGraph:
+            def stream(self, input_data, config=None, stream_mode=None, subgraphs=False):
+                yield ("messages", (AIMessageChunk(content=fragment), {}))
+                yield ("updates", {"agent": {"messages": [AIMessageChunk(content=complete)]}})
+                yield ("messages", (AIMessageChunk(content="最终结论保留为 final。"), {}))
+
+        async def _run() -> None:
+            base_request = build_echo_run_request()
+            request = base_request.model_copy(
+                update={
+                    "agent_definition": base_request.agent_definition.model_copy(update={"tool_ids": [], "subagents": []}),
+                    "tool_profile": base_request.tool_profile.model_copy(update={"tool_bindings": []}),
+                    "runtime_policy": RuntimePolicy(model=object()),
+                }
+            )
+            runtime = AgentRuntime(deep_agent_factory=lambda _request, _tools: CapturingGraph())
+
+            events = [event async for event in runtime.run_stream(request)]
+            runtime_events = [event.payload["runtime_event"] for event in events]
+            artifact_events = [event for event in runtime_events if event["event_type"] == "artifact.created"]
+            final = next(event for event in runtime_events if event["event_type"] == "agent.message.final")
+
+            self.assertEqual(len(artifact_events), 1)
+            artifact = artifact_events[0]["content"]["json"]
+            self.assertEqual(artifact["artifact_id"], f"artifact_report_span_main_{request.agent_run_id}_run_report")
+            self.assertEqual(artifact["content_markdown"], complete)
+            self.assertNotIn(f"{fragment}\n{complete}", artifact["content_markdown"])
+            self.assertNotIn("###提交状态", artifact["content_markdown"])
+            self.assertEqual(final["content"]["text"], f"{fragment}最终结论保留为 final。")
+
+        asyncio.run(_run())
+
     def test_runtime_keeps_report_replay_out_of_final_after_artifact_snapshot(self) -> None:
         report = "\n".join(
             [
@@ -1166,3 +1278,48 @@ class RuntimeStreamTest(TestCase):
 
         self.assertEqual(result["echo"], "hello")
         self.assertEqual(result["agent_run_id"], request.agent_run_id)
+
+
+def _nvda_action_flow_required_request():
+    request = build_nvda_earnings_run_request(repo_root=REPO_ROOT, scenario="primary")
+    sections = list(request.run_context.sections)
+    event_index = next(index for index, section in enumerate(sections) if section.name == "event")
+    route_index = next(index for index, section in enumerate(sections) if section.name == "route_context")
+    sections[event_index] = sections[event_index].model_copy(
+        update={
+            "data": {
+                **sections[event_index].data,
+                "source_kind": "official_investor_relations_press_release",
+                "event_kind": "first_party_earnings_release",
+                "freshness": "within_5_minutes",
+                "reported_metrics": {
+                    "revenue_usd_billion": 81.6,
+                    "revenue_yoy_growth_pct": 85,
+                    "data_center_revenue_usd_billion": 75.2,
+                    "non_gaap_diluted_eps_usd": 0.81,
+                },
+                "guidance": {
+                    "next_quarter_revenue_usd_billion": 91.0,
+                    "guidance_note": "H20 出口管制影响。",
+                },
+            }
+        }
+    )
+    sections[route_index] = sections[route_index].model_copy(
+        update={"data": {**sections[route_index].data, "action_flow_required": True}}
+    )
+    sections.append(
+        RunContextSection(
+            name="risk_policy",
+            summary="MVP dry-run 行动链路。",
+            data={"broker_mode": "dry_run", "real_trade_execution": False},
+        )
+    )
+    sections.append(
+        RunContextSection(
+            name="recent_activity_summary",
+            summary="没有同主题近期行动。",
+            data={"recent_same_topic_run": False, "prior_notification_sent": False},
+        )
+    )
+    return request.model_copy(update={"run_context": request.run_context.model_copy(update={"sections": sections})})
