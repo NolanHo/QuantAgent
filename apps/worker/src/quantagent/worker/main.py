@@ -40,9 +40,12 @@ from quantagent.worker.consumer import (
     IndustryAnalysisRequestHandler,
     InMemoryAnalysisRequestIntakeAuditSink,
     InMemoryWorkerRouteAuditSink,
+    RoutedAgentRunConfig,
+    RoutedAgentRunHandler,
 )
 
 logger = logging.getLogger(__name__)
+_WORKER_TOPICS = ("source.event.captured", "industry.analysis.requested", "event.routed")
 
 
 def create_worker_runtime() -> EventBusRuntime:
@@ -55,6 +58,7 @@ class WorkerApp:
     runtime: EventBusRuntime
     handler: CapturedSourceEventHandler
     analysis_request_handler: IndustryAnalysisRequestHandler
+    routed_agent_run_handler: RoutedAgentRunHandler
     session: object
 
     async def consume_once(self) -> None:
@@ -62,14 +66,15 @@ class WorkerApp:
             "Worker consume_once started: backend=%s group_id=%s topics=%s",
             getattr(self.runtime, "backend", "unknown"),
             settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID,
-            "source.event.captured,industry.analysis.requested",
+            ",".join(_WORKER_TOPICS),
         )
         await self.runtime.consumer.subscribe(
-            topics=("source.event.captured", "industry.analysis.requested"),
+            topics=_WORKER_TOPICS,
             group_id=settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID,
             handler=_TopicDispatchHandler(
                 captured_handler=self.handler,
                 analysis_request_handler=self.analysis_request_handler,
+                routed_agent_run_handler=self.routed_agent_run_handler,
             ),
         )
 
@@ -79,14 +84,15 @@ class WorkerApp:
             "Worker service started: backend=%s group_id=%s topics=%s",
             getattr(self.runtime, "backend", "unknown"),
             settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID,
-            "source.event.captured,industry.analysis.requested",
+            ",".join(_WORKER_TOPICS),
         )
         await self.runtime.consumer.consume_forever(
-            topics=("source.event.captured", "industry.analysis.requested"),
+            topics=_WORKER_TOPICS,
             group_id=settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID,
             handler=_TopicDispatchHandler(
                 captured_handler=self.handler,
                 analysis_request_handler=self.analysis_request_handler,
+                routed_agent_run_handler=self.routed_agent_run_handler,
             ),
         )
 
@@ -139,7 +145,17 @@ def create_worker_app() -> WorkerApp:
         article_concurrency=settings.WORKER_ARTICLE_CONCURRENCY,
         processing_scope_factory=_build_analysis_processing_scope_factory(session_factory),
     )
-    return WorkerApp(runtime=runtime, handler=handler, analysis_request_handler=analysis_request_handler, session=session)
+    routed_agent_run_handler = RoutedAgentRunHandler(
+        session_factory=session_factory,
+        config=RoutedAgentRunConfig(encryption_key=settings.MODEL_CONFIG_ENCRYPTION_KEY),
+    )
+    return WorkerApp(
+        runtime=runtime,
+        handler=handler,
+        analysis_request_handler=analysis_request_handler,
+        routed_agent_run_handler=routed_agent_run_handler,
+        session=session,
+    )
 
 
 async def run_once() -> None:
@@ -227,6 +243,7 @@ class _EnvelopeHandler(Protocol):
 class _TopicDispatchHandler:
     captured_handler: _EnvelopeHandler
     analysis_request_handler: _EnvelopeHandler
+    routed_agent_run_handler: _EnvelopeHandler
 
     async def handle(self, envelope) -> None:
         logger.info(
@@ -241,5 +258,8 @@ class _TopicDispatchHandler:
             return
         if envelope.topic == "industry.analysis.requested":
             await self.analysis_request_handler.handle(envelope)
+            return
+        if envelope.topic == "event.routed":
+            await self.routed_agent_run_handler.handle(envelope)
             return
         raise ValueError(f"Unsupported worker topic: {envelope.topic}")

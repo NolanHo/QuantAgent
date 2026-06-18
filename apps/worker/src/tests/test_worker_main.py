@@ -94,7 +94,7 @@ class WorkerMainTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(app.runtime.consumer.subscriptions), 1)
         topics, group_id, handler = app.runtime.consumer.subscriptions[0]
-        self.assertEqual(topics, ("source.event.captured", "industry.analysis.requested"))
+        self.assertEqual(topics, ("source.event.captured", "industry.analysis.requested", "event.routed"))
         self.assertEqual(group_id, "group")
         self.assertEqual(handler.__class__.__name__, "_TopicDispatchHandler")
 
@@ -105,7 +105,7 @@ class WorkerMainTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(app.runtime.consumer.forever_subscriptions), 1)
         topics, group_id, handler = app.runtime.consumer.forever_subscriptions[0]
-        self.assertEqual(topics, ("source.event.captured", "industry.analysis.requested"))
+        self.assertEqual(topics, ("source.event.captured", "industry.analysis.requested", "event.routed"))
         self.assertEqual(group_id, "group")
         self.assertEqual(handler.__class__.__name__, "_TopicDispatchHandler")
 
@@ -183,6 +183,7 @@ class _SubscribingWorkerApp:
     def __init__(self) -> None:
         self.handler = object()
         self.analysis_request_handler = object()
+        self.routed_agent_run_handler = object()
         self.runtime = type("Runtime", (), {"consumer": _RecordingConsumer()})()
 
     async def consume_once(self) -> None:
@@ -192,6 +193,7 @@ class _SubscribingWorkerApp:
             runtime=self.runtime,
             handler=self.handler,
             analysis_request_handler=self.analysis_request_handler,
+            routed_agent_run_handler=self.routed_agent_run_handler,
             session=object(),
         )
         with patch("quantagent.worker.main.settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID", "group"):
@@ -204,6 +206,7 @@ class _SubscribingWorkerApp:
             runtime=self.runtime,
             handler=self.handler,
             analysis_request_handler=self.analysis_request_handler,
+            routed_agent_run_handler=self.routed_agent_run_handler,
             session=object(),
         )
         with patch("quantagent.worker.main.settings.EVENT_BUS_KAFKA_DEFAULT_GROUP_ID", "group"):
