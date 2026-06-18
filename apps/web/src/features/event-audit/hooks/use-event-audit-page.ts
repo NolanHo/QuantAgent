@@ -15,6 +15,7 @@ import type { EventAuditPageModel } from '../types'
 import { sortEventAuditNodes } from '../utils'
 
 export function useEventAuditPage(eventId: string) {
+  // 中文注释：当前后端只有 /events/{id} 和 /runtime/audit/news，没有稳定的 /events/{id}/audit read model；这里仍保留明确标识的占位回退。
   const event = scoredEvents.find((item) => item.id === eventId) ?? null
   const relatedApproval = event ? scoredApprovals.find((item) => item.eventId === event.id) ?? null : null
   const relatedRun = event ? runtimeAgentRuns.find((item) => item.eventId === event.id) ?? null : null

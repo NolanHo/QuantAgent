@@ -6,6 +6,7 @@ import { AuthApi } from "@/shared/auth/api";
 import type { RuntimeConfig } from "@/shared/config";
 import { createModelProviderApi } from "@/features/models/api";
 import { createRuntimeAuditApi } from "@/features/runtime/api";
+import { createRuntimeInspectApi } from "@/features/runtime/api";
 import { createEventAuditApi } from "@/features/event-audit/api";
 import { createAgentChatApi } from "@/features/agent-chat/api";
 import { createEventsApi } from "@/features/events/api";
@@ -28,6 +29,7 @@ export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): App
   });
   const modelProviderApi = createModelProviderApi(apiClient);
   const runtimeAuditApi = createRuntimeAuditApi(apiClient);
+  const runtimeInspectApi = createRuntimeInspectApi(apiClient);
   const eventAuditApi = createEventAuditApi(apiClient);
   const agentChatApi = createAgentChatApi(apiClient);
   const eventsApi = createEventsApi(apiClient);
@@ -44,6 +46,7 @@ export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): App
       // 中文注释：兼容当前 PR 分支里仍在使用 `modelProviders` 的调用点，避免一次重构同时打断旧引用。
       modelProviders: modelProviderApi,
       runtimeAudit: runtimeAuditApi,
+      runtimeInspect: runtimeInspectApi,
       eventAudit: eventAuditApi,
       agentChat: agentChatApi,
       events: eventsApi,

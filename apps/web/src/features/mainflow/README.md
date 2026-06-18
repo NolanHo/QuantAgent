@@ -22,8 +22,16 @@
 
 - `pages/`: 页面级占位内容和页面装配
 - `components/`: 主链路复用展示组件
-- `mock-data.ts`: 仅供正式占位页面使用的静态结构化样例
+- `hooks/`: Dashboard 等主链路页面的轻量查询编排
+- `types/`: Dashboard 局部展示模型，不替代后端 API contract
+- `mock-data.ts`: 仅供尚未接真实接口的占位区域使用的静态结构化样例
 - `utils/`: 纯展示格式化 helper
+
+Dashboard 事件区边界：
+
+- 首页重点事件通过 `features/events` 的真实 `/api/v1/events` read model 读取。
+- `utils/dashboard-event-adapter.ts` 只把真实 `EventListItem` 映射为首页卡片展示模型；当前后端尚未提供正式 scoring read model，因此这里不会伪造 MainAgent 影响评分或交易建议。
+- 后续正式事件评分 contract 接入时，应把评分 API / query / hook 收敛到 `features/event-scoring`，Dashboard 只消费稳定展示模型。
 
 事件页面边界：
 

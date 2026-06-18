@@ -5,6 +5,7 @@ import type { SourceBindingsApi } from "@/features/plugins/source-bindings/api/s
 import type { AuthApi } from "@/shared/auth/api";
 import type { ModelProviderApi } from "@/features/models/api";
 import type { RuntimeAuditApi } from "@/features/runtime/api";
+import type { RuntimeInspectApi } from "@/features/runtime/api";
 import type { EventAuditApi } from "@/features/event-audit/api";
 import type { AgentChatApi } from "@/features/agent-chat/api";
 import type { EventsApi } from "@/features/events/api";
@@ -25,6 +26,7 @@ export interface RuntimeApis {
   models: ModelProviderApi;
   modelProviders: ModelProviderApi;
   runtimeAudit: RuntimeAuditApi;
+  runtimeInspect: RuntimeInspectApi;
   eventAudit: EventAuditApi;
   agentChat: AgentChatApi;
   events: EventsApi;
