@@ -181,8 +181,10 @@ class ContextAndSearchToolsTest(TestCase):
             self.assertEqual(action_plan["next_tool_input"]["requested_mode_hint"], "auto_if_allowed")
             self.assertTrue(action_plan["next_tool_input"]["dry_run_allowed"])
 
+            submission_port = _RecordingActionSubmissionPort()
+
             submission, submission_events = await adapter.invoke(
-                build_submit_action_plan_tool(run_context),
+                build_submit_action_plan_tool(run_context, action_submission_port=submission_port),
                 {
                     "action_plan_artifact_id": action_plan["action_plan_artifact_id"],
                     "industry_analysis_artifact_id": "artifact_analysis_1",
@@ -193,13 +195,17 @@ class ContextAndSearchToolsTest(TestCase):
                 },
             )
 
-            self.assertEqual(submission["dispatch_status"], "action_submission_unavailable")
-            self.assertEqual(submission["approval_status_hint"], "unavailable")
-            self.assertEqual(submission["notification_status_hint"], "unavailable")
-            self.assertEqual(submission["resolved_mode"], "action_submission_unavailable")
+            self.assertEqual(submission["dispatch_status"], "action_requested")
+            self.assertEqual(submission["approval_status_hint"], "pending_dispatch")
+            self.assertEqual(submission["notification_status_hint"], "pending_dispatch")
+            self.assertEqual(submission["resolved_mode"], "action_requested")
             self.assertEqual(submission["execution_status"], "not_executed")
-            self.assertEqual(submission["policy_gate"]["status"], "not_executed")
+            self.assertEqual(submission["policy_gate"]["status"], "pending_worker_evaluation")
             self.assertEqual(submission["action_request"]["target_id"], "NVDA")
+            self.assertEqual(submission["action_plan_summary"]["orders"][0]["symbol"], "NVDA")
+            self.assertEqual(submission["action_plan_summary"]["risk_controls"]["stop_loss_pct"], -4.5)
+            self.assertEqual(submission_port.requests[0].action_request["proposed_payload"]["action_plan_summary"]["orders"][0]["notional_usd"], 9500.0)
+            self.assertEqual(submission_port.requests[0].action_request["proposed_payload"]["action_plan_summary"]["monitoring_plan"]["duration"], "24h")
             self.assertNotIn("prompt", str(submission["action_request"]))
             self.assertNotIn("secret", str(submission["action_request"]))
             self.assertGreaterEqual(len(store.list_for_run()), 4)

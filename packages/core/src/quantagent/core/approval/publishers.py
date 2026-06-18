@@ -52,6 +52,7 @@ class ApprovalEventPublisher:
                     "action_type": approval.action_type,
                     "urgency": approval.urgency,
                     "risk_level": approval.risk_level,
+                    "action_plan_summary": _action_plan_summary(approval.proposed_payload),
                 },
                 "reason_summary": reason_summary,
             }
@@ -120,5 +121,14 @@ def _approval_requested_payload(approval: ApprovalRequest) -> dict[str, object]:
             "action_type": approval.action_type,
             "urgency": approval.urgency,
             "risk_level": approval.risk_level,
+            "action_plan_summary": _action_plan_summary(approval.proposed_payload),
         },
     }
+
+
+def _action_plan_summary(proposed_payload: Mapping[str, object]) -> Mapping[str, object]:
+    value = proposed_payload.get("action_plan_summary")
+    if not isinstance(value, Mapping):
+        return {}
+    # 脱敏边界：通知只拿 ActionPlan 的人工判断摘要，不复制完整 proposed_payload 或原始 agent 上下文。
+    return sanitize_mapping(value)

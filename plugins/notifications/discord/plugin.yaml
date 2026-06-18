@@ -3,8 +3,7 @@ name: Discord Notification
 type: notification
 version: 0.1.0
 entrypoint: src.discord_plugin:plugin
-description: Experimental official Discord plugin with low-risk send and receive capabilities.
+description: Official Discord webhook notification sender.
 capabilities:
   - notification.send
-  - notification.receive
 config_schema: config.schema.json

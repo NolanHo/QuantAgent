@@ -1,38 +1,41 @@
 ## Context
 
-当前已有三段能力：
+当前已有四段能力：
 
-- `ApprovalOrchestrationService` 会在需要通知人类时发布 `notification.requested`，payload 是脱敏的审批摘要。
-- 官方 `Discord Notification` 插件声明 `notification.send` / `notification.receive`，能发送最小文本到 Discord webhook，也能接收 Discord interaction webhook 并输出标准化 item。
-- `NotificationIngressService` 成功收到 `notification.receive` item 后，可以记录 `NotificationReceiveFact`、append-only ingress audit，并调用 `NotificationApprovalHandoffPort`。
+- Agent 工具 `submit_action_plan` 可以把行动计划映射成 `action.requested`，并返回 `dispatch_status=action_requested`。
+- worker 消费 `action.requested` 后，通过 `ApprovalOrchestrationService` 创建 approval，并在需要通知人类时发布 `notification.requested`。
+- 官方 Discord notification 插件可以执行 `notification.send`，把文本发送到 Discord webhook。
+- Web `/approvals` 已经有审批工作台和真实 approval API，是本轮人工授权入口。
 
-缺口在两端接线：
+当前缺口集中在发送侧和配置侧：
 
-- 发送侧缺 `notification.requested -> notification.send` dispatcher。
-- 接收侧 API host 默认创建的 ingress service 使用 no-op handoff，没有把真实 receive item 交给 approval adapter。
+- worker 需要默认消费 `notification.requested` 并调度到 Discord `notification.send`。
+- Discord webhook URL 不能再来自 `.env`、`DISCORD_WEBHOOK_URL` 或 `NOTIFICATION_DISPATCH_PLUGIN_CONFIG`，必须来自 Web 插件配置管理保存的 `webhook_url`。
+- 文档和 OpenSpec 不能再把 Discord receive / interaction 当作当前真实验收路径。
 
 ## Goals
 
-- 让审批通知发送请求通过 Registry + Runtime 调用官方 Discord notification 插件的 `notification.send` capability；默认测试仍可使用 fake runtime 或 mock transport。
-- 让真实 Discord interaction 回流进入 approval input，而不是停在 HTTP response 或 no-op handoff。
-- 保持 API host 通用、Discord 协议在插件层、审批判断在 approval 域。
-- 为发送结果提供最小完成语义，避免把 `notification.requested` 误读成已送达。
-- 保持所有消息、日志、审计和测试 fixture 不暴露 secret、完整 prompt、私有策略或交易密钥。
+- 默认 notification dispatcher 使用 `quantagent.official.notification.discord` 和 `channel=discord`。
+- 让 worker 从插件配置表读取 `webhook_url`，解密后以内存配置注入 Discord 插件。
+- 让 `notification.completed` 只表达 webhook 发送尝试结果，不表达用户审批或 broker 执行。
+- 让用户收到 Discord 通知后，回到 Web `/approvals` 做 approve / reject / request-reanalysis。
+- 保持所有消息、日志、审计、stream、transcript 和测试 fixture 不暴露 webhook URL、完整 prompt、私有策略或交易密钥。
 
 ## Non-Goals
 
-- 不新增生产数据库持久化、outbox、DLQ 或投递历史查询 API。
-- 不做 Discord button/modal/followup/deferred response。
-- 不支持多个 notification provider 的动态选择策略；第一刀只支持通过配置绑定一个 notification 插件。
-- 不把 notification dispatcher 做成插件生命周期管理器。
-- 不让 Discord 文本 approve 直接满足 strong / manual-only 确认。
+- 不做 Discord receive、interaction webhook、slash command、文本 approve、button、modal、gateway 或 polling。
+- 不把 Discord 通知插件做成 approval service。
+- 不把通知 dispatcher 做成插件生命周期管理器、Vault 或通用 provider routing 策略。
+- 不新增数据库表、Alembic migration、outbox、DLQ 或投递历史查询 API。
+- 不让 API 进程承担 worker consumer loop。
+- 不接真实 broker 或 live trading；执行结果仍只能是 mock / dry-run / requested 摘要。
 
 ## File Plan
 
 ### Core notification sender
 
 - `packages/core/src/quantagent/core/notifications/sender.py`
-  - 新增 `NotificationDispatchService`
+  - 提供 `NotificationDispatchService`
   - 校验目标插件记录、`notification.send` capability 和插件类型
   - 构造 `NotificationSendInput`
   - 调用 `PluginRuntimeService.invoke(...)`
@@ -40,103 +43,113 @@
   - 返回 `NotificationDispatchResult`
 
 - `packages/core/src/quantagent/core/notifications/message.py`
-  - 新增审批通知文本 builder
+  - 提供审批通知文本 builder
   - 输入 JSON-safe 的 `notification.requested` payload
-  - 可以复用 `HumanAuthorizationMessage` 的字段语义，但不得依赖 approval harness 的测试类型
-  - 输出脱敏 Discord 文本，必须包含 `approval_id: <id>`
+  - 输出脱敏 Discord 文本，必须包含 `approval_id`
+  - 文案提示用户到 Web `/approvals` 审批，而不是在 Discord 回复
   - 不依赖 Discord 插件实现，不 import `plugins/**`
 
 - `packages/core/src/quantagent/core/notifications/models.py`
-  - 增补发送侧领域模型：
+  - 发送侧领域模型：
     - `NotificationDispatchRequest`
     - `NotificationDispatchResult`
     - `NotificationDeliverySummary`
   - 字段保持 JSON-safe，不包含 HTTP status code 常量或 API envelope
 
 - `packages/core/src/quantagent/core/notifications/handlers.py`
-  - 新增 `NotificationRequestedHandler`
-  - 消费 `EventEnvelope(topic="notification.requested")`
+  - `NotificationRequestedHandler` 消费 `EventEnvelope(topic="notification.requested")`
   - 调用 `NotificationDispatchService`
   - 通过 `NotificationEventPublisher` 发布 `notification.completed`
 
-- `packages/core/src/quantagent/core/notifications/publishers.py`
-  - 新增 `NotificationEventPublisher`
-  - 发布 `notification.completed`
-  - payload 只表达发送尝试结果，不表达用户审批或 broker 执行结果
+### Worker composition
 
-- `packages/core/src/quantagent/core/notifications/README.md`
-  - 更新发送侧职责、接收侧 handoff 和非目标
+- `apps/worker/src/quantagent/worker/main.py`
+  - 默认订阅 `action.requested`、`approval.input_received`、`notification.requested`
+  - 组装 `WorkerNotificationRequestedHandler`
+  - 从 core settings 读取：
+    - `NOTIFICATION_DISPATCH_ENABLED=true`
+    - `NOTIFICATION_DISPATCH_PLUGIN_ID=quantagent.official.notification.discord`
+    - `NOTIFICATION_DISPATCH_CHANNEL=discord`
+  - 不读取 `NOTIFICATION_DISPATCH_PLUGIN_CONFIG`
 
-- `packages/core/tests/test_notification_dispatch.py`
-  - 覆盖 dispatcher、消息脱敏、plugin invoke、失败路径、completed payload
+- `apps/worker/src/quantagent/worker/consumer/notification_handler.py`
+  - `WorkerNotificationRequestedHandler`：从 `PluginConfigService.resolve_secret(plugin_id, path="webhook_url")` 获取 webhook URL
+  - 只在内存中把 `{"webhook_url": value}` 传给 `NotificationDispatchService`
+  - 日志只输出安全错误码和 safe details，不输出 webhook URL
 
-- `packages/core/tests/test_notification_approval_loop.py`
-  - 覆盖从 `notification.requested` 到 dispatcher，再到 notification receive handoff 的内存闭环
-
-### API ingress wiring
-
-- `apps/api/src/quantagent/api/services/notification_ingress.py`
-  - 允许注入已配置的 `NotificationIngressService` 或 handoff port，避免 host 内部只能创建 no-op service
-  - 当前代码尚无 API 生产级 approval service app state；本 change 只要求提供组合 seam，测试可注入 approval service 或 event bus publisher
-  - 不在 API service 中解析 Discord payload、不判定 approve/reject、不调用 Policy Gate
-
-- `apps/api/src/quantagent/api/main.py` 或现有 app state composition 文件
-  - 若运行入口已经有 approval service / event bus app state，则在 app 创建时组装 `ApprovalNotificationHandoffAdapter`
-  - 若没有生产级 approval service，则保留 no-op，并在 README/测试中说明“ingress 可用”不等于“审批回流已接入”
-
-- `apps/api/src/tests/test_app.py`
-  - 覆盖 notification ingress 启用时可使用注入 handoff
-  - 覆盖缺少 approval runtime 时不误报已完成审批
-  - 覆盖错误响应不泄露 Discord webhook URL、公钥或 secret
-
-- `apps/api/README.md`
-  - 更新 Discord approval loop 配置说明
-  - 明确 `NOTIFICATION_INGRESS_PLUGIN_CONFIG` 只放插件配置
-  - 明确真实 Discord smoke 是 env-gated 补充验证
+- `apps/worker/src/quantagent/worker/consumer/approval_handler.py`
+  - `WorkerApprovalEventHandler.handle_action_requested()`：把 `action.requested` 交给 `ApprovalOrchestrationService`
+  - `WorkerApprovalEventHandler.handle_approval_input_received()`：把 Web approval action 产生的 `approval.input_received` 交给同一个 approval 编排
 
 ### Discord plugin
 
-第一刀不要求修改 `plugins/notifications/discord/src/discord_plugin.py`。如果实现发现需要最小兼容，只允许改插件 README/tests 或增强 config schema 文档，不让插件理解 approval service、Event Bus 或 Policy Gate。
+- `plugins/notifications/discord/plugin.yaml`
+  - 当前公开 capability 只声明 `notification.send`
+  - description 说明这是 webhook notification sender
+
+- `plugins/notifications/discord/config.schema.json`
+  - `required: ["webhook_url"]`
+  - `webhook_url` 标记 `sensitive: true`
+  - `timeout_seconds` 可选
+  - 不暴露 `webhook_secret_ref`、`public_key`、`public_key_ref`、`application_id`、guild/channel allowlist 或 receive 相关配置
+
+- `plugins/notifications/discord/src/discord_plugin.py`
+  - `send_text()` 优先读取 `webhook_url`
+  - 低层兼容 `webhook_secret_ref` 只允许服务旧测试或开发脚本，不作为公开 schema 和生产配置契约
+  - 插件不 import approval、Event Bus、API 或具体 app
+
+### API / Web
+
+- `apps/api/README.md` 与 `.env.example`
+  - 只保留 dispatcher enable / plugin id / channel 默认配置
+  - 明确 webhook URL 必须通过 Web 插件配置管理保存
+  - 明确本轮不要求 Discord receive 和 public key / application id
+
+- `apps/web/src/features/plugins/config-form/**`
+  - 继续使用 schema-driven form 渲染 Discord 插件配置
+  - `webhook_url` 按 sensitive 字段处理；展示掩码，保存走插件配置 API
+
+- `apps/web/src/features/approvals/**`
+  - 保持 Web `/approvals` 作为人工授权入口
+  - approve / reject / request-reanalysis mutation 调真实 approval API
 
 ## Layering
 
 发送链路：
 
 ```text
-ApprovalOrchestrationService
-  -> EventEnvelope(topic=notification.requested)
-  -> NotificationRequestedHandler
+Agent submit_action_plan
+  -> action.requested
+  -> worker WorkerApprovalEventHandler.handle_action_requested()
+  -> ApprovalOrchestrationService
+  -> notification.requested
+  -> worker WorkerNotificationRequestedHandler
+  -> PluginConfigService.resolve_secret(webhook_url)
   -> NotificationDispatchService
-  -> PluginRegistry.get_plugin(configured_plugin_id)
+  -> PluginRegistry.get_plugin(default Discord plugin)
   -> PluginRuntimeService.invoke(capability=notification.send)
-  -> NotificationSendResult
-  -> NotificationEventPublisher.publish_notification_completed()
-```
-
-接收链路：
-
-```text
-POST /api/v1/integrations/notifications/ingress
-  -> NotificationIngressHostService
-  -> NotificationIngressService
-  -> PluginRuntimeService.invoke(capability=notification.receive)
-  -> NotificationReceiveFact + NotificationIngressAuditEntry
-  -> ApprovalNotificationHandoffAdapter
-  -> ApprovalInput or EventEnvelope(topic=approval.input_received)
-  -> ApprovalOrchestrationService.submit_input()
+  -> notification.completed
+  -> user opens Web /approvals
+  -> approval action API
+  -> approval.input_received
+  -> WorkerApprovalEventHandler.handle_approval_input_received()
+  -> ApprovalOrchestrationService
 ```
 
 依赖方向：
 
 ```text
 apps/api -> packages/core -> packages/plugin-sdk <- plugins/notifications/discord
+apps/worker -> packages/core
+apps/web -> apps/api REST
 ```
 
 禁止方向：
 
 - `packages/core` 不 import `apps/api`、FastAPI、Starlette 或 `plugins/**`
 - Discord 插件不 import `quantagent.core.approval`
-- API host 不 import Discord plugin implementation
+- worker 不从 env/plugin config JSON 读取 Discord webhook URL
+- Web 不绕过 approval API 直接改 approval 状态
 
 ## Models / Event Drafts
 
@@ -157,7 +170,7 @@ apps/api -> packages/core -> packages/plugin-sdk <- plugins/notifications/discor
 说明：
 
 - `text` 是发送给 notification 插件的脱敏文本。
-- `metadata` 可包含 `approval_id`、`action_request_id`、`source_topic`，不得包含完整 prompt、secret、token、cookie、私有策略或 broker credential。
+- `metadata` 可包含 `approval_id`、`action_request_id`、`source_topic`，不得包含完整 prompt、secret、token、cookie、私有策略、webhook URL 或 broker credential。
 
 ### `NotificationDispatchResult`
 
@@ -173,13 +186,13 @@ apps/api -> packages/core -> packages/plugin-sdk <- plugins/notifications/discor
 - `causation_id`
 - `approval_id`
 - `action_request_id`
+- `channel`
 - `metadata`
 
 说明：
 
 - `accepted=true` 只表示插件接受或 provider 请求成功，不表示用户已看见、不表示审批完成。
 - `retryable=true` 表示平台可重试，但第一刀不实现持久化重试队列。
-- 该模型是同步 service 返回值和测试断言对象，不替代 `notification.completed` 事件契约。
 
 ### `notification.completed` payload
 
@@ -205,101 +218,81 @@ apps/api -> packages/core -> packages/plugin-sdk <- plugins/notifications/discor
 - 私有策略和 broker credential
 - live trading / broker success 语义
 
-## Message Format
-
-第一刀使用纯文本消息，不引入 Discord component：
-
-```text
-QuantAgent approval requested
-approval_id: <approval-id>
-summary: <sanitized summary>
-risk: <risk_direction>
-confirmation: <required_confirmation_level>
-expires_at: <optional expires_at>
-
-Reply with:
-approval_id: <approval-id> approve
-approval_id: <approval-id> reject
-approval_id: <approval-id> reanalysis
-```
-
-规则：
-
-- 必须包含 `approval_id: <id>`，保证回流 adapter 能解析。
-- 允许包含 `action_request_id`，但不得包含 `proposed_payload` 原文。
-- 文本 approve 进入 approval evaluator 后仍按弱确认处理；manual-only / strong confirm 可能 escalated。
-
 ## Configuration
 
-第一刀配置保持保守：
+默认环境配置只允许控制 dispatcher 是否启用和选择哪个插件：
 
-- API ingress 继续使用：
-  - `NOTIFICATION_INGRESS_ENABLED`
-  - `NOTIFICATION_INGRESS_PLUGIN_ID`
-  - `NOTIFICATION_INGRESS_PLUGIN_CONFIG`
-- 发送 dispatcher 可新增 API/worker 运行时配置：
-  - `NOTIFICATION_DISPATCH_ENABLED`
-  - `NOTIFICATION_DISPATCH_PLUGIN_ID`
-  - `NOTIFICATION_DISPATCH_PLUGIN_CONFIG`
-  - `NOTIFICATION_DISPATCH_CHANNEL=discord`
+```bash
+NOTIFICATION_DISPATCH_ENABLED=true
+NOTIFICATION_DISPATCH_PLUGIN_ID=quantagent.official.notification.discord
+NOTIFICATION_DISPATCH_CHANNEL=discord
+```
 
-配置约束：
+明确禁止：
 
-- dispatcher 是 core 能力，运行入口可以是 API 测试 harness、worker 或后续专用 consumer；本 change 不把长期归属固定到 API。
-- 插件 secret 继续通过 `webhook_secret_ref` 和 `__secrets__` 或后续 secret resolver 传递，不在 OpenSpec、README 示例或测试 fixture 中写真实 URL。
-- 如果实现阶段无法提供安全 secret resolver，则 dispatcher tests 使用 fake runtime / mock plugin，不要求真实 Discord webhook。
+- `NOTIFICATION_DISPATCH_PLUGIN_CONFIG`
+- `DISCORD_WEBHOOK_URL`
+- `webhook_secret_ref` 作为用户-facing 配置
+- `NOTIFICATION_INGRESS_PLUGIN_CONFIG` 作为本轮 Discord 发送测试配置
+
+用户-facing Discord 插件配置来自 Web 插件详情页：
+
+```json
+{
+  "webhook_url": "https://discord.example.invalid/api/webhooks/...",
+  "timeout_seconds": 5
+}
+```
+
+平台保存时按 sensitive 字段加密；查询时只返回掩码；worker 运行时解密后只在内存中传给插件。
 
 ## Failure Paths
 
 - `notification.requested` payload 非 mapping 或缺少 `approval_id`：dispatcher 拒绝，发布 failed `notification.completed` 或返回结构化失败，不调用插件。
-- 配置未启用 dispatcher：handler 忽略或返回 disabled 摘要，不调用插件，不影响 approval pending 状态。
+- dispatcher 未启用：handler 返回 disabled 摘要，不调用插件，不影响 approval pending 状态。
+- Discord 插件未配置 `webhook_url` 或解密失败：发送失败，`notification.completed.accepted=false`，错误不暴露 webhook URL。
 - 插件不存在、状态非法或缺少 `notification.send`：发送失败，结果不泄露本地路径或 secret。
 - Runtime invoke 失败或插件返回非法 DTO：发送失败，`retryable` 根据错误类型保守设置。
-- Discord webhook 网络超时：插件返回 retryable，dispatcher 不重复执行无限重试。
-- Discord interaction 签名非法：由插件返回 401 响应，不生成 fact，不进入 approval。
-- Discord interaction accepted 但缺少可解析 approval id：notification fact 保留，handoff adapter 返回 failed，不调用 Policy Gate 或 executor。
-- 引用未知或终态 approval：handoff adapter 返回安全失败 / ignored，不改变最终 decision。
-- 文本 approve 对 manual-only / strong confirm 不足：approval evaluator escalated，不调用 executor。
+- Discord webhook 网络超时：插件返回 retryable，dispatcher 不做无限重试。
+- 用户没有打开 Web `/approvals`：approval 保持 pending / expired 等审批域状态；Discord 通知发送成功不改变 approval decision。
 
 ## Validation Strategy
 
-OpenSpec-only PR 最小验证：
+OpenSpec 校验：
 
 ```bash
 openspec validate notification-discord-approval-loop-v1 --type change --strict --json
 ```
 
-如果 `uvx openspec` 不可用，可以使用仓库环境中的 `openspec` 可执行文件；若两者都不可用，应在最终说明中记录未验证原因，并至少检查 artifacts 路径和内容。
-
-后续实现 PR 最小验证：
+实现验证：
 
 ```bash
-uv run python -m unittest packages/core/tests/test_notification_dispatch.py
-uv run python -m unittest packages/core/tests/test_notification_approval_loop.py
-uv run python -m unittest packages/core/tests/test_notification_ingress.py
-cd apps/api && uv run python -m unittest discover -s src
+uv run --package quantagent-worker python -m unittest discover -s apps/worker/src/tests
+uv run --package quantagent-api python -m unittest apps/api/src/tests/test_app.py apps/api/src/tests/test_discord_approval_smoke_demo.py
+uv run --package quantagent-core python -m unittest packages/core/tests/test_notification_dispatch.py packages/core/tests/test_approval_harness.py packages/core/tests/test_approval_event_bus_topics.py packages/core/tests/test_approval_persistence.py
 uv run python -m unittest discover -s plugins/notifications/discord/tests -p 'test_*.py'
+bun run --cwd apps/web test:unit -- plugins-config plugin-config approval-workbench
+bun run --cwd apps/web build
+git diff --check
 ```
 
-可选真实 smoke：
+真实 NVDA 财报验收：
 
-```bash
-uv run python plugins/notifications/discord/smoke_send.py
-NOTIFICATION_INGRESS_TEST_PRIVATE_KEY=<hex-private-key> uv run python plugins/notifications/discord/smoke_receive.py
-```
-
-真实 smoke 只作为 env-gated 补充验证，不作为默认验收项，不表示 broker 或审批执行完成。
+1. 在 Web 插件详情页为 `quantagent.official.notification.discord` 保存 `webhook_url`。
+2. 启动 API、worker、web 和事件总线。
+3. 触发 NVDA 财报重大利好 / 重大利空 routed event，使 Semiconductor MainAgent 只在重大事件时调用 `submit_action_plan`。
+4. worker 创建 approval 并发送 Discord webhook 通知。
+5. 打开 Web `/approvals`，查看 approval 详情、Agent Chat 处理记录和行动计划摘要。
+6. 在 Web 页面执行 approve / reject / request-reanalysis。
+7. 验证没有真实 broker / live trading 执行。
 
 ## Risks / Trade-offs
 
 - [Risk] 第一刀没有持久化 delivery record，进程重启会丢失发送历史。
   Mitigation：本 change 只验证平台通过 Runtime 发起 `notification.send` 调用和事件语义；持久化 delivery / outbox / retry queue 后续单独设计。
 
-- [Risk] 纯文本 `approval_id` 协议可用但体验弱。
-  Mitigation：先跑通安全闭环；Discord component / modal 后续独立 change。
-
-- [Risk] API app state 可能尚未有生产级 approval service。
-  Mitigation：设计允许注入 service 或 publisher；缺失时保持 no-op 并明确不能声称真实审批回流已完成。
+- [Risk] Discord webhook 只能单向通知，用户仍要回到 Web 审批。
+  Mitigation：这是本轮刻意收窄的安全边界；Discord receive / button / modal 后续独立 change。
 
 - [Risk] `notification.completed` 容易被误读成用户已确认。
-  Mitigation：spec 和 README 明确它只表达发送尝试结果，审批结论仍只看 `approval.completed`。
+  Mitigation：spec、README 和测试明确它只表达发送尝试结果，审批结论仍只看 approval 域。

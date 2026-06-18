@@ -79,7 +79,7 @@ class NotificationDispatchServiceTestCase(unittest.IsolatedAsyncioTestCase):
                 },
             )()
         )
-        service = NotificationDispatchService(registry=_StubRegistry(_record()), runtime=runtime, config={"webhook_secret_ref": "env:DISCORD_WEBHOOK_URL"})
+        service = NotificationDispatchService(registry=_StubRegistry(_record()), runtime=runtime, config={"webhook_url": "https://discord.example.invalid/api/webhooks/test"})
 
         result = await service.dispatch(_request())
 
@@ -90,7 +90,7 @@ class NotificationDispatchServiceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.last_call["request_id"], "notif-1")
         self.assertEqual(runtime.last_call["input"]["channel"], "discord")
         self.assertEqual(runtime.last_call["input"]["metadata"]["approval_id"], "approval-1")
-        self.assertEqual(runtime.last_call["config"]["webhook_secret_ref"], "env:DISCORD_WEBHOOK_URL")
+        self.assertEqual(runtime.last_call["config"]["webhook_url"], "https://discord.example.invalid/api/webhooks/test")
 
     async def test_dispatch_disabled_does_not_call_runtime(self) -> None:
         runtime = _StubRuntime()
@@ -127,7 +127,7 @@ class NotificationDispatchServiceTestCase(unittest.IsolatedAsyncioTestCase):
                 "message": "token=secret123 failed at /home/user/plugin",
                 "retryable": True,
                 "stage": "invoke",
-                "details": {"webhook_secret_ref": "env:DISCORD_WEBHOOK_URL", "path": "/home/user/plugin"},
+                "details": {"webhook_url": "https://discord.example.invalid/api/webhooks/test", "path": "/home/user/plugin"},
             },
         )()
         service = NotificationDispatchService(registry=_StubRegistry(_record()), runtime=_StubRuntime(error=error))
@@ -163,16 +163,73 @@ class NotificationApprovalMessageTestCase(unittest.TestCase):
                 "risk_direction": "increase_risk",
                 "required_confirmation_level": "soft_confirm",
                 "expires_at": "2026-06-02T12:00:00Z",
+                "expiration_action": "escalate",
+                "reason_summary": "High-impact NVDA event requires manual review.",
+                "safe_context": {
+                    "target_type": "symbol",
+                    "target_id": "NVDA",
+                    "action_type": "execute_order",
+                    "urgency": "time_sensitive",
+                    "risk_level": "high",
+                    "action_plan_summary": {
+                        "summary": "已生成 NVDA open_long 行动计划：notional $9,500，止损 -4.5%，止盈 +8%。",
+                        "intended_action": "open_long",
+                        "action_side": "increase_risk",
+                        "target_symbols": ["NVDA"],
+                        "orders": [
+                            {
+                                "symbol": "NVDA",
+                                "side": "buy",
+                                "order_intent": "open",
+                                "notional_usd": 9500.0,
+                                "portfolio_pct": 0.095,
+                                "order_type": "market",
+                                "time_in_force": "day",
+                            }
+                        ],
+                        "risk_controls": {
+                            "stop_loss_pct": -4.5,
+                            "take_profit_pct": 8.0,
+                            "invalidation_conditions": ["财报电话会弱化需求叙事", "H20 管制影响扩散"],
+                        },
+                        "monitoring_plan": {
+                            "watch_topics": ["earnings_call", "after_hours_reaction"],
+                            "duration": "24h",
+                        },
+                        "user_notification": {
+                            "title": "NVDA 财报行动计划",
+                            "summary": "一手财报事件触发高置信小仓位 dry-run 做多计划。",
+                        },
+                        "constraints": ["broker_mode=dry_run，不执行真实下单"],
+                    },
+                },
                 "proposed_payload": {"prompt": "full prompt", "broker_credential": "broker-secret"},
                 "private_policy": "do not leak",
                 "cookie": "session-cookie",
             }
         )
 
-        self.assertIn("approval_id: approval-1", text)
-        self.assertIn("action_request_id: action-1", text)
-        self.assertIn("risk: increase_risk", text)
-        self.assertIn("confirmation: soft_confirm", text)
+        self.assertIn("QuantAgent 行动审批提醒", text)
+        self.assertIn("审批 ID：approval-1", text)
+        self.assertIn("行动请求 ID：action-1", text)
+        self.assertIn("目标对象：symbol:NVDA", text)
+        self.assertIn("建议动作：提交 dry-run/mock 订单计划（execute_order）", text)
+        self.assertIn("风险方向：增加风险敞口（increase_risk）", text)
+        self.assertIn("风险等级：high", text)
+        self.assertIn("紧急程度：time_sensitive", text)
+        self.assertIn("确认等级：普通人工确认（soft_confirm）", text)
+        self.assertIn("过期策略：到期后升级处理（escalate）", text)
+        self.assertIn("触发原因", text)
+        self.assertIn("交易计划详情", text)
+        self.assertIn("订单 1：NVDA buy/open，金额 $9,500，组合占比 9.50%", text)
+        self.assertIn("风控：止损 -4.50%，止盈 8.00%", text)
+        self.assertIn("监控：earnings_call, after_hours_reaction，周期 24h", text)
+        self.assertIn("用户通知：NVDA 财报行动计划", text)
+        self.assertIn("约束：broker_mode=dry_run，不执行真实下单", text)
+        self.assertIn("/approvals/approval-1", text)
+        self.assertIn("Discord 回复不会完成审批", text)
+        self.assertNotIn("Reply with", text)
+        self.assertNotIn("approval_id: approval-1 approve", text)
         rendered = text.lower()
         self.assertNotIn("secret123", rendered)
         self.assertNotIn("full prompt", rendered)

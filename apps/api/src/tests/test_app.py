@@ -6,6 +6,7 @@ import os
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -136,6 +137,24 @@ class FakeSession:
 
     def commit(self) -> None:
         self.commit_calls += 1
+
+
+def _discord_receive_plugin_record() -> PluginRecord:
+    return PluginRecord(
+        id="quantagent.official.notification.discord",
+        source=PluginSource.OFFICIAL,
+        path=Path("plugins/notifications/discord"),
+        status=PluginStatus.VALID,
+        manifest=PluginManifest(
+            id="quantagent.official.notification.discord",
+            name="Discord Notification Receive Test Adapter",
+            type=PluginType.NOTIFICATION,
+            version="0.1.0",
+            entrypoint="src.discord_plugin:plugin",
+            capabilities=("notification.receive",),
+            config_schema="config.schema.json",
+        ),
+    )
 
 
 class FailingSessionFactory:
@@ -1871,10 +1890,10 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(body["data"]["availability"]["state"], "not_configured")
         entries_by_key = {item["key"]: item for item in body["data"]["entries"]}
-        self.assertEqual(entries_by_key["webhook_secret_ref"]["display_mode"], "unset")
-        self.assertTrue(entries_by_key["webhook_secret_ref"]["is_sensitive"])
-        self.assertEqual(entries_by_key["public_key"]["display_mode"], "unset")
-        self.assertTrue(entries_by_key["public_key"]["is_sensitive"])
+        self.assertEqual(entries_by_key["webhook_url"]["display_mode"], "unset")
+        self.assertTrue(entries_by_key["webhook_url"]["is_sensitive"])
+        self.assertNotIn("public_key", entries_by_key)
+        self.assertNotIn("webhook_secret_ref", entries_by_key)
         self.assertNotIn("Discord webhook URL", str(body))
 
     def test_plugin_detail_section_visibility_uses_forbidden_availability(self) -> None:
@@ -3891,7 +3910,7 @@ class ApiAppTestCase(unittest.TestCase):
                 NOTIFICATION_INGRESS_PLUGIN_CONFIG={"public_key": "a" * 64},
             )
         )
-        with TestClient(app) as client:
+        with self._notification_receive_test_client(app) as client:
             response = client.post(
                 "/api/v1/integrations/notifications/ingress",
                 content=b'{"type":1}',
@@ -3919,7 +3938,7 @@ class ApiAppTestCase(unittest.TestCase):
         timestamp = str(int(time.time()))
         signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
 
-        with TestClient(app) as client:
+        with self._notification_receive_test_client(app) as client:
             response = client.post(
                 "/api/v1/integrations/notifications/ingress",
                 content=body,
@@ -3964,7 +3983,7 @@ class ApiAppTestCase(unittest.TestCase):
         timestamp = str(int(time.time()))
         signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
 
-        with TestClient(app) as client:
+        with self._notification_receive_test_client(app) as client:
             response = client.post(
                 "/api/v1/integrations/notifications/ingress",
                 content=body,
@@ -4016,7 +4035,7 @@ class ApiAppTestCase(unittest.TestCase):
         timestamp = str(int(time.time()))
         signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
 
-        with TestClient(app) as client:
+        with self._notification_receive_test_client(app) as client:
             response = client.post(
                 "/api/v1/integrations/notifications/ingress",
                 content=body,
@@ -4043,7 +4062,7 @@ class ApiAppTestCase(unittest.TestCase):
         timestamp = str(int(time.time()))
         signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
 
-        with TestClient(app) as client:
+        with self._notification_receive_test_client(app) as client:
             response = client.post(
                 "/api/v1/integrations/notifications/ingress",
                 content=body,
@@ -4070,7 +4089,7 @@ class ApiAppTestCase(unittest.TestCase):
         timestamp = "1"
         signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
 
-        with TestClient(app) as client:
+        with self._notification_receive_test_client(app) as client:
             response = client.post(
                 "/api/v1/integrations/notifications/ingress",
                 content=body,
@@ -5166,6 +5185,16 @@ class ApiAppTestCase(unittest.TestCase):
         self.assertTrue(session_values)
         session_value = session_values[-1]
         return _deserialize_session(session_value, self.settings.AUTH_SESSION_SECRET or "")
+
+    @contextmanager
+    def _notification_receive_test_client(self, app: FastAPI):
+        # 公开 Discord manifest 当前只声明 notification.send；这些旧 ingress 测试用显式 fake record 验证通用 receive host。
+        with patch(
+            "quantagent.api.services.plugin_registry.get_plugin_registry",
+            return_value=SimpleNamespace(get_plugin=lambda _plugin_id: _discord_receive_plugin_record()),
+        ):
+            with TestClient(app) as client:
+                yield client
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from quantagent.core.approval import (
     ActionRequest,
@@ -17,8 +17,8 @@ from quantagent.core.approval import (
 from quantagent.core.db.base import Base
 from quantagent.core.db.repositories.approval_repository import SQLAlchemyApprovalRepository
 from quantagent.core.events import EventEnvelope, InMemoryEventBus
-from quantagent.core.notifications.handoff import NotificationApprovalHandoffRequest
-from quantagent.core.notifications.models import NotificationApprovalHandoffResult
+from quantagent.core.model_config import ModelConfigCrypto
+from quantagent.core.plugin_config import PluginConfigService
 from quantagent.core.registry import PluginManifest, PluginRecord, PluginSource, PluginStatus, PluginType
 from quantagent.plugin_sdk import NotificationSendResult
 from quantagent.worker.consumer import (
@@ -43,15 +43,32 @@ class AgentActionApprovalDiscordLoopSmokeTestCase(unittest.IsolatedAsyncioTestCa
             publisher=self.bus,
         )
         notification_runtime = _RecordingRuntime()
+        session_factory = sessionmaker(bind=self.engine, autoflush=False, expire_on_commit=False)
+        encryption_key = ModelConfigCrypto.generate_key()
+        config_session = session_factory()
+        try:
+            PluginConfigService(config_session, encryption_key=encryption_key).save(
+                plugin_id="quantagent.official.notification.discord",
+                schema={
+                    "type": "object",
+                    "required": ["webhook_url"],
+                    "properties": {"webhook_url": {"type": "string", "sensitive": True, "minLength": 1}},
+                },
+                values={"webhook_url": "https://discord.example.invalid/api/webhooks/test"},
+            )
+            config_session.commit()
+        finally:
+            config_session.close()
         notification_handler = WorkerNotificationRequestedHandler(
+            session_factory=session_factory,
+            publisher=self.bus,
             registry=_RegistryWithRecord(),
             runtime=notification_runtime,
-            publisher=self.bus,
             config=WorkerNotificationDispatchConfig(
                 enabled=True,
                 plugin_id="quantagent.official.notification.discord",
-                plugin_config={"webhook_secret_ref": "env:DISCORD_WEBHOOK_URL"},
                 channel="discord",
+                encryption_key=encryption_key,
             ),
         )
         notification_completed: list[EventEnvelope] = []
@@ -109,21 +126,26 @@ class AgentActionApprovalDiscordLoopSmokeTestCase(unittest.IsolatedAsyncioTestCa
         self.assertTrue(notification_completed[0].payload["accepted"])
         self.assertEqual(notification_completed[0].payload["approval_id"], approval_id)
         self.assertIsNotNone(notification_runtime.last_call)
-        self.assertIn(f"approval_id: {approval_id}", notification_runtime.last_call["input"]["text"])
+        self.assertEqual(notification_runtime.last_call["config"]["webhook_url"], "https://discord.example.invalid/api/webhooks/test")
+        self.assertIn(f"审批 ID：{approval_id}", notification_runtime.last_call["input"]["text"])
+        self.assertIn("交易计划详情", notification_runtime.last_call["input"]["text"])
 
-        handoff = await _PublisherApprovalHandoff(self.bus).handoff(
-            NotificationApprovalHandoffRequest(
-                handoff_id="handoff-nvda-smoke",
-                fact_id="fact-nvda-smoke",
-                plugin_id="quantagent.official.notification.discord",
-                transport="discord",
-                request_id="req-discord-smoke",
+        await self.bus.publish(
+            EventEnvelope(
+                id="evt-web-approval-input",
+                topic="approval.input_received",
+                payload=ApprovalInput(
+                    id="input-web-nvda-smoke",
+                    approval_id=approval_id,
+                    channel="web",
+                    actor_ref="user:local-smoke",
+                    structured_payload={"intent": "approve"},
+                    received_at="2026-06-18T00:01:00+00:00",
+                ).to_mapping(),
+                producer="web-approval-smoke",
+                created_at="2026-06-18T00:01:00+00:00",
                 correlation_id="trace-nvda-smoke",
-                interaction_id="interaction-nvda-smoke",
-                source_id="discord-user-1",
-                text=f"approval_id: {approval_id} approve",
-                received_at="2026-06-18T00:01:00+00:00",
-                payload_summary={"approval_id": approval_id, "intent": "approve"},
+                causation_id=approval_id,
             )
         )
 
@@ -136,7 +158,6 @@ class AgentActionApprovalDiscordLoopSmokeTestCase(unittest.IsolatedAsyncioTestCa
             self.assertIsNotNone(decision)
             self.assertEqual(decision.status, ApprovalDecisionStatus.POLICY_GATE_FAILED)
 
-        self.assertEqual(handoff.status, "queued")
         self.assertEqual(len(approval_completed), 1)
         self.assertEqual(approval_completed[0].payload["approval_id"], approval_id)
         self.assertEqual(approval_completed[0].payload["status"], ApprovalDecisionStatus.POLICY_GATE_FAILED.value)
@@ -166,39 +187,6 @@ class _RecordingHandler:
         self.events.append(envelope)
 
 
-class _PublisherApprovalHandoff:
-    def __init__(self, publisher: InMemoryEventBus) -> None:
-        self._publisher = publisher
-
-    async def handoff(self, request: NotificationApprovalHandoffRequest) -> NotificationApprovalHandoffResult:
-        input_id = f"approval_input_{request.fact_id}_{request.interaction_id}"
-        approval_id = _extract_approval_id(request.text)
-        await self._publisher.publish(
-            EventEnvelope(
-                id=f"evt-{input_id}",
-                topic="approval.input_received",
-                payload=ApprovalInput(
-                    id=input_id,
-                    approval_id=approval_id,
-                    channel=request.transport,
-                    actor_ref=f"{request.transport}:{request.source_id}",
-                    raw_text=request.text,
-                    structured_payload={"intent": "approve"},
-                    received_at=request.received_at,
-                ).to_mapping(),
-                producer="api-notification-ingress-smoke",
-                created_at=request.received_at,
-                correlation_id=request.correlation_id,
-                causation_id=request.fact_id,
-            )
-        )
-        return NotificationApprovalHandoffResult(
-            status="queued",
-            message="Notification receive fact was mapped to approval.input_received.",
-            metadata={"approval_id": approval_id, "input_id": input_id},
-        )
-
-
 class _RegistryWithRecord:
     def get_plugin(self, _plugin_id: str):
         return PluginRecord(
@@ -212,7 +200,7 @@ class _RegistryWithRecord:
                 type=PluginType.NOTIFICATION,
                 version="0.1.0",
                 entrypoint="discord_plugin:plugin",
-                capabilities=("notification.send", "notification.receive"),
+                capabilities=("notification.send",),
                 config_schema="config.schema.json",
             ),
         )
@@ -260,19 +248,17 @@ def _nvda_action() -> ActionRequest:
             "summary": "NVDA dry-run plan",
             "orders": [{"symbol": "NVDA", "side": "buy", "notional_usd": 9500.0}],
             "risk_controls": {"stop_loss_pct": -4.5, "take_profit_pct": 8.0},
+            "action_plan_summary": {
+                "summary": "NVDA dry-run plan",
+                "orders": [{"symbol": "NVDA", "side": "buy", "order_intent": "open", "notional_usd": 9500.0}],
+                "risk_controls": {"stop_loss_pct": -4.5, "take_profit_pct": 8.0},
+            },
         },
         strategy_policy={"requested_mode_hint": "auto_if_allowed"},
         user_policy={"manual_confirmation_required": True},
         ai_policy_hint={"idempotency_key": "nvda-action-smoke"},
         correlation_id="trace-nvda-smoke",
     )
-
-
-def _extract_approval_id(text: str) -> str:
-    marker = "approval_id:"
-    after_marker = text.split(marker, 1)[1].strip()
-    return after_marker.split()[0]
-
 
 if __name__ == "__main__":
     unittest.main()

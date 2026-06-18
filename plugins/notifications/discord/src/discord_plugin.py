@@ -141,20 +141,23 @@ class DiscordPlugin(BasePlugin):
         transport: Transport | None = None,
         timeout_seconds: float | None = None,
     ) -> SendResult:
+        webhook_url = _optional_str(config.get("webhook_url"))
         webhook_secret_ref = _optional_str(config.get("webhook_secret_ref"))
-        if webhook_secret_ref is None:
+        if webhook_url is None and webhook_secret_ref is None:
             return SendResult(
                 ok=False,
                 code="MISSING_CONFIG",
-                message="Missing required config field: webhook_secret_ref.",
+                message="Missing required config field: webhook_url.",
             )
 
-        webhook_url = _resolve_secret(webhook_secret_ref, secrets)
+        if webhook_url is None and webhook_secret_ref is not None:
+            # 兼容旧 smoke / 低层测试；公开插件配置已改为 webhook_url，由平台负责解密后内存注入。
+            webhook_url = _resolve_secret(webhook_secret_ref, secrets)
         if webhook_url is None:
             return SendResult(
                 ok=False,
                 code="SECRET_NOT_RESOLVED",
-                message="Webhook secret reference could not be resolved.",
+                message="Discord webhook URL could not be resolved.",
                 webhook_secret_ref=webhook_secret_ref,
             )
 
