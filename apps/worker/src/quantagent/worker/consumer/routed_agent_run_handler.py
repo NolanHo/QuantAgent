@@ -15,6 +15,7 @@ from quantagent.core.approval import ActionRequest
 from quantagent.agent.models import OpenAICompatibleChatModel
 from quantagent.agent.runtime import AgentRuntime, AgentRunRequest, build_agent_chat_assets, build_agent_chat_run_context
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
+from quantagent.agent.tools.action_submission import ActionSubmissionRequest, ActionSubmissionResult
 from quantagent.agent.tools import (
     build_build_action_plan_tool,
     build_evaluate_thesis_tool,
@@ -323,8 +324,8 @@ class _ActionRequestedPublisher:
     def __init__(self, publisher: EventBusPublisher) -> None:
         self._publisher = publisher
 
-    async def __call__(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        action = ActionRequest.from_mapping(payload)
+    async def submit(self, request: ActionSubmissionRequest) -> ActionSubmissionResult:
+        action = ActionRequest.from_mapping(request.action_request)
         # routed worker 只发布 action.requested；approval/notification 由 worker topic handler 异步消费。
         await self._publisher.publish(
             EventEnvelope(
@@ -338,12 +339,13 @@ class _ActionRequestedPublisher:
                 headers=sanitize_mapping({"action_request_id": action.id}),
             )
         )
-        return {
-            "action_request_id": action.id,
-            "dispatch_status": "action_requested",
-            "approval_status_hint": "pending_worker",
-            "notification_status_hint": "pending_worker",
-        }
+        return ActionSubmissionResult(
+            action_request_id=action.id,
+            submission_id=request.submission_id,
+            dispatch_status="action_requested",
+            approval_status_hint="pending_worker",
+            notification_status_hint="pending_worker",
+        )
 
 
 def _should_start_agent_run(payload: Mapping[str, object]) -> bool:

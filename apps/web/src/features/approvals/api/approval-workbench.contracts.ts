@@ -5,6 +5,8 @@ import type {
   ApprovalExpirationAction,
   ApprovalRiskDirection,
   ApprovalStatus,
+  ApprovalActionPlanSummary,
+  ApprovalWorkbenchDetail,
   ApprovalWorkbenchItem,
   ApprovalWorkbenchOverview,
   ApprovalWorkbenchSearch,
@@ -128,8 +130,18 @@ export function mapApprovalSummary(dto: ApprovalSummaryDto): ApprovalWorkbenchIt
   }
 }
 
-export function mapApprovalDetail(dto: ApprovalDetailDto): ApprovalWorkbenchItem {
-  return mapApprovalSummary(dto)
+export function mapApprovalDetail(dto: ApprovalDetailDto): ApprovalWorkbenchDetail {
+  return {
+    ...mapApprovalSummary(dto),
+    actionRequestSummary: dto.action_request_summary,
+    actionPlan: mapActionPlanSummary(dto.action_request_summary),
+    allowedChannels: dto.allowed_channels,
+    policySource: dto.policy_source,
+    inputs: dto.inputs,
+    evaluations: dto.evaluations,
+    decisions: dto.decisions,
+    auditRefs: dto.audit_refs,
+  }
 }
 
 export function toApprovalActionPayload(action: ApprovalActionType, reason?: string): ApprovalActionRequestDto {
@@ -212,4 +224,100 @@ function toApiSort(sort: ApprovalWorkbenchSearch['sort']): string {
   if (sort === 'latest') return '-updated_at'
   if (sort === 'expires_soon') return 'expires_at'
   return '-updated_at'
+}
+
+function mapActionPlanSummary(actionRequestSummary: Record<string, unknown>): ApprovalActionPlanSummary | null {
+  const proposedPayload = toRecord(actionRequestSummary.proposed_payload_summary) ?? {}
+  const plan = toRecord(proposedPayload.action_plan_summary)
+  const fallbackOrder = toRecord(proposedPayload.order_summary)
+  if (!plan && !fallbackOrder) return null
+
+  return {
+    artifactId: toText(plan?.action_plan_artifact_id),
+    summary: toText(plan?.summary ?? proposedPayload.summary),
+    intent: toText(plan?.intent),
+    intendedAction: toText(plan?.intended_action),
+    actionSide: toRiskDirection(toText(plan?.action_side ?? actionRequestSummary.action_side)),
+    targetSymbols: toTextList(plan?.target_symbols),
+    orders: mapOrders(plan?.orders, fallbackOrder),
+    riskControls: mapRiskControls(plan?.risk_controls ?? proposedPayload.risk_controls),
+    monitoringPlan: mapMonitoringPlan(plan?.monitoring_plan ?? proposedPayload.monitoring_plan),
+    userNotification: mapNotification(plan?.user_notification ?? proposedPayload.notification_summary),
+    constraints: toTextList(plan?.constraints),
+    brokerMode: toText(proposedPayload.broker_mode),
+    idempotencyKey: toText(proposedPayload.idempotency_key),
+  }
+}
+
+function mapOrders(value: unknown, fallbackOrder: Record<string, unknown> | null) {
+  const orders = toRecordList(value)
+  const source = orders.length > 0 ? orders : fallbackOrder ? [fallbackOrder] : []
+  return source.map((order) => ({
+    symbol: toText(order.symbol),
+    side: toText(order.side),
+    orderIntent: toText(order.order_intent),
+    notionalUsd: toNumber(order.notional_usd),
+    portfolioPct: toNumber(order.portfolio_pct),
+    orderType: toText(order.order_type),
+    timeInForce: toText(order.time_in_force),
+  }))
+}
+
+function mapRiskControls(value: unknown) {
+  const riskControls = toRecord(value)
+  return {
+    stopLossPct: toNumber(riskControls?.stop_loss_pct),
+    takeProfitPct: toNumber(riskControls?.take_profit_pct),
+    invalidationConditions: toTextList(riskControls?.invalidation_conditions),
+  }
+}
+
+function mapMonitoringPlan(value: unknown) {
+  const monitoringPlan = toRecord(value)
+  return {
+    watchSymbols: toTextList(monitoringPlan?.watch_symbols),
+    watchTopics: toTextList(monitoringPlan?.watch_topics),
+    duration: toText(monitoringPlan?.duration),
+  }
+}
+
+function mapNotification(value: unknown) {
+  const notification = toRecord(value)
+  return {
+    title: toText(notification?.title),
+    summary: toText(notification?.summary),
+    deliveryPolicy: toText(notification?.delivery_policy),
+  }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function toRecordList(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.flatMap((item) => (toRecord(item) ? [toRecord(item)!] : [])) : []
+}
+
+function toText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return ''
+}
+
+function toTextList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const text = toText(item).trim()
+    return text ? [text] : []
+  })
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }

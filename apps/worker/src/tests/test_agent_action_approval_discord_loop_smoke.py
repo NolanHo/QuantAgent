@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -30,12 +31,18 @@ from quantagent.worker.consumer import (
 
 class AgentActionApprovalDiscordLoopSmokeTestCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        self.engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+        self.tempdir = TemporaryDirectory()
+        db_path = Path(self.tempdir.name) / "approval-smoke.db"
+        self.engine = create_engine(
+            f"sqlite+pysqlite:///{db_path}",
+            future=True,
+        )
         Base.metadata.create_all(self.engine)
         self.bus = InMemoryEventBus()
 
     def tearDown(self) -> None:
         self.engine.dispose()
+        self.tempdir.cleanup()
 
     async def test_memory_loop_runs_from_agent_action_to_safe_terminal_approval(self) -> None:
         approval_handler = WorkerApprovalEventHandler(

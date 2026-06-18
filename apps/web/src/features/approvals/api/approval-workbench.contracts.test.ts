@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   mapApprovalActionResponse,
+  mapApprovalDetail,
   mapApprovalListResponse,
   mapApprovalOverview,
   toApprovalActionPayload,
@@ -90,5 +91,70 @@ describe('approval workbench API contracts', () => {
 
     expect(result.appliedIds).toEqual(['approval-1'])
     expect(result.message).toBe('approval_action_submitted')
+  })
+
+  it('maps approval detail action plan summary for the detail page', () => {
+    const detail = mapApprovalDetail({
+      ...approvalListResponse.items[0],
+      action_request_summary: {
+        id: 'action-1',
+        action_side: 'increase_risk',
+        proposed_payload_summary: {
+          broker_mode: 'dry_run',
+          idempotency_key: 'evt-1:plan-1',
+          action_plan_summary: {
+            action_plan_artifact_id: 'artifact-action-plan-1',
+            summary: 'NVDA high-conviction dry-run plan',
+            intent: 'trade',
+            intended_action: 'open_long',
+            action_side: 'increase_risk',
+            target_symbols: ['NVDA'],
+            orders: [
+              {
+                symbol: 'NVDA',
+                side: 'buy',
+                order_intent: 'open',
+                notional_usd: 9500,
+                portfolio_pct: 0.095,
+                order_type: 'market',
+                time_in_force: 'day',
+              },
+            ],
+            risk_controls: {
+              stop_loss_pct: -4.5,
+              take_profit_pct: 8,
+              invalidation_conditions: ['guidance weakened'],
+            },
+            monitoring_plan: {
+              watch_symbols: ['NVDA'],
+              watch_topics: ['earnings_call'],
+              duration: '24h',
+            },
+            user_notification: {
+              delivery_policy: 'send',
+              title: 'NVDA 财报行动计划',
+              summary: '需要人工审批。',
+            },
+            constraints: ['broker_mode=dry_run'],
+          },
+        },
+      },
+      allowed_channels: ['web'],
+      policy_source: 'system_default',
+      inputs: [],
+      evaluations: [],
+      decisions: [],
+      audit_refs: [],
+    })
+
+    expect(detail.actionPlan).toMatchObject({
+      artifactId: 'artifact-action-plan-1',
+      brokerMode: 'dry_run',
+      idempotencyKey: 'evt-1:plan-1',
+      targetSymbols: ['NVDA'],
+      orders: [{ symbol: 'NVDA', notionalUsd: 9500, portfolioPct: 0.095 }],
+      riskControls: { stopLossPct: -4.5, takeProfitPct: 8 },
+      monitoringPlan: { watchTopics: ['earnings_call'], duration: '24h' },
+    })
   })
 })
