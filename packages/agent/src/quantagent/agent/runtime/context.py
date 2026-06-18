@@ -14,7 +14,7 @@ class StrictModel(BaseModel):
 class RunContextSection(StrictModel):
     name: str = Field(min_length=1, description="Context section name, e.g. event or route_context.")
     summary: str = Field(min_length=1, description="Compressed context summary for the agent.")
-    data: dict[str, Any] = Field(default_factory=dict, description="Small structured context without secrets.")
+    data: dict[str, Any] = Field(default_factory=dict, description="Structured context bound to the current run.")
     artifact_ref: ArtifactRef | None = Field(default=None, description="Artifact reference when the context is large.")
 
 
@@ -22,10 +22,15 @@ class RunContextSnapshot(StrictModel):
     context_id: str = Field(min_length=1, description="Audit id for this run context snapshot.")
     sections: list[RunContextSection] = Field(default_factory=list, description="Bounded run context sections.")
     artifact_refs: list[ArtifactRef] = Field(default_factory=list, description="Extra artifact refs available to this run.")
-    safe_summary: str = Field(min_length=1, description="Prompt/log-safe context summary.")
+    content: str = Field(min_length=1, description="Display/runtime context content for this run.")
 
 
 class ToolRuntimeContext(StrictModel):
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    session_id: str = Field(description="Current Agent Chat session id injected by AgentRuntime.")
+    thread_id: str = Field(description="Current DeepAgents/LangGraph thread id injected by AgentRuntime.")
+    workspace_id: str = Field(description="Current run workspace id injected by AgentRuntime.")
     agent_run_id: str = Field(description="Current AgentRun id injected by AgentRuntime.")
     event_id: str = Field(description="Current event id injected by AgentRuntime.")
     industry_id: str = Field(description="Current industry package id.")
@@ -33,3 +38,7 @@ class ToolRuntimeContext(StrictModel):
     trace_id: str = Field(description="Trace id spanning runtime, tool, audit, and logs.")
     tool_profile_id: str = Field(description="Resolved tool profile id.")
     subagent_id: str | None = Field(default=None, description="SubAgent id when tool is executed inside a subagent.")
+    subagent_name: str | None = Field(default=None, description="DeepAgents-visible subagent name when applicable.")
+    span_id: str | None = Field(default=None, description="Protocol span id for this tool execution owner.")
+    parent_span_id: str | None = Field(default=None, description="Parent protocol span id when applicable.")
+    artifact_store: Any | None = Field(default=None, exclude=True, description="Run-scoped artifact store injected by AgentRuntime.")

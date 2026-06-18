@@ -19,7 +19,7 @@ MVP 只固定一个可选 SubAgent：`EvidenceResearchAnalyst`。其他专家角
 
 ## MainAgent 职责 Prompt 草案
 
-`agents/main.md` 应聚焦编排纪律：
+`agents/main.md` 应聚焦编排纪律。运行配置真源也在 Markdown frontmatter 中；也就是说 MainAgent 定义和 system prompt 合并为一个文件。工具通过 frontmatter `tools` 声明工具 ID，工具描述、schema 和风险元数据由平台工具定义 / ToolRegistry 提供。详细合同见 [11. Agent 资产 Manifest 与 Loader 合同](11-agent-asset-manifest-loader-contract.md)。
 
 ```markdown
 ---
@@ -27,10 +27,7 @@ id: quantagent.official.industry.semiconductor.agent.main
 name: Semiconductor Main Agent
 type: industry_main_agent
 version: 0.1.0
-provider_policy: balanced
-output_schema: industry_analysis.schema.json
-skills:
-  - quantagent.official.industry.semiconductor.skill.market-analysis
+description: 半导体行业事件分析的 PlannerExecutor 总控 Agent。
 tools:
   - quantagent.core.tool.get_run_context
   - quantagent.official.source.tavily.search_web
@@ -38,6 +35,12 @@ tools:
   - quantagent.core.tool.evaluate_thesis
   - quantagent.core.tool.build_action_plan
   - quantagent.core.tool.submit_action_plan
+max_tool_calls: 12
+skill_paths:
+  - skills/market-analysis
+subagents:
+  - path: subagents/evidence_research_analyst.md
+output_schema_id: quantagent.schema.industry_analysis.v1
 ---
 
 你是 QuantAgent 的半导体行业 MainAgent。

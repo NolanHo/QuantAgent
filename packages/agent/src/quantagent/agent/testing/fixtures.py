@@ -13,6 +13,9 @@ from quantagent.agent.tools.profiles import ToolBinding, ToolProfile
 
 def build_echo_run_request() -> AgentRunRequest:
     return AgentRunRequest(
+        session_id="session_test_echo",
+        thread_id="thread_test_echo",
+        workspace_id="workspace_test_echo",
         agent_run_id="run_test_echo",
         event_id="evt_test_echo",
         industry_id="industry_test",
@@ -27,7 +30,7 @@ def build_echo_run_request() -> AgentRunRequest:
         run_context=RunContextSnapshot(
             context_id="context_test_echo",
             sections=[RunContextSection(name="event", summary="A safe test event.")],
-            safe_summary="Safe test run context.",
+            content="Safe test run context.",
         ),
         tool_profile=ToolProfile(
             profile_id="tool_profile_test",
@@ -48,25 +51,25 @@ async def scripted_echo_runner(
         trace_id=request.trace_id,
         event_type=AgentRunEventType.TODO_UPDATED,
         payload={"todos": [{"content": "检查输入", "status": "completed"}]},
-        safe_summary="Todo updated.",
+        content="Todo updated.",
     )
     artifact_ref = artifact_store.put(
         kind="runtime_output",
         producer_id=request.agent_definition.agent_id,
         payload={"summary": "echo result"},
-        safe_summary="Echo runtime output artifact.",
+        content="Echo runtime output artifact.",
     )
     yield sequencer.next(
         agent_run_id=request.agent_run_id,
         trace_id=request.trace_id,
         event_type=AgentRunEventType.ARTIFACT_CREATED,
         payload={"artifact_id": artifact_ref.artifact_id, "kind": artifact_ref.kind},
-        safe_summary=artifact_ref.safe_summary,
+        content=artifact_ref.content,
     )
     yield sequencer.next(
         agent_run_id=request.agent_run_id,
         trace_id=request.trace_id,
         event_type=AgentRunEventType.RUN_OUTPUT,
         payload={"industry_analysis_artifact_id": artifact_ref.artifact_id},
-        safe_summary="Echo run produced final output.",
+        content="Echo run produced final output.",
     )

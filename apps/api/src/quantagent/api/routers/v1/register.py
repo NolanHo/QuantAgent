@@ -15,6 +15,7 @@ from quantagent.api.routers.v1.notification_ingress import router as notificatio
 from quantagent.api.routers.v1.health import router as health_router
 from quantagent.api.routers.v1.models import router as models_router
 from quantagent.api.routers.v1.plugins import router as plugins_router
+from quantagent.api.routers.v1.agent_chat import router as agent_chat_router
 from quantagent.api.routers.v1.agent_runs import router as agent_runs_router
 from quantagent.api.routers.v1.approvals import router as approvals_router
 from quantagent.api.routers.v1.runtime_errors import router as runtime_errors_router
@@ -55,6 +56,7 @@ STANDARD_API_V1_ROUTER_REGISTRATIONS = (
     ApiV1RouterRegistration(router=runtime_audit_router, access="protected"),
     ApiV1RouterRegistration(router=raw_events_router, access="protected"),
     ApiV1RouterRegistration(router=runtime_errors_router, access="protected"),
+    ApiV1RouterRegistration(router=agent_chat_router, access="protected"),
     ApiV1RouterRegistration(router=agent_runs_router, access="protected"),
     ApiV1RouterRegistration(router=tool_invocations_router, access="protected"),
 )
@@ -108,8 +110,6 @@ def register_api_v1_routes(app: FastAPI, app_settings: Settings) -> None:
         register_api_v1_router(app, app_settings, registration)
 
     if not app_settings.is_production:
-        from quantagent.api.routers.v1.agent_debug import router as agent_debug_router
         from quantagent.api.routers.v1.debug import router as debug_router
 
         register_api_v1_protected_router(app, app_settings, debug_router)
-        register_api_v1_protected_router(app, app_settings, agent_debug_router)

@@ -7,6 +7,7 @@ import type { RuntimeConfig } from "@/shared/config";
 import { createModelProviderApi } from "@/features/models/api";
 import { createRuntimeAuditApi } from "@/features/runtime/api";
 import { createEventAuditApi } from "@/features/event-audit/api";
+import { createAgentChatApi } from "@/features/agent-chat/api";
 import { createEventsApi } from "@/features/events/api";
 
 import type { AppRuntime, AuthRuntimeBridge } from "./runtime.types";
@@ -27,6 +28,7 @@ export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): App
   const modelProviderApi = createModelProviderApi(apiClient);
   const runtimeAuditApi = createRuntimeAuditApi(apiClient);
   const eventAuditApi = createEventAuditApi(apiClient);
+  const agentChatApi = createAgentChatApi(apiClient);
   const eventsApi = createEventsApi(apiClient);
 
   return {
@@ -41,6 +43,7 @@ export function createAppRuntime({ auth, config }: CreateAppRuntimeOptions): App
       modelProviders: modelProviderApi,
       runtimeAudit: runtimeAuditApi,
       eventAudit: eventAuditApi,
+      agentChat: agentChatApi,
       events: eventsApi,
     },
     realtime: {

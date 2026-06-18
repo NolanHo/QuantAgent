@@ -59,6 +59,9 @@ def build_nvda_earnings_run_request(
     )
 
     return AgentRunRequest(
+        session_id=f"session_nvda_{scenario}",
+        thread_id=f"thread_nvda_{scenario}",
+        workspace_id=f"workspace_nvda_{scenario}",
         agent_run_id=f"run_nvda_{scenario}",
         event_id=event_id,
         industry_id=SEMICONDUCTOR_INDUSTRY_ID,
@@ -88,7 +91,7 @@ def build_nvda_earnings_run_request(
                     data={"symbols": ["NVDA", "MU", "TSM", "ASML"]},
                 ),
             ],
-            safe_summary=f"NVDA {scenario} semiconductor run context.",
+            content=f"NVDA {scenario} semiconductor run context.",
         ),
         tool_profile=assets.main_tool_profile,
         runtime_policy=RuntimePolicy(model=None, max_subagent_tasks=1),

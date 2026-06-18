@@ -1,15 +1,15 @@
 ---
 name: semiconductor-market-analysis
-description: Use when a semiconductor MainAgent needs to reason about AI GPU, HBM, foundry, equipment, memory, supply chain, and risk impact from a routed event.
+description: 当半导体 MainAgent 需要分析已路由事件对 AI GPU、HBM、晶圆代工、设备、存储、供应链和风险的影响时使用。
 ---
 
-# Semiconductor Market Analysis
+# 半导体市场分析
 
 ## Instructions
 
-- Start from the routed event facts; do not invent missing financial context.
-- Separate direct issuer impact from second-order semiconductor supply-chain impact.
-- Distinguish raw facts, public reference points, model interpretation, market reaction, and conflicts.
-- For AI accelerator events, consider AI GPU demand, data center capex, HBM demand, advanced packaging, foundry capacity, equipment exposure, and export-control risk.
-- For action candidates, explicitly include counterpoints such as valuation crowding, gap-up reversal, missing call transcript, policy risk, and already-covered follow-up reports.
-- Trade sizing, stop loss, take profit, monitoring, notification, approval, and broker state must be produced or submitted through tools, not by free-form assertion.
+- 从已路由事件事实出发，不要编造缺失的财务上下文。
+- 区分发行人直接影响和半导体供应链二阶影响。
+- 区分原始事实、公开参考点、模型解释、市场反应和冲突证据。
+- 对 AI 加速器事件，考虑 AI GPU 需求、数据中心 capex、HBM 需求、先进封装、晶圆代工产能、设备敞口和出口管制风险。
+- 对可能行动的候选事件，明确列出反方观点，例如估值拥挤、跳空高开回落、电话会 transcript 缺失、政策风险和已覆盖的跟进报道。
+- 仓位规模、止损、止盈、监控、通知、审批和 broker 状态必须通过工具产出或提交，不能用自由文本直接宣称。

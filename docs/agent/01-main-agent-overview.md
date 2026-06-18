@@ -14,7 +14,7 @@ Source Plugin
   -> Notification / Approval / Broker
 ```
 
-这个表达容易让后续实现误以为 `Scoring / Debate` 和 `Decision` 必须是 MainAgent 之后的硬编码流水线节点。更合适的实现方式是：Router / Intake 之后进入行业 MainAgent，由 MainAgent 使用 DeepAgents 的 planning、task delegation、skills 和 workspace 能力编排后续动作；评分和辩论可以作为受控工具或后续 SubAgent，通知、审批、broker dry-run 和监控只通过 `submit_action_plan` 内部平台流程编排。
+这个表达容易让后续实现误以为 `Scoring / Debate` 和 `Decision` 必须是 MainAgent 之后的硬编码流水线节点。更合适的实现方式是：Router / Intake 之后进入行业 MainAgent，由 MainAgent 使用 DeepAgents 的 planning、task delegation 和 skills 编排后续动作；评分和辩论可以作为受控工具或后续 SubAgent，通知、审批、broker dry-run 和监控只通过 `submit_action_plan` 内部平台流程编排。
 
 ## 定位
 
@@ -45,10 +45,9 @@ Source Plugin
 ```text
 event.routed / industry.analysis.requested
   -> AgentRuntime
-  -> create_deep_agent(industry main agent)
+      -> create_deep_agent(industry main agent)
       -> write_todos(...)
       -> task(subagent=...)
-      -> read/write workspace files
       -> get_run_context(...)
       -> search_web(...)
       -> get_market_snapshot(...)?
@@ -71,7 +70,7 @@ event.routed / industry.analysis.requested
 
 MainAgent 方案只围绕 QuantAgent 自身边界设计：
 
-- 用 DeepAgents workspace 文件和结构化输出传递阶段结果，而不是依赖长聊天历史。
+- 用 run-scoped context tools、artifact 和结构化输出传递阶段结果，而不是依赖长聊天历史或任意文件路径。
 - 每个 SubAgent 只产出可校验的压缩报告。
 - 辩论和评分都是受控步骤，不是自由文本结论。
 - 最终输出必须符合 `IndustryAnalysis`，交易相关只能形成 `ActionPlan`。
@@ -86,3 +85,7 @@ MainAgent 方案只围绕 QuantAgent 自身边界设计：
 - 有最大工具调用数、最大 SubAgent 调用数和最大辩论轮次。
 - 输出 `IndustryAnalysis` 为硬性成功条件。
 - 交易相关只产出草案或请求，不产出真实执行结果。
+
+## DeepAgents 内置工具边界
+
+MVP 保留 DeepAgents 的 `write_todos` 和显式行业 SubAgent `task` 能力，但 AgentRuntime 默认不向模型暴露 `ls`、`glob`、`grep`、`read_file`、`write_file`、`edit_file` 或 `execute`。业务上下文只能通过 `get_run_context` 等平台工具读取，公开外部证据只能通过授权 source/search 工具读取。

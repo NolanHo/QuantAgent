@@ -7,6 +7,10 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from quantagent.agent.definitions.models import AgentDefinition, RuntimePolicy, SubAgentDefinition
 from quantagent.agent.runtime import AgentRuntime
+from quantagent.agent.runtime.deepagents_harness import (
+    DEEPAGENTS_FILESYSTEM_TOOL_NAMES,
+    AgentToolVisibilityMiddleware,
+)
 from quantagent.agent.runtime.errors import AgentRuntimeError
 from quantagent.agent.streaming.adapter import EventSequencer
 from quantagent.agent.testing import build_echo_platform_tool, build_echo_run_request
@@ -25,6 +29,31 @@ class DeepAgentsFactoryTest(TestCase):
 
         self.assertTrue(hasattr(graph, "invoke"))
         self.assertTrue(hasattr(graph, "stream"))
+
+    def test_default_factory_disables_deepagents_filesystem_tools(self) -> None:
+        class CapturingToolModel(FakeListChatModel):
+            captured_tool_names: list[str] = []
+
+            def bind_tools(self, tools=None, **kwargs):
+                self.captured_tool_names = [getattr(tool, "name", "") for tool in tools or []]
+                return self
+
+        model = CapturingToolModel(responses=["done"])
+        base_request = build_echo_run_request()
+        request = base_request.model_copy(
+            update={
+                "agent_definition": base_request.agent_definition.model_copy(update={"tool_ids": [], "subagents": []}),
+                "tool_profile": base_request.tool_profile.model_copy(update={"tool_bindings": []}),
+                "runtime_policy": RuntimePolicy(model=model),
+            }
+        )
+
+        graph = AgentRuntime._default_deep_agent_factory(request, [])
+        graph.invoke({"messages": [{"role": "user", "content": "hello"}]}, config={"configurable": {"thread_id": "thread_test"}})
+
+        self.assertIn("write_todos", model.captured_tool_names)
+        self.assertFalse(DEEPAGENTS_FILESYSTEM_TOOL_NAMES & set(model.captured_tool_names))
+        self.assertNotIn("task", model.captured_tool_names)
 
     def test_runtime_builds_langchain_tools_from_platform_tools(self) -> None:
         runtime = AgentRuntime(tools=[build_echo_platform_tool()])
@@ -133,8 +162,94 @@ class DeepAgentsFactoryTest(TestCase):
 
         kwargs = create_deep_agent.call_args.kwargs
         self.assertEqual([tool.name for tool in kwargs["tools"]], ["get_run_context", "get_account_context", "build_action_plan", "submit_action_plan"])
+        self.assertEqual([type(item) for item in kwargs["middleware"]], [AgentToolVisibilityMiddleware])
         self.assertEqual(len(kwargs["subagents"]), 1)
         research_tools = kwargs["subagents"][0]["tools"]
         self.assertEqual([tool.name for tool in research_tools], ["get_run_context", "search_web"])
+        self.assertEqual([type(item) for item in kwargs["subagents"][0]["middleware"]], [AgentToolVisibilityMiddleware])
         self.assertNotIn("get_account_context", {tool.name for tool in research_tools})
         self.assertNotIn("submit_action_plan", {tool.name for tool in research_tools})
+
+    def test_default_factory_keeps_search_web_out_of_main_agent_when_only_subagent_requests_it(self) -> None:
+        class DummyGraph:
+            def invoke(self, input_data, config=None):
+                return {}
+
+            def stream(self, input_data, config=None):
+                return iter(())
+
+        class NamedTool:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+        request = build_echo_run_request().model_copy(
+            update={
+                "agent_definition": AgentDefinition(
+                    agent_id="agent_chat_main",
+                    version="0.1.0",
+                    name="Agent Chat MainAgent",
+                    system_prompt="MainAgent 通过 Research Agent 做检索。",
+                    tool_ids=["quantagent.core.tool.get_run_context"],
+                    subagents=[
+                        SubAgentDefinition(
+                            subagent_id="subagent_research",
+                            name="evidence_research_analyst",
+                            description="负责公开证据检索。",
+                            system_prompt="你是 Research Agent。",
+                            tool_ids=["quantagent.core.tool.get_run_context", "quantagent.official.source.tavily.search_web"],
+                        )
+                    ],
+                ),
+                "tool_profile": ToolProfile(
+                    profile_id="tool_profile_agent_chat",
+                    tool_bindings=[
+                        ToolBinding(
+                            tool_id="quantagent.core.tool.get_run_context",
+                            name="get_run_context",
+                            description="读取 run context。",
+                        ),
+                        ToolBinding(
+                            tool_id="quantagent.official.source.tavily.search_web",
+                            name="search_web",
+                            description="检索公开网页。",
+                        ),
+                    ],
+                ),
+                "runtime_policy": RuntimePolicy(model=FakeListChatModel(responses=["done"])),
+            }
+        )
+
+        with patch("deepagents.create_deep_agent", return_value=DummyGraph()) as create_deep_agent:
+            AgentRuntime._default_deep_agent_factory(request, [NamedTool("get_run_context"), NamedTool("search_web")])
+
+        kwargs = create_deep_agent.call_args.kwargs
+        self.assertEqual([tool.name for tool in kwargs["tools"]], ["get_run_context"])
+        self.assertEqual([tool.name for tool in kwargs["subagents"][0]["tools"]], ["get_run_context", "search_web"])
+
+    def test_tool_bundle_builds_subagent_wrappers_with_subagent_scope(self) -> None:
+        runtime = AgentRuntime(tools=[build_echo_platform_tool()])
+        request = build_echo_run_request().model_copy(
+            update={
+                "agent_definition": build_echo_run_request().agent_definition.model_copy(
+                    update={
+                        "subagents": [
+                            SubAgentDefinition(
+                                subagent_id="subagent_research",
+                                name="evidence_research_analyst",
+                                description="负责公开证据检索。",
+                                system_prompt="你是 Research Agent。",
+                                tool_ids=["quantagent.test.echo"],
+                            )
+                        ]
+                    }
+                )
+            }
+        )
+        event_buffer = []
+
+        bundle = runtime._build_deep_agent_tool_bundle(request, EventSequencer(), event_buffer)
+        result = bundle.subagent_tools_by_name["evidence_research_analyst"][0].invoke({"text": "hello"})
+
+        self.assertEqual(result["echo"], "hello")
+        self.assertEqual(event_buffer[0].payload["subagent_id"], "subagent_research")
+        self.assertEqual(event_buffer[0].payload["subagent_name"], "evidence_research_analyst")

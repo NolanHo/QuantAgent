@@ -2,7 +2,7 @@
 
 ## 核心结论
 
-MainAgent 不应该亲自完成所有分析细节，但 MVP 也不应该一开始拆出一堆专家 Agent。DeepAgents 已经提供 `write_todos`、`task`、workspace 和 skills，行业 MainAgent 应把自己定位为“总控 Planner + 最终合成 Executor”。
+MainAgent 不应该亲自完成所有分析细节，但 MVP 也不应该一开始拆出一堆专家 Agent。DeepAgents 提供 `write_todos`、显式 `task` 和 skills，行业 MainAgent 应把自己定位为“总控 Planner + 最终合成 Executor”。文件系统类内置工具在 MVP 默认不可见，业务上下文和中间报告通过平台工具与 run artifact 传递。
 
 MVP 推荐形态：
 

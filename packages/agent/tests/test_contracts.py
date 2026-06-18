@@ -25,7 +25,7 @@ class ContractTest(TestCase):
             artifact_id="artifact_123",
             kind="runtime_output",
             producer_id="agent_test",
-            safe_summary="safe",
+            content="safe",
         )
 
         self.assertEqual(ref.artifact_id, "artifact_123")

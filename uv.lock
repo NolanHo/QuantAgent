@@ -1669,12 +1669,14 @@ source = { editable = "packages/agent" }
 dependencies = [
     { name = "deepagents" },
     { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "deepagents", specifier = ">=0.6.8,<0.7" },
     { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
 [[package]]

@@ -69,14 +69,14 @@ class TavilySourcePlugin(BasePlugin):
         # 2. 合并有效配置（平台配置 + 请求输入）
         config = _merge_effective_config(self.context.config, request.input)
 
-        # 3. 获取 API key（必需配置）
-        api_key = config.get("api_key_ref")
+        # 3. 获取 API key（必需配置）。兼容 api_key_ref 只为旧 SourceBinding fixture 过渡，新 UI 只展示 api_key。
+        api_key = config.get("api_key") or config.get("api_key_ref")
         if not api_key or not isinstance(api_key, str) or not api_key.strip():
             raise PluginRuntimeError(
                 code="PLUGIN_CONFIG_MISSING",
-                message="Missing or invalid api_key_ref in config",
+                message="Missing or invalid api_key in config",
                 stage="invoke",
-                details={"config_key": "api_key_ref"},
+                details={"config_key": "api_key"},
             )
 
         # 4. 构建客户端（注入测试 seam）

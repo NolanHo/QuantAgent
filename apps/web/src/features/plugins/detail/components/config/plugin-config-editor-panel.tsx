@@ -33,7 +33,7 @@ export function PluginConfigEditorPanel({ pluginId }: PluginConfigEditorPanelPro
     return (
       <div className="flex min-h-48 items-center justify-center rounded-lg border border-hairline bg-surface">
         <Spinner size="md" />
-        <span className="ml-3 text-body-sm text-muted">正在准备插件配置编辑 Mock...</span>
+        <span className="ml-3 text-body-sm text-muted">正在准备插件配置编辑器...</span>
       </div>
     );
   }
@@ -67,9 +67,6 @@ export function PluginConfigEditorPanel({ pluginId }: PluginConfigEditorPanelPro
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="m-0 text-title-sm font-bold text-ink">配置表单</p>
-                <Chip color="warning" size="sm" variant="soft">
-                  Mock
-                </Chip>
                 <Chip color={isDirty ? "warning" : "success"} size="sm" variant="soft">
                   {isDirty ? "有未保存改动" : "无改动"}
                 </Chip>
@@ -86,7 +83,7 @@ export function PluginConfigEditorPanel({ pluginId }: PluginConfigEditorPanelPro
               </Button>
               <Button isDisabled={savePending || !isDirty} size="sm" type="button" variant="primary" onPress={() => void saveDraft()}>
                 <Save className="size-4" />
-                {savePending ? "保存中" : "模拟保存"}
+                {savePending ? "保存中" : "保存"}
               </Button>
             </div>
           </div>

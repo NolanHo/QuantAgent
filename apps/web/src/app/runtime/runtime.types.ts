@@ -6,6 +6,7 @@ import type { AuthApi } from "@/shared/auth/api";
 import type { ModelProviderApi } from "@/features/models/api";
 import type { RuntimeAuditApi } from "@/features/runtime/api";
 import type { EventAuditApi } from "@/features/event-audit/api";
+import type { AgentChatApi } from "@/features/agent-chat/api";
 import type { EventsApi } from "@/features/events/api";
 
 export type RealtimeStatus = "connected" | "disabled" | "reconnecting";
@@ -24,6 +25,7 @@ export interface RuntimeApis {
   modelProviders: ModelProviderApi;
   runtimeAudit: RuntimeAuditApi;
   eventAudit: EventAuditApi;
+  agentChat: AgentChatApi;
   events: EventsApi;
 }
 

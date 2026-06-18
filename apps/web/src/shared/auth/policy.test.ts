@@ -46,6 +46,7 @@ describe('capability policy', () => {
     expect(listVisibleNavItems(capabilities).map((item) => item.to)).toEqual([
       '/',
       '/events',
+      '/agent-chat',
       '/approvals',
       '/runtime',
       '/settings',
@@ -62,7 +63,7 @@ describe('capability policy', () => {
   it('maps nested workspace routes back to their guarded family path', () => {
     expect(resolveWorkspaceRoutePath('/events/event-1')).toBe('/events')
     expect(resolveWorkspaceRoutePath('/approvals/ap-1')).toBe('/approvals')
-    expect(resolveWorkspaceRoutePath('/debug/agent-run-chat')).toBe('/debug')
+    expect(resolveWorkspaceRoutePath('/agent-chat')).toBe('/agent-chat')
     expect(resolveWorkspaceRoutePath('/approval-link/token')).toBeNull()
   })
 

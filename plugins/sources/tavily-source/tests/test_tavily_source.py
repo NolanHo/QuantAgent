@@ -41,7 +41,7 @@ class TavilySourcePluginTestCase(unittest.TestCase):
             PluginRuntimeService().load_plugin(
                 _tavily_record(),
                 request_id="req-tavily-test-load",
-                config={"api_key_ref": "test-key-12345"},
+                config={"api_key": "test-key-12345"},
                 metadata={"origin": "tavily-plugin-test"},
             )
         )
@@ -121,7 +121,7 @@ class TavilySourcePluginTestCase(unittest.TestCase):
                 _tavily_record(),
                 capability="source.search",
                 request_id="req-tavily-runtime",
-                config={"api_key_ref": "test-key-12345"},
+                config={"api_key": "test-key-12345"},
                 input={"query": "battery storage breakthrough 2026"},
             )
         )
@@ -131,6 +131,26 @@ class TavilySourcePluginTestCase(unittest.TestCase):
         output = SourceFetchResult.from_mapping(invocation.result.output)
         self.assertEqual(output.metadata["query"], "battery storage breakthrough 2026")
         self.assertEqual(len(output.items), 2)
+
+    def test_runtime_accepts_legacy_api_key_ref_for_existing_bindings(self) -> None:
+        """测试旧 effective config 快照仍可在迁移窗口内运行。"""
+        fixture_data = json.loads(SEARCH_FIXTURE.read_text(encoding="utf-8"))
+        runtime = _RuntimeServiceWithFakeHttp(fixture_data)
+
+        invocation = asyncio.run(
+            runtime.invoke(
+                _tavily_record(),
+                capability="source.search",
+                request_id="req-tavily-runtime-legacy-key-ref",
+                config={"api_key_ref": "legacy-test-key"},
+                input={"query": "battery storage breakthrough 2026"},
+            )
+        )
+
+        self.assertTrue(invocation.ok)
+        self.assertIsNotNone(invocation.result)
+        output = SourceFetchResult.from_mapping(invocation.result.output)
+        self.assertEqual(output.metadata["query"], "battery storage breakthrough 2026")
 
     def test_source_fetch_routes_query_to_search_path(self) -> None:
         """测试 source.fetch 传 query 时走搜索路径。"""

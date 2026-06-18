@@ -16,7 +16,7 @@ export class PluginConfigApi extends BaseApi {
   }
 
   fetchConfig(pluginId: string): Promise<PluginConfigSnapshotResponse> {
-    return this.get<PluginConfigSnapshotResponse>(`/${pluginId}/config`, {
+    return this.get<PluginConfigSnapshotResponse>(`/${pluginId}/config-values`, {
       dedupeKey: `plugin-config:${pluginId}`,
     });
   }
@@ -38,7 +38,7 @@ export class PluginConfigApi extends BaseApi {
     payload: PluginConfigUpdateRequest,
   ): Promise<PluginConfigUpdateResponse> {
     return this.put<PluginConfigUpdateRequest, PluginConfigUpdateResponse>(
-      `/${pluginId}/config`,
+      `/${pluginId}/config-values`,
       payload,
       { dedupeKey: false },
     );

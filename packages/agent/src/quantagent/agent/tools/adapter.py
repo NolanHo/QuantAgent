@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -9,7 +10,6 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from quantagent.agent.runtime.context import ToolRuntimeContext
-from quantagent.agent.runtime.errors import ToolAdapterError
 from quantagent.agent.streaming.adapter import EventSequencer
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
 from quantagent.agent.tools.profiles import ToolBinding
@@ -39,48 +39,197 @@ class ToolAdapter:
         self._sequencer = sequencer
 
     async def invoke(self, tool: PlatformTool[InputModelT], raw_input: Mapping[str, Any]) -> tuple[Mapping[str, Any], list[AgentRunEvent]]:
-        input_data = tool.input_model.model_validate(dict(raw_input))
-        invocation_id = f"tool_inv_{uuid4().hex}"
-        events = [
-            self._sequencer.next(
-                agent_run_id=self._runtime_context.agent_run_id,
-                trace_id=self._runtime_context.trace_id,
-                event_type=AgentRunEventType.TOOL_STARTED,
-                payload={"invocation_id": invocation_id, "tool_id": tool.binding.tool_id, "name": tool.binding.name},
-                safe_summary=f"Tool {tool.binding.name} started.",
-            )
-        ]
+        input_data, input_payload, invocation_id, events = self._start_invocation(tool, raw_input)
+        before_artifact_ids = _artifact_ids(self._runtime_context)
 
         try:
             result = tool.callable(input_data, self._runtime_context)
             if inspect.isawaitable(result):
                 result = await result
         except Exception as exc:  # noqa: BLE001
-            safe_error = _safe_error_summary(exc)
-            events.append(
-                self._sequencer.next(
-                    agent_run_id=self._runtime_context.agent_run_id,
-                    trace_id=self._runtime_context.trace_id,
-                    event_type=AgentRunEventType.TOOL_FAILED,
-                    payload={"invocation_id": invocation_id, "tool_id": tool.binding.tool_id, "error": safe_error},
-                    safe_summary=f"Tool {tool.binding.name} failed.",
-                )
-            )
-            raise ToolAdapterError(safe_error) from exc
+            return self._fail_invocation(tool, input_payload, invocation_id, events, exc)
 
+        return self._complete_invocation(tool, input_payload, invocation_id, events, result, before_artifact_ids)
+
+    def invoke_sync(self, tool: PlatformTool[InputModelT], raw_input: Mapping[str, Any]) -> tuple[Mapping[str, Any], list[AgentRunEvent]]:
+        input_data, input_payload, invocation_id, events = self._start_invocation(tool, raw_input)
+        before_artifact_ids = _artifact_ids(self._runtime_context)
+
+        try:
+            result = tool.callable(input_data, self._runtime_context)
+            if inspect.isawaitable(result):
+                result = _run_sync(result)
+        except Exception as exc:  # noqa: BLE001
+            return self._fail_invocation(tool, input_payload, invocation_id, events, exc)
+
+        return self._complete_invocation(tool, input_payload, invocation_id, events, result, before_artifact_ids)
+
+    def _start_invocation(
+        self,
+        tool: PlatformTool[InputModelT],
+        raw_input: Mapping[str, Any],
+    ) -> tuple[InputModelT, dict[str, Any], str, list[AgentRunEvent]]:
+        input_data = tool.input_model.model_validate(dict(raw_input))
+        input_payload = input_data.model_dump(mode="json")
+        invocation_id = f"tool_inv_{uuid4().hex}"
+        events = [
+            self._sequencer.next(
+                agent_run_id=self._runtime_context.agent_run_id,
+                trace_id=self._runtime_context.trace_id,
+                event_type=AgentRunEventType.TOOL_STARTED,
+                payload={
+                    **self._scope_payload(),
+                    "invocation_id": invocation_id,
+                    "tool_call_id": invocation_id,
+                    "call_id": invocation_id,
+                    "tool_id": tool.binding.tool_id,
+                    "name": tool.binding.name,
+                    "tool_name": tool.binding.name,
+                    "input": input_payload,
+                    "args": input_payload,
+                },
+                content=f"工具 {tool.binding.name} 开始调用。",
+            )
+        ]
+        return input_data, input_payload, invocation_id, events
+
+    def _fail_invocation(
+        self,
+        tool: PlatformTool[InputModelT],
+        input_payload: Mapping[str, Any],
+        invocation_id: str,
+        events: list[AgentRunEvent],
+        exc: Exception,
+    ) -> tuple[Mapping[str, Any], list[AgentRunEvent]]:
+        error = _tool_error_content(exc)
+        events.append(
+            self._sequencer.next(
+                agent_run_id=self._runtime_context.agent_run_id,
+                trace_id=self._runtime_context.trace_id,
+                event_type=AgentRunEventType.TOOL_FAILED,
+                payload={
+                    **self._scope_payload(),
+                    "invocation_id": invocation_id,
+                    "tool_call_id": invocation_id,
+                    "call_id": invocation_id,
+                    "tool_id": tool.binding.tool_id,
+                    "name": tool.binding.name,
+                    "tool_name": tool.binding.name,
+                    "input": input_payload,
+                    "args": input_payload,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                content=f"工具 {tool.binding.name} 调用失败。",
+            )
+        )
+        # 中文注释：工具自身失败应作为 tool result 回给 DeepAgents，让模型有机会调整计划继续 loop；
+        # 未授权、缺工具等平台配置错误仍在 Runtime 层直接失败。
+        return {"ok": False, "error": error}, events
+
+    def _complete_invocation(
+        self,
+        tool: PlatformTool[InputModelT],
+        input_payload: Mapping[str, Any],
+        invocation_id: str,
+        events: list[AgentRunEvent],
+        result: Mapping[str, Any],
+        before_artifact_ids: set[str],
+    ) -> tuple[Mapping[str, Any], list[AgentRunEvent]]:
         events.append(
             self._sequencer.next(
                 agent_run_id=self._runtime_context.agent_run_id,
                 trace_id=self._runtime_context.trace_id,
                 event_type=AgentRunEventType.TOOL_COMPLETED,
-                payload={"invocation_id": invocation_id, "tool_id": tool.binding.tool_id},
-                safe_summary=f"Tool {tool.binding.name} completed.",
+                payload={
+                    **self._scope_payload(),
+                    "invocation_id": invocation_id,
+                    "tool_call_id": invocation_id,
+                    "call_id": invocation_id,
+                    "tool_id": tool.binding.tool_id,
+                    "name": tool.binding.name,
+                    "tool_name": tool.binding.name,
+                    "input": input_payload,
+                    "args": input_payload,
+                    "result": dict(result),
+                    "output": dict(result),
+                },
+                content=f"工具 {tool.binding.name} 调用完成。",
             )
         )
+        events.extend(_artifact_created_events(self._runtime_context, self._sequencer, before_artifact_ids))
         return dict(result), events
 
+    def _scope_payload(self) -> dict[str, str]:
+        payload: dict[str, str] = {"actor_type": "main"}
+        if self._runtime_context.subagent_id:
+            payload["actor_type"] = "subagent"
+            payload["subagent_id"] = self._runtime_context.subagent_id
+        if self._runtime_context.subagent_name:
+            payload["subagent_name"] = self._runtime_context.subagent_name
+        return payload
 
-def _safe_error_summary(exc: Exception) -> str:
-    """错误摘要只保留类别，原始异常内容可能带 secret、路径、prompt 或 provider 请求。"""
 
-    return f"{type(exc).__name__}: tool execution failed"
+def _tool_error_content(exc: Exception) -> str:
+    message = str(exc)
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
+def _run_sync(awaitable: Awaitable[Mapping[str, Any]]) -> Mapping[str, Any]:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(awaitable)
+    # 中文注释：DeepAgents 正常应走 async tool path；如果框架在已有事件循环内同步调工具，
+    # 继续阻塞等待会死锁，因此把失败作为工具结果交回模型而不是让 Runtime 崩掉。
+    close = getattr(awaitable, "close", None)
+    if callable(close):
+        close()
+    raise RuntimeError("当前事件循环内不可执行同步工具调用")
+
+
+def _artifact_ids(runtime_context: ToolRuntimeContext) -> set[str]:
+    store = runtime_context.artifact_store
+    if store is None:
+        return set()
+    return {ref.artifact_id for ref in store.list_for_run()}
+
+
+def _artifact_created_events(
+    runtime_context: ToolRuntimeContext,
+    sequencer: EventSequencer,
+    before_artifact_ids: set[str],
+) -> list[AgentRunEvent]:
+    store = runtime_context.artifact_store
+    if store is None:
+        return []
+    events: list[AgentRunEvent] = []
+    scope_payload = {"actor_type": "main"}
+    if runtime_context.subagent_id:
+        scope_payload["actor_type"] = "subagent"
+        scope_payload["subagent_id"] = runtime_context.subagent_id
+    if runtime_context.subagent_name:
+        scope_payload["subagent_name"] = runtime_context.subagent_name
+    for ref in store.list_for_run():
+        if ref.artifact_id in before_artifact_ids:
+            continue
+        try:
+            payload = dict(store.get(ref.artifact_id).payload)
+        except KeyError:
+            payload = {}
+        events.append(
+            sequencer.next(
+                agent_run_id=runtime_context.agent_run_id,
+                trace_id=runtime_context.trace_id,
+                event_type=AgentRunEventType.ARTIFACT_CREATED,
+                payload={
+                    **scope_payload,
+                    "artifact": ref.model_dump(mode="json"),
+                    "artifact_id": ref.artifact_id,
+                    "kind": ref.kind,
+                    "payload": payload,
+                },
+                content=ref.content,
+            )
+        )
+    return events
