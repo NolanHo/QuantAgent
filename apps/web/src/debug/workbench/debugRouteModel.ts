@@ -14,14 +14,14 @@ export const debugPageRoutes: DebugPageRouteDefinition[] = [
     kicker: '事件中心',
     title: '高价值事件中心',
     description:
-      '用于查看重点事件、筛选结果和稳定进入事件详情 / 审计页的事件浏览工作台。',
+      '用于查看重点事件、筛选结果和稳定进入事件详情的事件浏览工作台。',
     loadingMessage: '正在加载事件工作台...',
     emptyTitle: '当前没有可处理事件',
     emptyDescription: '这个预览状态下还没有可供查看的来源事件。',
     overview: [
       { title: '重点事件', copy: '解释今天为什么优先看这些事件。' },
       { title: '筛选与排序', copy: '按时间、行业、可信度和分析状态收窄范围。' },
-      { title: '事件列表', copy: '承接稳定进入事件详情和审计时间线。' },
+      { title: '事件列表', copy: '承接稳定进入事件详情。' },
     ],
     ctaLabel: '预览操作',
   },

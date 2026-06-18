@@ -242,9 +242,6 @@ function EventListCard({ item }: { item: EventListItem }) {
             <LinkButton to="/events/$eventId" params={{ eventId: item.raw_event_id }}>
               查看分析
             </LinkButton>
-            <LinkButton to="/events/$eventId/audit" params={{ eventId: item.raw_event_id }} variant="outline">
-              审计
-            </LinkButton>
           </div>
         </div>
       </div>

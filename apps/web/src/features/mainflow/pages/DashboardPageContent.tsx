@@ -1,29 +1,20 @@
-import { Card } from '@heroui/react'
+import { Button, Card } from '@heroui/react'
+import type { ReactNode } from 'react'
 
 import {
   ApprovalSummaryCard,
 } from '../../approvals'
-import { useApprovalWorkbenchListQuery } from '@/features/approvals/queries/use-approval-workbench-list'
-import {
-  dashboardMetrics,
-  healthAlerts,
-} from '../mock-data'
+import { DashboardEventSummaryCard } from '../components/DashboardEventSummaryCard'
 import { HealthCard } from '../components/HealthCard'
-import { DashboardEventSummaryCard } from '@/features/event-scoring/components/DashboardEventSummaryCard'
-import { scoredEvents } from '@/features/event-scoring/mocks/event-scoring.mock'
-import { selectDashboardHighlightedEvents } from '@/features/event-scoring/utils/event-scoring-selectors'
+import { useDashboardEvents } from '../hooks/use-dashboard-events'
 import { LinkButton } from '@/shared/ui'
 
 export function DashboardPageContent() {
-  const approvalsQuery = useApprovalWorkbenchListQuery({
-    status: 'pending',
-    sort: 'recommendation',
-  })
-  const dashboardHighlightedEvents = selectDashboardHighlightedEvents(scoredEvents)
+  const { approvalsQuery, eventsQuery, highlightedEvents, overview, runtimeErrorsQuery, runtimeHealthQuery } = useDashboardEvents()
+  const dashboardHighlightedEvents = highlightedEvents.items
   const highlightedTitle = dashboardHighlightedEvents.length === 0
     ? '当前暂无符合条件的重点事件'
     : `今天最值得先看的 ${dashboardHighlightedEvents.length} 条`
-  const approvalsQueue = (approvalsQuery.data ?? []).slice(0, 3)
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1.05fr)] xl:[grid-template-areas:'hero_side''metrics_side''events_approvals''events_health']">
@@ -86,7 +77,7 @@ export function DashboardPageContent() {
         aria-label="Dashboard 概览"
         className="grid gap-2.5 sm:grid-cols-2 xl:[grid-area:metrics] 2xl:grid-cols-4"
       >
-        {dashboardMetrics.map((metric) => (
+        {overview.metrics.map((metric) => (
           <Card key={metric.label} className="border border-hairline bg-slate-50/80">
             <div className="grid gap-1 p-3">
               <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.04em] text-[rgb(3,105,161)]">
@@ -115,24 +106,37 @@ export function DashboardPageContent() {
             <LinkButton to="/events" variant="ghost">查看全部事件</LinkButton>
           </div>
 
-          {dashboardHighlightedEvents.length > 0 ? (
+          {eventsQuery.isLoading ? (
+            <DashboardEventStatePanel message="正在读取后端事件快照..." />
+          ) : null}
+          {eventsQuery.isError ? (
+            <DashboardEventStatePanel
+              tone="danger"
+              message={eventsQuery.error instanceof Error ? eventsQuery.error.message : '首页事件读取失败'}
+              action={<Button size="sm" variant="outline" onPress={() => void eventsQuery.refetch()}>重试</Button>}
+            />
+          ) : null}
+
+          {!eventsQuery.isLoading && !eventsQuery.isError && dashboardHighlightedEvents.length > 0 ? (
             <div className="grid gap-2.5 lg:grid-cols-2">
               {dashboardHighlightedEvents.map((event, index) => (
                 <div
-                  key={event.id}
+                  key={event.eventId}
                   className={index === dashboardHighlightedEvents.length - 1 && dashboardHighlightedEvents.length % 2 === 1 ? 'lg:col-span-2' : ''}
                 >
                   <DashboardEventSummaryCard event={event} />
                 </div>
               ))}
             </div>
-          ) : (
+          ) : null}
+
+          {!eventsQuery.isLoading && !eventsQuery.isError && dashboardHighlightedEvents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-hairline-strong bg-surface p-4">
               <p className="m-0 text-body-sm text-muted">
-                当前没有通过重点事件筛选的卡片，请前往事件中心查看完整列表。
+                当前后端没有返回可展示的重点事件，请前往事件中心查看完整列表。
               </p>
             </div>
-          )}
+          ) : null}
         </div>
       </Card>
 
@@ -148,7 +152,20 @@ export function DashboardPageContent() {
           </div>
 
           <div className="grid gap-2">
-            {approvalsQueue.map((approval) => (
+            {approvalsQuery.isLoading ? (
+              <DashboardEventStatePanel message="正在读取待处理审批..." />
+            ) : null}
+            {approvalsQuery.isError ? (
+              <DashboardEventStatePanel
+                tone="danger"
+                message={approvalsQuery.error instanceof Error ? approvalsQuery.error.message : '待处理审批读取失败'}
+                action={<Button size="sm" variant="outline" onPress={() => void approvalsQuery.refetch()}>重试</Button>}
+              />
+            ) : null}
+            {!approvalsQuery.isLoading && !approvalsQuery.isError && overview.approvalsQueue.length === 0 ? (
+              <DashboardEventStatePanel message="当前没有待处理审批。" />
+            ) : null}
+            {overview.approvalsQueue.map((approval) => (
               <ApprovalSummaryCard key={approval.id} approval={approval} />
             ))}
           </div>
@@ -167,12 +184,51 @@ export function DashboardPageContent() {
           </div>
 
           <div className="grid gap-2">
-            {healthAlerts.map((alert) => (
+            {runtimeHealthQuery.isLoading || runtimeErrorsQuery.isLoading ? (
+              <DashboardEventStatePanel message="正在读取 Runtime 健康摘要..." />
+            ) : null}
+            {runtimeHealthQuery.isError || runtimeErrorsQuery.isError ? (
+              <DashboardEventStatePanel
+                tone="danger"
+                message={
+                  runtimeHealthQuery.error instanceof Error
+                    ? runtimeHealthQuery.error.message
+                    : runtimeErrorsQuery.error instanceof Error
+                      ? runtimeErrorsQuery.error.message
+                      : 'Runtime 健康摘要读取失败'
+                }
+                action={<Button size="sm" variant="outline" onPress={() => {
+                  void runtimeHealthQuery.refetch()
+                  void runtimeErrorsQuery.refetch()
+                }}>重试</Button>}
+              />
+            ) : null}
+            {!runtimeHealthQuery.isLoading && !runtimeErrorsQuery.isLoading && !runtimeHealthQuery.isError && !runtimeErrorsQuery.isError && overview.healthAlerts.length === 0 ? (
+              <DashboardEventStatePanel message="当前没有关键健康提醒。" />
+            ) : null}
+            {overview.healthAlerts.map((alert) => (
               <HealthCard key={alert.id} alert={alert} />
             ))}
           </div>
         </div>
       </Card>
+    </div>
+  )
+}
+
+function DashboardEventStatePanel({
+  action,
+  message,
+  tone = 'neutral',
+}: {
+  action?: ReactNode
+  message: string
+  tone?: 'danger' | 'neutral'
+}) {
+  return (
+    <div className={tone === 'danger' ? 'rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-700' : 'rounded-lg border border-hairline bg-surface p-4 text-muted'}>
+      <p className="m-0 text-body-sm">{message}</p>
+      {action ? <div className="mt-3">{action}</div> : null}
     </div>
   )
 }

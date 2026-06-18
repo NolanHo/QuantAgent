@@ -59,15 +59,6 @@ export function ApprovalDetailPage({ approvalId }: { approvalId: string }) {
                 <span>查看关联事件</span>
                 <span className="text-[12px] font-medium text-muted transition-colors group-hover:text-info">事件快照与决策上下文</span>
               </ApprovalLinkButton>
-              <ApprovalLinkButton
-                className={RELATED_LINK_CLASS_NAME}
-                params={{ eventId: approval.eventId }}
-                to="/events/$eventId/audit"
-                variant="ghost"
-              >
-                <span>查看事件审计</span>
-                <span className="text-[12px] font-medium text-muted transition-colors group-hover:text-info">审计节点与回溯记录</span>
-              </ApprovalLinkButton>
               <ApprovalLinkButton className={RELATED_LINK_CLASS_NAME} to="/runtime" variant="ghost">
                 <span>查看 Runtime 摘要</span>
                 <span className="text-[12px] font-medium text-muted transition-colors group-hover:text-info">运行态概览与异常入口</span>

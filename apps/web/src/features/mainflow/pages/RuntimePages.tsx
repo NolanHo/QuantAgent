@@ -53,7 +53,7 @@ export function RuntimeDashboardPageContent() {
             ))}
           </div>
           <p className="m-0 text-body-sm text-muted">
-            运行页支持从事件详情、审计时间线和插件详情回跳，不要求用户手输 ID。
+            运行页支持从事件详情和插件详情回跳，不要求用户手输 ID。
           </p>
         </PageSectionCard>
       </section>

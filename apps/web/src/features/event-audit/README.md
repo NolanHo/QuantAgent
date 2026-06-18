@@ -2,6 +2,12 @@
 
 负责 `/events/:eventId/audit` 事件级审计时间线。
 
+MVP 暴露边界：
+
+- 当前后端没有稳定的 `/events/{eventId}/audit` read model，页面只保留深链可达，不进入正式导航、事件列表按钮、审批详情入口或 Dashboard。
+- 正式业务入口应优先使用 `/events/:eventId` 事件详情中的 Router timeline、Agent stage 和 trace refs。
+- 后续只有在后端补齐稳定事件级 audit contract 后，才恢复事件中心、审批详情或其他页面的显式入口。
+
 入口：
 
 - route: `src/routes/_app/(workspace)/events/$eventId/audit.tsx`

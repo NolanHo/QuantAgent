@@ -104,9 +104,6 @@ export function EventScoreCard({
           <LinkButton to="/events/$eventId" params={{ eventId: event.id }}>
             查看分析
           </LinkButton>
-          <LinkButton to="/events/$eventId/audit" params={{ eventId: event.id }} variant="outline">
-            审计时间线
-          </LinkButton>
         </div>
       ) : null}
     </Card>

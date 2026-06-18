@@ -7,7 +7,7 @@ const routeLabels = new Map<string, string>([
   ['agent-chat', 'Agent Chat'],
   ['agent-chat-renderer', 'Agent Chat Renderer'],
   ['approvals', '审批'],
-  ['audit', '审计时间线'],
+  ['audit', '事件详情'],
   ['events', '事件'],
   ['models', '模型'],
   ['plugin-config-form', '插件配置表单'],
@@ -110,7 +110,6 @@ function getBreadcrumbs(pathname: string) {
         { label: '仪表盘', path: '/' },
         { label: '事件', path: '/events' },
         { label: '事件详情', path: `/events/${segments[1]}` },
-        { label: '审计时间线', path: pathname },
       ]
     }
 
