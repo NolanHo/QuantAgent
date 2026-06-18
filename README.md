@@ -4,6 +4,7 @@ QuantAgent 是一套事件驱动的量化智能系统，围绕外部事件采集
 
 ## 文档入口
 
+- [本地 Quick Start：跑通 NVDA Agent Chat、搜索和 Discord 通知](docs/quick-start-local.md)
 - [文档中心](docs/README.md)
 - [PRD 总索引](docs/prd/README.md)
 - [设计文档索引](docs/README.md)
