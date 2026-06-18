@@ -54,7 +54,7 @@
 - 触发条件：`ApprovalOrchestrationService.submit_action()` 解析策略后确认需要人工介入。
 - 语义：表达“已创建待人工处理的 `ApprovalRequest`”。
 - 最小 payload：`approval_id`、`action_request_id`、`target_type`、`target_id`、`action_type`、`action_side`、`risk_level`、`urgency`、`required_confirmation_level`、`expires_at`、`expiration_action`、`summary` 和 `safe_context`。
-- 边界：这是脱敏状态摘要；`safe_context` 只保留人工判断所需的安全上下文，不携带完整 `proposed_payload`。
+- 边界：这是脱敏状态摘要；`safe_context` 只保留人工判断所需的安全上下文，可携带 `action_plan_summary` 这类订单 / 风控 / 监控摘要，但不携带完整 `proposed_payload`。
 - 不代表：不代表通知 provider 已投递、不代表 audit 已落库、不代表该事件本身可替代 `approval_requests` 当前状态表。
 
 ### `notification.requested`
@@ -64,7 +64,7 @@
 - 触发条件：approval 需要通知人工处理，或 notify-only / execute-then-notify / timeout 分支需要发出通知请求。
 - 语义：表达“approval 编排请求发送一条通知”，用于把脱敏审批摘要交给 notification 侧处理。
 - 最小 payload：`approval_id`、`action_request_id`、`message_type=approval_request`、`summary`、`risk_level`、`required_confirmation_level`、`expires_at`、`expiration_action`、`allowed_channels`、`safe_context` 和 `reason_summary`。
-- 边界：只表示平台请求发送通知。真实 provider 选择、插件调用、外部送达和失败重试属于 notification dispatcher / sender 边界。
+- 边界：只表示平台请求发送通知。`safe_context.action_plan_summary` 可以用于外部通知展示订单、风控和监控摘要，但不能扩展成完整 `proposed_payload`。真实 provider 选择、插件调用、外部送达和失败重试属于 notification dispatcher / sender 边界。
 - 不代表：不代表 `notification.send` 已调用，不代表外部 IM / webhook 已送达，不代表 `notification.completed` 已发布，也不代表审批已经完成。
 
 ### `approval.input_received`

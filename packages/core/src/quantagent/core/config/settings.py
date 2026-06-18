@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from pydantic import Field, field_validator
@@ -46,9 +45,8 @@ class Settings(BaseSettings):
     SCHEDULER_RUN_TIMEOUT_MS: int | None = 30000
     SCHEDULER_IDLE_LOG_INTERVAL_SECONDS: float = 60.0
     WORKER_ARTICLE_CONCURRENCY: int = Field(default=10, ge=1, le=64)
-    NOTIFICATION_DISPATCH_ENABLED: bool = False
+    NOTIFICATION_DISPATCH_ENABLED: bool = True
     NOTIFICATION_DISPATCH_PLUGIN_ID: str = "quantagent.official.notification.discord"
-    NOTIFICATION_DISPATCH_PLUGIN_CONFIG: dict[str, object] = Field(default_factory=dict)
     NOTIFICATION_DISPATCH_CHANNEL: str = "discord"
 
     @field_validator("RUNTIME_DIR", mode="before")
@@ -58,26 +56,6 @@ class Settings(BaseSettings):
             # 空字符串也视为未显式配置，避免把 `RUNTIME_DIR=` 误解析成当前目录并改变默认语义。
             return _default_runtime_dir()
         return Path(value)
-
-    @field_validator("NOTIFICATION_DISPATCH_PLUGIN_CONFIG", mode="before")
-    @classmethod
-    def normalize_notification_dispatch_plugin_config(cls, value: object) -> dict[str, object]:
-        if value is None:
-            return {}
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return {}
-            try:
-                parsed = json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise ValueError("NOTIFICATION_DISPATCH_PLUGIN_CONFIG must be valid JSON object text") from exc
-            if not isinstance(parsed, dict):
-                raise ValueError("NOTIFICATION_DISPATCH_PLUGIN_CONFIG must decode to a JSON object")
-            return parsed
-        if isinstance(value, dict):
-            return value
-        raise ValueError("NOTIFICATION_DISPATCH_PLUGIN_CONFIG must be a JSON object")
 
     @property
     def is_production(self) -> bool:

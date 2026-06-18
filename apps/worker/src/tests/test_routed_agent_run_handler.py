@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from quantagent.agent.runtime.context import ToolRuntimeContext
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
+from quantagent.agent.testing.semiconductor_assets import build_nvda_earnings_run_request
+from quantagent.agent.tools import SUBMIT_ACTION_PLAN_TOOL_ID
 from quantagent.core.db.models.agent_chat import AgentChatMessageORM, AgentChatRunORM, AgentChatSessionORM
 from quantagent.core.db.base import Base
-from quantagent.core.events import EventEnvelope
+from quantagent.core.events import EventEnvelope, InMemoryEventBus
 from quantagent.worker.consumer.routed_agent_run_handler import RoutedAgentRunConfig, RoutedAgentRunHandler
 
 
@@ -88,6 +92,54 @@ class RoutedAgentRunHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         session.close()
         engine.dispose()
 
+    async def test_routed_runtime_submit_action_plan_publishes_action_requested(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+        bus = InMemoryEventBus()
+        recorder = _RecordingHandler()
+        await bus.subscribe(topics=("action.requested",), group_id="test", handler=recorder)
+        handler = RoutedAgentRunHandler(
+            session_factory=session_factory,
+            config=RoutedAgentRunConfig(action_submission_publisher=bus),
+        )
+        request = build_nvda_earnings_run_request(repo_root=_repo_root(), scenario="primary")
+        session = session_factory()
+        try:
+            runtime = handler._build_runtime(request, session=session)
+            submit_tool = next(tool for tool in runtime._deps.tools if tool.binding.tool_id == SUBMIT_ACTION_PLAN_TOOL_ID)
+            output = await submit_tool.callable(
+                submit_tool.input_model.model_validate(
+                    {
+                        "action_plan_artifact_id": "artifact_action_plan_1",
+                        "industry_analysis_artifact_id": "artifact_analysis_1",
+                        "evidence_artifact_ids": ["artifact_evidence_1"],
+                        "requested_mode_hint": "auto_if_allowed",
+                        "dry_run_allowed": True,
+                        "idempotency_key": "evt-1:plan-1",
+                    }
+                ),
+                ToolRuntimeContext(
+                    session_id=request.session_id,
+                    thread_id=request.thread_id,
+                    workspace_id=request.workspace_id,
+                    agent_run_id=request.agent_run_id,
+                    event_id=request.event_id,
+                    industry_id=request.industry_id,
+                    agent_id=request.agent_definition.agent_id,
+                    trace_id=request.trace_id,
+                    tool_profile_id=request.tool_profile.profile_id,
+                ),
+            )
+        finally:
+            session.close()
+            engine.dispose()
+
+        self.assertEqual(output["dispatch_status"], "action_requested")
+        self.assertEqual(len(recorder.events), 1)
+        self.assertEqual(recorder.events[0].topic, "action.requested")
+        self.assertEqual(recorder.events[0].payload["id"], output["action_request_id"])
+
 
 class _FakeRuntime:
     def __init__(self, request) -> None:
@@ -128,6 +180,18 @@ class _FakeRuntime:
                 }
             },
         )
+
+
+class _RecordingHandler:
+    def __init__(self) -> None:
+        self.events = []
+
+    async def handle(self, envelope: EventEnvelope) -> None:
+        self.events.append(envelope)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
 
 
 if __name__ == "__main__":

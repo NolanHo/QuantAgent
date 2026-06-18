@@ -4,16 +4,19 @@ import unittest
 from pathlib import Path
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from quantagent.core.approval import ActionRequest, ApprovalDecisionStatus, ApprovalInput, ApprovalRequestStatus
 from quantagent.core.db.base import Base
 from quantagent.core.db.repositories.approval_repository import SQLAlchemyApprovalRepository
 from quantagent.core.events import EventEnvelope, InMemoryEventBus
+from quantagent.core.model_config import ModelConfigCrypto
+from quantagent.core.plugin_config import PluginConfigService
 from quantagent.core.registry import PluginManifest, PluginRecord, PluginSource, PluginStatus, PluginType
 from quantagent.plugin_sdk import NotificationSendResult
-from quantagent.worker.consumer import (
-    WorkerApprovalEventHandler,
+from quantagent.worker.consumer import WorkerApprovalEventHandler
+from quantagent.worker.consumer.notification_handler import (
+    DISCORD_NOTIFICATION_PLUGIN_ID,
     WorkerNotificationDispatchConfig,
     WorkerNotificationRequestedHandler,
 )
@@ -33,7 +36,7 @@ class WorkerApprovalNotificationHandlerTestCase(unittest.IsolatedAsyncioTestCase
         await self.bus.subscribe(
             topics=("notification.requested",),
             group_id="test-notifications",
-            handler=_RecordingHandler(notifications),
+            handler=_ListRecordingHandler(notifications),
         )
         handler = WorkerApprovalEventHandler(
             session_factory=lambda: Session(self.engine),
@@ -83,7 +86,7 @@ class WorkerApprovalNotificationHandlerTestCase(unittest.IsolatedAsyncioTestCase
         await self.bus.subscribe(
             topics=("approval.completed",),
             group_id="test-approval-completed",
-            handler=_RecordingHandler(completed),
+            handler=_ListRecordingHandler(completed),
         )
 
         await handler.handle_approval_input_received(
@@ -113,24 +116,38 @@ class WorkerApprovalNotificationHandlerTestCase(unittest.IsolatedAsyncioTestCase
         self.assertEqual(completed[0].payload["approval_id"], approval_id)
         self.assertEqual(completed[0].payload["status"], ApprovalDecisionStatus.POLICY_GATE_FAILED.value)
 
-    async def test_notification_requested_enabled_invokes_runtime_and_publishes_completed(self) -> None:
-        completed: list[EventEnvelope] = []
-        await self.bus.subscribe(
-            topics=("notification.completed",),
-            group_id="test-completed",
-            handler=_RecordingHandler(completed),
-        )
+    async def test_notification_requested_uses_saved_discord_webhook_plugin_config(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+        encryption_key = ModelConfigCrypto.generate_key()
+        session = session_factory()
+        try:
+            PluginConfigService(session, encryption_key=encryption_key).save(
+                plugin_id=DISCORD_NOTIFICATION_PLUGIN_ID,
+                schema={
+                    "type": "object",
+                    "required": ["webhook_url"],
+                    "properties": {
+                        "webhook_url": {"type": "string", "sensitive": True, "minLength": 1},
+                    },
+                },
+                values={"webhook_url": "https://discord.example.invalid/api/webhooks/test"},
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        bus = InMemoryEventBus()
+        completed = _RecordingHandler()
+        await bus.subscribe(topics=("notification.completed",), group_id="test", handler=completed)
         runtime = _RecordingRuntime()
         handler = WorkerNotificationRequestedHandler(
-            registry=_RegistryWithRecord(),
+            session_factory=session_factory,
+            publisher=bus,
+            registry=_StubRegistry(),
             runtime=runtime,
-            publisher=self.bus,
-            config=WorkerNotificationDispatchConfig(
-                enabled=True,
-                plugin_id="quantagent.official.notification.discord",
-                plugin_config={"webhook_secret_ref": "env:DISCORD_WEBHOOK_URL"},
-                channel="discord",
-            ),
+            config=WorkerNotificationDispatchConfig(encryption_key=encryption_key),
         )
 
         await handler.handle(
@@ -140,38 +157,56 @@ class WorkerApprovalNotificationHandlerTestCase(unittest.IsolatedAsyncioTestCase
                 payload={
                     "approval_id": "approval-1",
                     "action_request_id": "action-1",
-                    "summary": "approval_id: approval-1",
+                    "summary": "需要审批 NVDA dry-run 行动计划。",
+                    "risk_direction": "increase_risk",
+                    "required_confirmation_level": "strong_confirm",
+                    "safe_context": {
+                        "target_type": "symbol",
+                        "target_id": "NVDA",
+                        "action_type": "execute_order",
+                        "urgency": "time_sensitive",
+                        "risk_level": "high",
+                        "action_plan_summary": {
+                            "summary": "已生成 NVDA open_long 行动计划：notional $9,500。",
+                            "orders": [{"symbol": "NVDA", "side": "buy", "order_intent": "open", "notional_usd": 9500}],
+                            "risk_controls": {"stop_loss_pct": -4.5, "take_profit_pct": 8.0},
+                        },
+                    },
                 },
-                producer="test",
-                created_at="2026-06-18T00:00:00+00:00",
+                producer="approval-orchestration",
+                created_at="2026-06-19T00:00:00Z",
+                correlation_id="trace-1",
+                causation_id="approval-1",
             )
         )
 
-        self.assertIsNotNone(runtime.last_call)
-        self.assertEqual(runtime.last_call["capability"], "notification.send")
-        self.assertEqual(runtime.last_call["config"]["webhook_secret_ref"], "env:DISCORD_WEBHOOK_URL")
-        self.assertEqual(runtime.last_call["input"]["channel"], "discord")
-        self.assertEqual(len(completed), 1)
-        self.assertTrue(completed[0].payload["accepted"])
-        self.assertEqual(completed[0].payload["code"], "DISCORD_SENT")
+        self.assertEqual(runtime.last_call["config"]["webhook_url"], "https://discord.example.invalid/api/webhooks/test")
+        self.assertNotIn("DISCORD_WEBHOOK_URL", str(runtime.last_call))
+        text = runtime.last_call["input"]["text"]
+        self.assertIn("QuantAgent 行动审批提醒", text)
+        self.assertIn("目标对象：symbol:NVDA", text)
+        self.assertIn("建议动作：提交 dry-run/mock 订单计划（execute_order）", text)
+        self.assertIn("交易计划详情", text)
+        self.assertIn("订单 1：NVDA buy/open，金额 $9,500", text)
+        self.assertIn("/approvals/approval-1", text)
+        self.assertNotIn("Reply with", text)
+        self.assertEqual(len(completed.events), 1)
+        self.assertEqual(completed.events[0].payload["code"], "SENT")
+        engine.dispose()
 
     async def test_notification_requested_disabled_publishes_completed_summary(self) -> None:
         completed: list[EventEnvelope] = []
         await self.bus.subscribe(
             topics=("notification.completed",),
             group_id="test-completed",
-            handler=_RecordingHandler(completed),
+            handler=_ListRecordingHandler(completed),
         )
         handler = WorkerNotificationRequestedHandler(
+            session_factory=lambda: Session(self.engine),
+            publisher=self.bus,
             registry=_EmptyRegistry(),
             runtime=_UnusedRuntime(),
-            publisher=self.bus,
-            config=WorkerNotificationDispatchConfig(
-                enabled=False,
-                plugin_id="quantagent.official.notification.discord",
-                plugin_config={},
-                channel="discord",
-            ),
+            config=WorkerNotificationDispatchConfig(enabled=False),
         )
 
         await handler.handle(
@@ -193,9 +228,17 @@ class WorkerApprovalNotificationHandlerTestCase(unittest.IsolatedAsyncioTestCase
         self.assertFalse(completed[0].payload["accepted"])
 
 
-class _RecordingHandler:
+class _ListRecordingHandler:
     def __init__(self, events: list[EventEnvelope]) -> None:
         self.events = events
+
+    async def handle(self, envelope: EventEnvelope) -> None:
+        self.events.append(envelope)
+
+
+class _RecordingHandler:
+    def __init__(self) -> None:
+        self.events = []
 
     async def handle(self, envelope: EventEnvelope) -> None:
         self.events.append(envelope)
@@ -211,20 +254,20 @@ class _UnusedRuntime:
         raise AssertionError("disabled notification dispatch must not call runtime")
 
 
-class _RegistryWithRecord:
+class _StubRegistry:
     def get_plugin(self, _plugin_id: str):
         return PluginRecord(
-            id="quantagent.official.notification.discord",
+            id=DISCORD_NOTIFICATION_PLUGIN_ID,
             source=PluginSource.OFFICIAL,
             path=Path("/tmp/fake-discord"),
             status=PluginStatus.VALID,
             manifest=PluginManifest(
-                id="quantagent.official.notification.discord",
+                id=DISCORD_NOTIFICATION_PLUGIN_ID,
                 name="Discord Notification",
                 type=PluginType.NOTIFICATION,
                 version="0.1.0",
                 entrypoint="discord_plugin:plugin",
-                capabilities=("notification.send", "notification.receive"),
+                capabilities=("notification.send",),
                 config_schema="config.schema.json",
             ),
         )
@@ -236,25 +279,18 @@ class _RecordingRuntime:
 
     async def invoke(self, record, **kwargs):
         self.last_call = {"record": record, **kwargs}
-        return type(
-            "Invocation",
+        result = type(
+            "PluginResult",
             (),
             {
-                "result": type(
-                    "PluginResult",
-                    (),
-                    {
-                        "output": NotificationSendResult(
-                            accepted=True,
-                            retryable=False,
-                            provider_message_id="discord-msg-1",
-                            metadata={"code": "DISCORD_SENT", "message": "sent"},
-                        ).to_mapping()
-                    },
-                )(),
-                "error": None,
+                "output": NotificationSendResult(
+                    accepted=True,
+                    retryable=False,
+                    metadata={"code": "SENT", "message": "sent"},
+                ).to_mapping()
             },
         )()
+        return type("Invocation", (), {"result": result, "error": None})()
 
 
 def _action() -> ActionRequest:

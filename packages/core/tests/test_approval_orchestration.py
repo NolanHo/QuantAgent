@@ -53,6 +53,11 @@ class ApprovalOrchestrationTestCase(unittest.IsolatedAsyncioTestCase):
                     "prompt": "private strategy thesis without token marker",
                     "private_policy": "never publish this policy body",
                     "broker_order": {"symbol": "BTC-USD", "side": "buy"},
+                    "action_plan_summary": {
+                        "summary": "NVDA 小仓位 dry-run 做多计划",
+                        "orders": [{"symbol": "NVDA", "side": "buy", "notional_usd": 9500}],
+                        "risk_controls": {"stop_loss_pct": -4.5, "take_profit_pct": 8.0},
+                    },
                 },
             )
         )
@@ -67,6 +72,8 @@ class ApprovalOrchestrationTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["approval_id"], "approval-fixed")
         self.assertEqual(payload["action_request_id"], "act-sensitive")
         self.assertEqual(payload["safe_context"]["risk_level"], "high")
+        self.assertEqual(payload["safe_context"]["action_plan_summary"]["orders"][0]["symbol"], "NVDA")
+        self.assertEqual(payload["safe_context"]["action_plan_summary"]["risk_controls"]["stop_loss_pct"], -4.5)
 
     async def test_approve_calls_policy_gate_and_executor(self) -> None:
         service, gate, executor, repository = self._service()

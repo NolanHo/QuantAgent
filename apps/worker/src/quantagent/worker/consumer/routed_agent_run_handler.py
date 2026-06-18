@@ -11,9 +11,11 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from quantagent.core.approval import ActionRequest
 from quantagent.agent.models import OpenAICompatibleChatModel
 from quantagent.agent.runtime import AgentRuntime, AgentRunRequest, build_agent_chat_assets, build_agent_chat_run_context
 from quantagent.agent.streaming.events import AgentRunEvent, AgentRunEventType
+from quantagent.agent.tools.action_submission import ActionSubmissionRequest, ActionSubmissionResult
 from quantagent.agent.tools import (
     build_build_action_plan_tool,
     build_evaluate_thesis_tool,
@@ -24,7 +26,7 @@ from quantagent.agent.tools import (
 )
 from quantagent.core.db.models.agent_chat import AgentChatMessageORM, AgentChatRunORM, AgentChatSessionORM
 from quantagent.core.db.repositories.agent_chat_repository import AgentChatRepository
-from quantagent.core.events import EventEnvelope
+from quantagent.core.events import EventBusPublisher, EventEnvelope, sanitize_mapping
 from quantagent.core.model_config import (
     ModelConfigCrypto,
     ModelConfigCryptoError,
@@ -55,6 +57,7 @@ class RoutedAgentRunConfig:
     encryption_key: str | None = None
     model_timeout_seconds: float = 60.0
     runtime_factory: RuntimeFactory | None = None
+    action_submission_publisher: EventBusPublisher | None = None
 
 
 @dataclass
@@ -213,7 +216,12 @@ class RoutedAgentRunHandler:
                 build_get_account_context_tool(request.run_context),
                 build_evaluate_thesis_tool(request.run_context),
                 build_build_action_plan_tool(request.run_context),
-                build_submit_action_plan_tool(request.run_context),
+                build_submit_action_plan_tool(
+                    request.run_context,
+                    action_submission_port=_ActionRequestedPublisher(self.config.action_submission_publisher)
+                    if self.config.action_submission_publisher is not None
+                    else None,
+                ),
             ]
         )
 
@@ -310,6 +318,34 @@ def _resolve_tavily_api_key(session: Session, encryption_key: str | None) -> str
     except PluginConfigServiceError:
         # Tavily key 缺失不能阻塞整次 routed Agent Chat，search_web 会把失败作为工具事件返回。
         return None
+
+
+class _ActionRequestedPublisher:
+    def __init__(self, publisher: EventBusPublisher) -> None:
+        self._publisher = publisher
+
+    async def submit(self, request: ActionSubmissionRequest) -> ActionSubmissionResult:
+        action = ActionRequest.from_mapping(request.action_request)
+        # routed worker 只发布 action.requested；approval/notification 由 worker topic handler 异步消费。
+        await self._publisher.publish(
+            EventEnvelope(
+                id=f"evt_{uuid4().hex}",
+                topic="action.requested",
+                payload=sanitize_mapping(action.to_mapping()),
+                producer="routed-agent-run-worker",
+                created_at=datetime.now(UTC).isoformat(),
+                correlation_id=action.correlation_id,
+                causation_id=action.id,
+                headers=sanitize_mapping({"action_request_id": action.id}),
+            )
+        )
+        return ActionSubmissionResult(
+            action_request_id=action.id,
+            submission_id=request.submission_id,
+            dispatch_status="action_requested",
+            approval_status_hint="pending_worker",
+            notification_status_hint="pending_worker",
+        )
 
 
 def _should_start_agent_run(payload: Mapping[str, object]) -> bool:

@@ -311,6 +311,7 @@ def build_submit_action_plan_tool(
             "notification_status": submission_result.notification_status_hint,
             "monitoring_status": "pending_dispatch" if submission_result.dispatch_status == "action_requested" else "not_created",
             "idempotency_key": input_data.idempotency_key,
+            "action_plan_summary": action_request["proposed_payload"].get("action_plan_summary"),
             "summary": _submission_summary(submission_result, broker_mode),
         }
         if submission_result.error_summary:
@@ -471,6 +472,7 @@ def _redacted_action_payload(
         "risk_controls": _safe_mapping(risk_controls),
         "monitoring_plan": _safe_mapping(monitoring_plan),
         "notification_summary": _safe_mapping(user_notification),
+        "action_plan_summary": _action_plan_summary(action_plan),
         "artifact_refs": {
             "action_plan_artifact_id": action_plan.get("action_plan_artifact_id"),
             "industry_analysis_artifact_id": industry_analysis_artifact_id,
@@ -478,6 +480,40 @@ def _redacted_action_payload(
         },
         "idempotency_key": idempotency_key,
         "summary": action_plan.get("summary"),
+    }
+
+
+def _action_plan_summary(action_plan: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "action_plan_artifact_id": action_plan.get("action_plan_artifact_id"),
+        "summary": action_plan.get("summary"),
+        "intent": action_plan.get("intent"),
+        "intended_action": action_plan.get("intended_action"),
+        "action_side": action_plan.get("action_side"),
+        "target_symbols": _safe_list(action_plan.get("target_symbols")),
+        "orders": [_safe_order_summary(item) for item in _mapping_items(action_plan.get("orders"))[:5]],
+        "risk_controls": _safe_mapping(action_plan.get("risk_controls")),
+        "monitoring_plan": _safe_mapping(action_plan.get("monitoring_plan")),
+        "user_notification": _safe_mapping(action_plan.get("user_notification")),
+        "constraints": _safe_list(action_plan.get("constraints"))[:6],
+    }
+
+
+def _mapping_items(value: object) -> list[Mapping[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _safe_order_summary(order: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "symbol": order.get("symbol"),
+        "side": order.get("side"),
+        "order_intent": order.get("order_intent"),
+        "notional_usd": _number_or_none(order.get("notional_usd")),
+        "portfolio_pct": _number_or_none(order.get("portfolio_pct")),
+        "order_type": order.get("order_type"),
+        "time_in_force": order.get("time_in_force"),
     }
 
 
@@ -498,6 +534,12 @@ def _safe_mapping(value: object) -> dict[str, Any]:
         for key, item in value.items()
         if not any(marker in str(key).lower() for marker in blocked)
     }
+
+
+def _safe_list(value: object) -> list[str]:
+    if not isinstance(value, list | tuple):
+        return []
+    return [str(item) for item in value if str(item).strip()]
 
 
 def _safe_string_list(values: list[str]) -> list[str]:

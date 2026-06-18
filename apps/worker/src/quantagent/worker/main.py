@@ -179,14 +179,15 @@ def create_worker_app() -> WorkerApp:
         publisher=runtime.publisher,
     )
     notification_handler = WorkerNotificationRequestedHandler(
+        session_factory=session_factory,
+        publisher=runtime.publisher,
         registry=registry,
         runtime=plugin_runtime,
-        publisher=runtime.publisher,
         config=WorkerNotificationDispatchConfig(
             enabled=settings.NOTIFICATION_DISPATCH_ENABLED,
             plugin_id=settings.NOTIFICATION_DISPATCH_PLUGIN_ID,
-            plugin_config=settings.NOTIFICATION_DISPATCH_PLUGIN_CONFIG,
             channel=settings.NOTIFICATION_DISPATCH_CHANNEL,
+            encryption_key=settings.MODEL_CONFIG_ENCRYPTION_KEY,
         ),
     )
     return WorkerApp(

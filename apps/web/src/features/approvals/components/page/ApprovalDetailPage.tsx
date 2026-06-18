@@ -2,6 +2,7 @@ import { Card } from '@heroui/react'
 
 import { PageLoading } from '../../../../app/components/PageLoading'
 import { useApprovalWorkbenchDetailQuery } from '../../queries/use-approval-workbench-detail'
+import { ApprovalActionPlanCard } from '../detail/ApprovalActionPlanCard'
 import { ApprovalAuditTimeline } from '../detail/ApprovalAuditTimeline'
 import { ApprovalDetailSummary } from '../detail/ApprovalDetailSummary'
 import { ApprovalPageHeader } from '../shared/ApprovalPageHeader'
@@ -80,6 +81,8 @@ export function ApprovalDetailPage({ approvalId }: { approvalId: string }) {
           </div>
         </Card>
       </div>
+
+      <ApprovalActionPlanCard actionPlan={approval.actionPlan} />
 
       <ApprovalAuditTimeline approval={approval} />
     </div>

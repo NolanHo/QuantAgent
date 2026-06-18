@@ -1,186 +1,109 @@
-# Discord approval fullflow smoke
+# Discord 通知与 Web 审批真实测试
 
-这个 smoke 用来本地复现：
+本文说明当前 NVDA / Semiconductor MainAgent 真实测试路径。Discord 本轮只负责 webhook 通知；人工授权在 Web `/approvals` 完成。
 
 ```text
-ActionRequest
--> ApprovalRequest
+Agent submit_action_plan
+-> action.requested
+-> worker 创建 approval
 -> notification.requested
 -> Discord webhook send
--> Discord /notify
--> notification.receive
--> ApprovalInput.raw_text
--> ApprovalDecision
+-> 用户打开 Web /approvals
+-> approve / reject / request-reanalysis
+-> approval.input_received
+-> approval.completed 或安全终态
 ```
-
-它是本地受控 demo，不是生产路由。`/api/v1/debug/fullflow` 只在运行 `api-discord-approval-smoke` 命令时存在。
 
 ## 前置条件
 
-在仓库根目录 `.env` 中配置：
+1. 启动 API、worker、web、数据库和事件总线。
+2. 在 Web 插件详情页打开 `quantagent.official.notification.discord`。
+3. 在插件配置表单中填写 `webhook_url` 并保存。
+4. 确认 worker 能读取同一个数据库和 `MODEL_CONFIG_ENCRYPTION_KEY`，否则无法解密 sensitive 插件配置。
+
+不要在 `.env` 中配置 Discord webhook URL：
 
 ```text
-DISCORD_WEBHOOK_URL=<discord-channel-webhook-url>
-NOTIFICATION_INGRESS_ENABLED=true
-NOTIFICATION_INGRESS_PLUGIN_ID=quantagent.official.notification.discord
-NOTIFICATION_INGRESS_PLUGIN_CONFIG='{"public_key":"<discord-application-public-key>","response_text":"QuantAgent received your Discord interaction."}'
+DISCORD_WEBHOOK_URL=...
+NOTIFICATION_DISPATCH_PLUGIN_CONFIG=...
 ```
 
-注意：
+这两个入口不属于生产 Agent approval notification path。
 
-- `DISCORD_WEBHOOK_URL` 只用于发送通知到 Discord 频道。
-- `public_key` 必须来自 `/notify` 所属 Discord Application。
-- Discord Application 的 Interactions Endpoint URL 必须指向本机 tunnel 的 ingress。
-- 不要把真实 webhook URL、public key、bot token 或私有 guild/channel 信息提交到仓库。
+## 默认 notification 配置
 
-## 1. 启动 smoke harness
+`.env.example` 只保留 dispatcher 开关和默认插件选择：
 
-从仓库根目录运行：
+```bash
+NOTIFICATION_DISPATCH_ENABLED=true
+NOTIFICATION_DISPATCH_PLUGIN_ID=quantagent.official.notification.discord
+NOTIFICATION_DISPATCH_CHANNEL=discord
+```
+
+真实 webhook URL 必须通过 Web 插件配置管理保存到插件配置表。API 查询配置时只应看到 masked / unset 状态，不能返回明文。
+
+## 真实 NVDA 验收
+
+1. 打开 Agent Chat debug 页面，选择 semiconductor MainAgent 和 NVDA earnings routed event。
+2. 触发一次重大利好或重大利空分析，让 Agent 在判断值得行动时调用 `submit_action_plan`。
+3. 确认 Agent Chat 处理记录中能看到 action submission 工具调用和 `dispatch_status=action_requested`。
+4. 启动 worker 消费事件。
+5. 在 Discord 频道中确认收到 webhook 通知。
+6. 打开 Web `/approvals`。
+7. 找到对应 approval，查看 action request、风险摘要、Agent Chat session / run 引用和处理过程。
+8. 在 Web 页面执行 approve / reject / request-reanalysis。
+9. 确认 approval 进入 completed / rejected / escalated / policy-blocked 等安全终态。
+
+本轮不验证 Discord `/notify`、interaction endpoint、public key、application id、guild/channel allowlist 或 Discord 文本 approve。
+
+## 本地 approval harness
+
+仓库仍保留一个本地 harness，用来验证 approval 事件编排和 debug 路由，不发送真实 Discord webhook：
 
 ```bash
 uv run api-discord-approval-smoke
 ```
 
-启动成功后会看到类似：
-
-```text
-FULLFLOW ... seed action=action-fullflow approval=approval-fullflow status=pending notification_completed=1
-FULLFLOW ... notification.completed accepted=True code=SENT message=Discord webhook notification sent.
-Uvicorn running on http://127.0.0.1:8000
-```
-
-如果 `notification.completed` 不是 `SENT`，先检查 `.env` 中的 `DISCORD_WEBHOOK_URL`。
-
-## 2. 启动公网 tunnel
-
-另开一个终端：
-
-```bash
-npx --yes localtunnel --port 8000 --subdomain modern-bags-beam
-```
-
-拿到 URL：
-
-```text
-https://modern-bags-beam.loca.lt
-```
-
-## 3. 配置 Discord Application
-
-在 Discord Developer Portal 中，把 `/notify` 所属 Application 的 Interactions Endpoint URL 设置为：
-
-```text
-https://modern-bags-beam.loca.lt/api/v1/integrations/notifications/ingress
-```
-
-保存成功说明 Discord PING 已经通过签名校验。
-
-## 4. 查看初始状态
+启动后访问：
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/debug/fullflow
 ```
 
-预期包含：
+预期看到一条本地 fake notification completed：
 
 ```json
 {
   "approval_id": "approval-fullflow",
   "approval_status": "pending",
-  "input_count": 0,
   "notification_completed_count": 1,
   "notification_completed_payloads": [
     {
       "accepted": true,
-      "code": "SENT"
+      "code": "LOCAL_SMOKE_SENT"
     }
   ]
 }
 ```
 
-## 5. 在 Discord 回复 /notify
-
-在 Discord 中选择同一个 Application 的 `/notify`，文本填：
-
-```text
-approval_id: approval-fullflow approve
-```
-
-## 6. 查看回流结果
-
-再次运行：
-
-```bash
-curl http://127.0.0.1:8000/api/v1/debug/fullflow
-```
-
-预期结果：
-
-```json
-{
-  "approval_status": "escalated",
-  "input_count": 1,
-  "latest_input": {
-    "raw_text": "approval_id: approval-fullflow approve"
-  },
-  "latest_evaluation": {
-    "interpreted_intent": "escalate",
-    "requires_stronger_confirmation": true
-  },
-  "latest_decision": {
-    "status": "escalated",
-    "execution_status": "not_requested"
-  },
-  "executor_calls": 0
-}
-```
-
-这是预期行为。Discord 文本 `approve` 属于弱确认，不会直接触发 executor。
-
-## 7. 可选：验证强确认执行分支
-
-Discord 文本确认已经让 `approval-fullflow` 进入终态 `escalated` 后，同一个 approval 的强确认会被忽略。要验证执行分支，请重新启动 smoke harness，然后在发送 `/notify` 前执行：
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/debug/fullflow/strong-confirm
-```
-
-预期包含：
-
-```json
-{
-  "decision": {
-    "status": "execution_requested",
-    "policy_gate_status": "allowed",
-    "execution_status": "dry_run_requested"
-  },
-  "executor_calls": 1,
-  "gate_calls": 1
-}
-```
-
-这一步只调用 fake executor，不代表真实 broker 执行。
+这个 harness 不读取 `DISCORD_WEBHOOK_URL`，也不代表真实 Discord 发送成功。真实发送只能通过 Web 插件配置 + worker 链路验证。
 
 ## 常见问题
 
-### 访问 /api/v1/debug/fullflow 返回 404
+### Discord 没收到通知
 
-说明你启动的是普通 API，不是 `api-discord-approval-smoke`。这个 debug route 只在 smoke harness 中存在。
+优先检查：
 
-### Discord 显示应用程序未响应
+- Web 插件配置里是否已保存 `webhook_url`。
+- worker 是否连接同一个数据库。
+- worker 是否配置了正确的 `MODEL_CONFIG_ENCRYPTION_KEY`。
+- worker 日志中是否出现 `Discord notification plugin config unavailable`。
+- `notification.completed` 的 payload 是否为 failed，并且错误码是否指向插件未配置、插件缺失或网络失败。
 
-通常是本机 API 或 tunnel 停了。先确认：
+### Web /approvals 没有审批项
 
-```bash
-curl http://127.0.0.1:8000/api/v1/debug/fullflow
-```
+先确认 Agent 是否真的调用了 `submit_action_plan`。如果 Agent 初步判断不是重大利好 / 重大利空，它应该直接总结，不会提交 action plan，也不会创建 approval。
 
-再确认公网 URL：
+### Discord 回复 approve 没反应
 
-```bash
-curl https://modern-bags-beam.loca.lt/api/v1/debug/fullflow
-```
-
-### /notify 有回复但 debug 没有 input
-
-通常是你触发的 `/notify` 属于另一个 Discord Application。发 `/notify` 的 App、Developer Portal 里配置 endpoint 的 App、`.env` 里的 `public_key` 必须是同一个 Application。
+这是当前预期行为。本轮不启用 Discord receive；Discord 文本不进入 approval state machine。请在 Web `/approvals` 页面审批。

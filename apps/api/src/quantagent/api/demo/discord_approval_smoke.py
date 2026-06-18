@@ -4,13 +4,12 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import uvicorn
-from dotenv import dotenv_values
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -27,38 +26,13 @@ from quantagent.core.approval import (
     InMemoryApprovalRepository,
 )
 from quantagent.core.events import EventEnvelope, InMemoryEventBus
-from quantagent.core.notifications import NotificationDispatchService, NotificationEventPublisher, NotificationRequestedHandler
-from quantagent.core.registry import PluginManifest, PluginRecord, PluginSource, PluginStatus, PluginType
-from quantagent.core.runtime import PluginRuntimeService
+from quantagent.core.notifications import NotificationEventPublisher, NotificationRequestedHandler
+from quantagent.core.notifications.models import NotificationDispatchResult
 from quantagent.plugin_sdk.io import to_json_value
 
 PLUGIN_ID = "quantagent.official.notification.discord"
 DEFAULT_APPROVAL_ID = "approval-fullflow"
 DEFAULT_ACTION_ID = "action-fullflow"
-
-
-class _DiscordNotificationRegistry:
-    def __init__(self, *, plugin_path: Path) -> None:
-        self._plugin_path = plugin_path
-
-    def get_plugin(self, plugin_id: str) -> PluginRecord | None:
-        if plugin_id != PLUGIN_ID:
-            return None
-        return PluginRecord(
-            id=PLUGIN_ID,
-            source=PluginSource.OFFICIAL,
-            path=self._plugin_path,
-            status=PluginStatus.VALID,
-            manifest=PluginManifest(
-                id=PLUGIN_ID,
-                name="Discord Notification",
-                type=PluginType.NOTIFICATION,
-                version="0.1.0",
-                entrypoint="src.discord_plugin:plugin",
-                capabilities=("notification.send", "notification.receive"),
-                config_schema="config.schema.json",
-            ),
-        )
 
 
 class _RecordingHandler:
@@ -69,8 +43,28 @@ class _RecordingHandler:
         self.events.append(envelope)
 
 
+@dataclass
+class _LocalNotificationDispatchService:
+    """本地 smoke 只验证 approval 事件编排，不读取真实 Discord webhook。"""
+
+    async def dispatch(self, request) -> NotificationDispatchResult:
+        return NotificationDispatchResult(
+            request_id=request.request_id,
+            plugin_id=request.plugin_id,
+            accepted=True,
+            retryable=False,
+            code="LOCAL_SMOKE_SENT",
+            message="Local smoke notification accepted; configure Discord webhook in Web plugin settings for real send.",
+            correlation_id=request.correlation_id,
+            causation_id=request.causation_id,
+            approval_id=request.approval_id,
+            action_request_id=request.action_request_id,
+            channel=request.channel,
+        )
+
+
 class DiscordApprovalSmokeHarness:
-    """本地 smoke harness：只在显式命令运行时暴露 debug 路由。"""
+    """本地 approval smoke harness：只在显式命令运行时暴露 debug 路由。"""
 
     def __init__(self, *, repo_root: Path, approval_id: str, action_id: str) -> None:
         self.repo_root = repo_root
@@ -93,14 +87,7 @@ class DiscordApprovalSmokeHarness:
     async def seed_and_send(self) -> None:
         await self.bus.subscribe(topics=("notification.completed",), group_id="debug", handler=self.notification_completed)
         await self.bus.subscribe(topics=("approval.completed",), group_id="debug", handler=self.approval_completed)
-        dispatch = NotificationDispatchService(
-            registry=_DiscordNotificationRegistry(plugin_path=self.repo_root / "plugins" / "notifications" / "discord"),
-            runtime=PluginRuntimeService(),
-            config={
-                "webhook_secret_ref": "env:DISCORD_WEBHOOK_URL",
-                "__secrets__": {"env:DISCORD_WEBHOOK_URL": self._discord_webhook_url()},
-            },
-        )
+        dispatch = _LocalNotificationDispatchService()
         await self.bus.subscribe(
             topics=("notification.requested",),
             group_id="notification-dispatch",
@@ -160,14 +147,6 @@ class DiscordApprovalSmokeHarness:
             "notification_completed_payloads": [_notification_summary(event) for event in self.notification_completed.events],
             "approval_completed_count": len(self.approval_completed.events),
         }
-
-    def _discord_webhook_url(self) -> str:
-        value = os.environ.get("DISCORD_WEBHOOK_URL")
-        if value:
-            return value.strip()
-        dotenv_value = dotenv_values(self.repo_root / ".env").get("DISCORD_WEBHOOK_URL")
-        return str(dotenv_value or "").strip()
-
 
 def build_app(*, settings: Settings, harness: DiscordApprovalSmokeHarness):
     app = create_app(settings)
